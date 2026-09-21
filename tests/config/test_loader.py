@@ -1,5 +1,6 @@
 """config/user.yaml loading (Architecture §10.1) — INV-20."""
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,10 @@ REPO_USER_YAML = Path(__file__).resolve().parents[2] / "config" / "user.yaml"
 
 def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     cfg = load_user_config(REPO_USER_YAML)
-    assert cfg.research == Research()  # the committed file restates the §10 defaults
+    # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
+    # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
+    assert cfg.research == replace(Research(), holdout_pass=1.3)
+    assert Research().holdout_pass is None
     assert cfg.operational.models.research == "gpt-oss-120b"
 
 

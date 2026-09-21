@@ -118,3 +118,18 @@ def test_a_used_holdout_cannot_open_a_new_campaign(ledger: Ledger, lock_path: Pa
         with pytest.raises(LockMismatchError, match="already used"):
             open_campaign(cfg, ledger, "c2", lock_path, holdout, holdout_lock_hash=manifest)
     open_campaign(cfg, ledger, "c2", lock_path, "2026-09-21/2027-09-21", holdout_lock_hash="m2")
+
+
+def test_holdout_pass_is_locked_for_the_whole_campaign(ledger: Ledger, lock_path: Path) -> None:
+    """D4 (ADR-0020): set before the campaign opens, never adjusted during it."""
+    cfg = dataclasses.replace(
+        UserConfig(), research=dataclasses.replace(UserConfig().research, holdout_pass=1.3)
+    )
+    open_campaign(cfg, ledger, "c1", lock_path, HOLDOUT)
+    for other in (1.0, 1.5, None):
+        edited = dataclasses.replace(
+            cfg, research=dataclasses.replace(cfg.research, holdout_pass=other)
+        )
+        with pytest.raises(LockMismatchError, match="holdout_pass"):
+            assert_lock_matches(edited, lock_path, ledger, "c1")
+    assert assert_lock_matches(cfg, lock_path, ledger, "c1")["research"]["holdout_pass"] == 1.3

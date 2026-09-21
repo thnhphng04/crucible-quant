@@ -1,12 +1,11 @@
 # 05 — Open items
 
-Implementation-level unknowns. Each names the task that must resolve it. Architecture-level decisions live in the arch §10 register; the only open one there is **D4**.
+Implementation-level unknowns. Each names the task that must resolve it. Architecture-level decisions live in the arch §10 register; the only open one there is **D4 for live funding** (its holdout part is decided, ADR-0020).
 
 Close an item by recording the answer (an ADR if it's a decision) and moving the row to "Closed".
 
 | ID | Question | Blocks | Resolve in | Notes |
 |---|---|---|---|---|
-| O1 | **D4 — economic threshold** (`holdout_pass`) | First holdout opening, live | Before P1-10 is *used* (not built) | Arch §10. P1-10 refuses to open the holdout while it is unset, so building doesn't wait |
 | O9 | When to move the ledger from SQLite to Postgres | — | Phase 2 | Trigger: concurrent writers from the async pipeline (§3.1.10) cause lock contention in WAL mode |
 | O13 | Module-wise template: how named blocks `entry` / `exit` / `regime` map onto `indicators()` / `signal()` | Module-wise evolution (D16 ≠ `joint`) | Phase 2 | The parser and `evolve_scope` hashing already support named blocks (P0-05); the phase-0 template has one `joint` block |
 | O14 | Gate ④ grid = M full NautilusTrader backtests per candidate (seconds each) — too slow for the phase-2 loop | Phase-2 throughput | Phase 2 | Options: parallel sandbox containers; a vectorized coarse backtester for the grid only (must match NautilusTrader on a reference set) |
@@ -28,3 +27,4 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | O10 | ONC implementation: own code vs a library; silhouette-based cluster count on thousands of series may be slow | own ONC (scikit-learn k-means) + a significance guard so unrelated trials are never merged; O(n²) fine for hundreds, revisit in phase 2 | [ADR-0009](adr/0009-n-eff-onc-with-significance-guard.md) |
 | O11 | `PlaceholderSizer` used in phase 0 before real sizing exists | deleted; `RiskSizer` (execution) over `PositionSizer` (core); sizing constants locked in `derived.sizing` | [ADR-0010](adr/0010-risk-sizing-in-the-execution-path.md) |
 | O16 | The real-data campaign opened in phase 0 predates `derived.sizing` and could only leave OPEN by opening its holdout | an audited, final `ABANDONED` state (trials stay in `N`, lock archived unchanged, holdout unused); a new campaign needs D4 set | [ADR-0019](adr/0019-abandoned-campaigns-and-d4-before-a-new-campaign.md) |
+| O1 | **D4 — economic threshold** (`holdout_pass`) | minimum annualized OOS Sharpe of the whole frozen portfolio on the holdout, net of fees and slippage, reference 0; **1.3**, locked per campaign; PASS ≠ live approval (live funding criteria still open in D4) | [ADR-0020](adr/0020-d4-holdout-pass-definition-and-value.md) |

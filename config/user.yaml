@@ -38,4 +38,8 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   gates:                        # may only be TIGHTENED, never loosened
     dsr_min: 0.95               # hard floor: ≥ 0.95
     pbo_max: 0.5                # hard floor: ≤ 0.5
-  holdout_pass: null            # REQUIRED before the first holdout opening — D4 (open). null ⇒ holdout cannot be opened
+  # D4 (ADR-0020): minimum annualized OOS Sharpe of the whole frozen portfolio on the holdout,
+  # net of fees and slippage, reference return 0. Chosen by the user as an initial acceptance
+  # bar — not derived from synthetic tests. Locked with each campaign; never changed after
+  # seeing a holdout result. PASS only means this bar was cleared — not live-trading approval.
+  holdout_pass: 1.3

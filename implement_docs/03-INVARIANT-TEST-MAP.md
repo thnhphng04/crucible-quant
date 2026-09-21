@@ -29,7 +29,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-21 | Group B edited mid-campaign ⇒ refuse to run | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ✅ |
 | INV-22 | `evaluation.lock.yaml` is generated, read-only, hashed in `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ✅ |
 | INV-23 | Campaign status only `OPEN → FROZEN → BURNED` | §4.2 | DB trigger | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |
-| INV-24 | Holdout cannot be opened while `holdout_pass` (D4) is unset | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ✅ |
+| INV-24 | Holdout cannot be opened while `holdout_pass` (D4) is unset | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold`, `::test_d4_is_the_frozen_portfolios_annualized_sharpe`, `::test_d4_pass_means_at_least_the_threshold`, `::test_d4_comes_from_the_campaign_lock_not_user_yaml`, `tests/config/test_lock.py::test_holdout_pass_is_locked_for_the_whole_campaign` | P1-10 | ✅ |
 
 ## Generated code & gates
 

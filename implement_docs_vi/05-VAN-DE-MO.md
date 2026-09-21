@@ -1,12 +1,11 @@
 # 05 — Vấn đề mở
 
-Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task phải giải quyết nó. Quyết định ở mức kiến trúc nằm trong sổ quyết định §10 của kiến trúc; mục duy nhất còn mở ở đó là **D4**.
+Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task phải giải quyết nó. Quyết định ở mức kiến trúc nằm trong sổ quyết định §10 của kiến trúc; mục duy nhất còn mở ở đó là **D4 phần cấp vốn live** (phần holdout đã chốt, ADR-0020).
 
 Đóng một mục bằng cách ghi lại câu trả lời (thành ADR nếu đó là một quyết định) và chuyển dòng đó xuống "Đã đóng".
 
 | ID | Câu hỏi | Chặn | Giải quyết ở | Ghi chú |
 |---|---|---|---|---|
-| O1 | **D4 — ngưỡng kinh tế** (`holdout_pass`) | Lần mở holdout đầu tiên, live | Trước khi P1-10 được *dùng* (không phải khi xây) | Kiến trúc §10. P1-10 từ chối mở holdout khi giá trị này chưa đặt, nên việc xây không phải chờ |
 | O9 | Khi nào chuyển ledger từ SQLite sang Postgres | — | GĐ 2 | Dấu hiệu: nhiều tiến trình ghi đồng thời từ pipeline bất đồng bộ (§3.1.10) gây tranh chấp khóa ở chế độ WAL |
 | O13 | Template theo module: các block có tên `entry` / `exit` / `regime` ánh xạ vào `indicators()` / `signal()` thế nào | Tiến hóa theo module (D16 ≠ `joint`) | GĐ 2 | Bộ phân tích và cách hash theo `evolve_scope` đã hỗ trợ block có tên (P0-05); template của GĐ 0 chỉ có một block `joint` |
 | O14 | Lưới gate ④ = M lần backtest NautilusTrader đầy đủ cho mỗi ứng viên (vài giây mỗi lần) — quá chậm cho vòng lặp GĐ 2 | Thông lượng GĐ 2 | GĐ 2 | Phương án: chạy song song nhiều container sandbox; một bộ backtest thô vector hoá chỉ cho lưới (phải khớp NautilusTrader trên một tập tham chiếu) |
@@ -28,3 +27,4 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | O10 | Cài đặt ONC: tự viết hay dùng thư viện; chọn số cụm theo silhouette trên hàng nghìn chuỗi có thể chậm | tự viết ONC (k-means của scikit-learn) + bước bảo vệ ý nghĩa để không bao giờ gộp các trial không liên quan; O(n²) ổn với vài trăm, xem lại ở GĐ 2 | [ADR-0009](adr/0009-n-eff-onc-kem-kiem-dinh-y-nghia.md) |
 | O11 | `PlaceholderSizer` dùng ở GĐ 0 khi chưa có sizing thật | đã xoá; `RiskSizer` (execution) dựa trên `PositionSizer` (core); hằng số sizing khoá trong `derived.sizing` | [ADR-0010](adr/0010-risk-sizing-trong-duong-thuc-thi.md) |
 | O16 | Campaign dữ liệu thật mở ở GĐ 0 có trước `derived.sizing` và chỉ rời OPEN được bằng cách mở holdout | trạng thái `ABANDONED` có audit, là trạng thái cuối (trial vẫn trong `N`, lock lưu trữ nguyên vẹn, holdout chưa dùng); campaign mới cần D4 đã đặt | [ADR-0019](adr/0019-campaign-bi-bo-va-d4-truoc-campaign-moi.md) |
+| O1 | **D4 — ngưỡng kinh tế** (`holdout_pass`) | Sharpe OOS quy năm tối thiểu của toàn bộ danh mục đã đóng băng trên holdout, sau phí và trượt giá, tham chiếu 0; **1,3**, khóa theo campaign; PASS ≠ chấp thuận live (tiêu chí cấp vốn live vẫn mở trong D4) | [ADR-0020](adr/0020-d4-y-nghia-va-gia-tri-holdout-pass.md) |

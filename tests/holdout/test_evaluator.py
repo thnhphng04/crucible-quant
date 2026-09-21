@@ -329,3 +329,84 @@ def test_a_used_holdout_is_never_reopened_by_a_new_campaign(
     assert code == 2 and captured.out == "" and runner.jobs == []
     assert "already used" in captured.err
     assert proj.ledger.holdout_access("c2") is None and not proj.ledger.holdout_claimed("c2")
+
+
+# ── D4 (ADR-0020): the frozen portfolio's annualized OOS Sharpe, net of costs, rf = 0 ───
+
+
+class ScriptedRunner(FakeRunner):
+    """Member i earns a fixed, known series on every bar: net returns straight from the job."""
+
+    def run(self, job: SandboxJob) -> SandboxResult:
+        self.jobs.append(job)
+        bars = next(iter(job.bars.values()))
+        n = len(bars) - 1
+        seed = int(job.params["seed"])
+        rets = 0.001 * (seed + 1) + 0.01 * np.sin(np.arange(n) * (0.7 + seed))
+        result = {"ts": [str(t) for t in bars.ts], "returns": rets.tolist()}
+        return SandboxResult(True, {"ok": True, "result": result}, "", "", 0, False, None, 0.1)
+
+
+def expected_sharpe(proj: Project, runner: ScriptedRunner) -> float:
+    """By hand: holdout bars only, frozen weights with a monthly reset, mean/std·√365 (rf 0)."""
+    (variant,) = proj.ledger.portfolio_variants("c1")
+    start = pd.Timestamp(HOLDOUT[0])
+    series = []
+    jobs = list(runner.jobs)  # the evaluator's jobs, one per member, in member order
+    for job, member in zip(jobs, variant.members, strict=True):
+        bars = next(iter(job.bars.values()))
+        idx = pd.to_datetime(bars.ts[1:])
+        report = runner.run(job).report
+        assert report is not None
+        s = pd.Series(np.asarray(report["result"]["returns"]), index=idx)
+        series.append((s[s.index >= start], float(member["weight"])))
+    frame = pd.concat([s for s, _ in series], axis=1, join="inner")
+    w = np.array([wt for _, wt in series])
+    months = [(t.year, t.month) for t in pd.DatetimeIndex(frame.index)]
+    rets = frame.to_numpy()
+    holdings, out = w.copy(), []
+    for i in range(len(rets)):
+        if i > 0 and months[i] != months[i - 1]:  # monthly reset to the frozen weights
+            holdings = w * holdings.sum()
+        before = holdings.sum()
+        holdings = holdings * (1 + rets[i])
+        out.append(holdings.sum() / before - 1)
+    r = np.asarray(out)
+    return float(r.mean() / r.std(ddof=1) * np.sqrt(365))
+
+
+def test_d4_is_the_frozen_portfolios_annualized_sharpe(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    proj = build_project(tmp_path, holdout_pass=1.3)
+    runner = ScriptedRunner()
+    code, _ = run_main(proj, capsys, runner)
+    access = proj.ledger.holdout_access("c1")
+    assert code == 0 and access is not None and access.sharpe_oos is not None
+    assert access.sharpe_oos == pytest.approx(expected_sharpe(proj, runner), rel=1e-9)
+    lock = read_lock(proj.root / "config" / "evaluation.lock.yaml")
+    for job in runner.jobs:  # net of the campaign's locked fees and slippage, not frictionless
+        assert job.options["costs"] == lock["derived"]["costs"]
+        assert job.options["costs"]["fee_rate"] > 0 and job.options["costs"]["slippage_bps"] > 0
+
+
+@pytest.mark.parametrize(("offset", "verdict"), [(0.0, "PASS"), (1e-9, "FAIL")])
+def test_d4_pass_means_at_least_the_threshold(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], offset: float, verdict: str
+) -> None:
+    probe = build_project(tmp_path / "probe", holdout_pass=1.3)
+    run_main(probe, capsys, ScriptedRunner())
+    access = probe.ledger.holdout_access("c1")
+    assert access is not None and access.sharpe_oos is not None
+    proj = build_project(tmp_path / "real", holdout_pass=access.sharpe_oos + offset)
+    assert run_main(proj, capsys, ScriptedRunner()) == (0, f"{verdict}\n")
+
+
+def test_d4_comes_from_the_campaign_lock_not_user_yaml(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The threshold is read from the lock written when the campaign opened; nothing the user
+    edits afterwards reaches the evaluator."""
+    proj = build_project(tmp_path, holdout_pass=1e6)  # unreachable ⇒ FAIL
+    (proj.root / "config" / "user.yaml").write_text("research: {holdout_pass: -1e6}\n", "utf-8")
+    assert run_main(proj, capsys, ScriptedRunner()) == (0, "FAIL\n")

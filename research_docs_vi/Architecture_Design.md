@@ -1159,7 +1159,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D1 | Thị trường (00 §9 câu 1)                  | ✅ Đã chốt (xác nhận 21/9/2026) | Crypto → forex + stock quốc tế → Việt Nam, theo thứ tự GĐ (A2, §7)        | Yêu cầu trực tiếp. Nếu chỉ crypto → Freqtrade ([[05-SMOOTH-FLOW]])                   |
 | D2 | Output: rule TA hay ML factor (00 §9 câu 2) | ✅ Đã chốt         | Rule-based TA deterministic (A1)                                              | Đổi ⇒ kiến trúc khác hẳn (RD-Agent(Q) + Qlib)                                           |
 | D3 | Có bắt buộc EA MQL5? (00 §9 câu 3)        | ✅ Đã chốt (21/9/2026) | **Không.** Live trade qua NautilusTrader                                   | Điều kiện: mọi venue có adapter live (§3.5) — crypto ✅, IB (forex/stock/futures) ✅, SSI tự viết (GĐ 6). Broker chỉ-MT5 ⇒ adapter cầu nối, không phải EA |
-| D4 | Ngưỡng kinh tế để cấp vốn (00 §9 câu 4) | 🔴 **Mở, chặn holdout + live** | —                                                                   | **Câu duy nhất còn mở.** Không chặn việc xây GĐ 0–6. Phải chốt **trước khi mở holdout đợt đầu**, vì ngưỡng PASS/FAIL của evaluator (§4.2) phụ thuộc vào nó |
+| D4 | Ngưỡng kinh tế để cấp vốn (00 §9 câu 4) | ✅ **Đã chốt cho holdout** (21/9/2026) · 🔴 **live còn mở** | `holdout_pass = 1.3`: Sharpe OOS quy năm tối thiểu của **toàn bộ danh mục đã đóng băng**, trên holdout, sau phí + trượt giá, lợi nhuận tham chiếu 0; khóa theo đợt | ADR-0020. Ngưỡng chấp nhận ban đầu người dùng tự đặt, không suy ra từ test tổng hợp; không bao giờ chỉnh sau khi xem kết quả holdout. **PASS chỉ nghĩa là vượt tiêu chí này — chưa phải đủ điều kiện giao dịch tiền thật**; tiêu chí cấp vốn live vẫn phải chốt trước live |
 | D5 | Vốn thực tế giai đoạn live                  | 🟡 Mặc định tạm    | < $10k                                                                        | Số instrument tối đa                                                                      |
 | D6 | Đồng tiền base                              | 🟡 Mặc định tạm    | USD                                                                           | Tầng FX conversion                                                                          |
 | D7 | Mục tiêu vol danh mục                       | 🟡 Mặc định tạm    | 10%/năm (Hurst-Ooi-Pedersen)                                                  | Vol targeting (§3.4)                                                                        |
@@ -1219,7 +1219,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   gates:                        # chỉ được SIẾT, không được NỚI (xem bên dưới)
     dsr_min: 0.95
     pbo_max: 0.5
-  holdout_pass: <bắt buộc — D4> # thiếu khóa này ⇒ không mở được holdout
+  holdout_pass: 1.3             # D4 (ADR-0020) — Sharpe OOS quy năm tối thiểu của danh mục, sau chi phí; thiếu ⇒ không mở được đợt mới lẫn holdout
 ```
 
 **Ba quy tắc cưỡng chế — để "cho cấu hình" không thành cửa hậu cho overfitting:**

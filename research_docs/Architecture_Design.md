@@ -1159,7 +1159,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D1 | Markets (00 §9 Q1) | ✅ Decided (confirmed 21 Sep 2026) | Crypto → forex + international equities → Vietnam, in phase order (A2, §7) | Direct requirement. If crypto-only → Freqtrade ([[05-SMOOTH-FLOW]]) |
 | D2 | Output: TA rules or ML factors (00 §9 Q2) | ✅ Decided | Deterministic rule-based TA (A1) | Changing it ⇒ an entirely different architecture (RD-Agent(Q) + Qlib) |
 | D3 | Is an MQL5 EA required? (00 §9 Q3) | ✅ Decided (21 Sep 2026) | **No.** Live trading through NautilusTrader | Condition: every venue has a live adapter (§3.5) — crypto ✅, IB (forex/equities/futures) ✅, SSI self-built (phase 6). An MT5-only broker ⇒ a bridge adapter, not an EA |
-| D4 | Economic threshold for funding (00 §9 Q4) | 🔴 **Open, blocks holdout + live** | — | **The only open question left.** Does not block building phases 0–6. Must be decided **before the first holdout opening**, because the evaluator's PASS/FAIL threshold (§4.2) depends on it |
+| D4 | Economic threshold for funding (00 §9 Q4) | ✅ **Decided for the holdout** (21 Sep 2026) · 🔴 **live still open** | `holdout_pass = 1.3`: minimum annualized OOS Sharpe of the **whole frozen portfolio**, on the holdout, net of fees + slippage, reference return 0; locked per campaign | ADR-0020. An initial acceptance bar set by the user, not derived from synthetic tests; never adjusted after seeing a holdout result. **PASS only means this bar was cleared — not that the portfolio may trade real money**; the funding criteria for live must still be decided before live |
 | D5 | Actual capital at the live stage | 🟡 Provisional default | < $10k | Maximum instrument count |
 | D6 | Base currency | 🟡 Provisional default | USD | FX conversion layer |
 | D7 | Portfolio vol target | 🟡 Provisional default | 10%/yr (Hurst-Ooi-Pedersen) | Vol targeting (§3.4) |
@@ -1219,7 +1219,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   gates:                        # may only be TIGHTENED, never loosened (see below)
     dsr_min: 0.95
     pbo_max: 0.5
-  holdout_pass: <required — D4> # missing ⇒ the holdout cannot be opened
+  holdout_pass: 1.3             # D4 (ADR-0020) — min annualized OOS Sharpe of the portfolio, net of costs; missing ⇒ no new campaign, no holdout
 ```
 
 **Three enforcement rules — so that "configurable" does not become a back door for overfitting:**
