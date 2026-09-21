@@ -80,7 +80,10 @@ def test_ema_crossover_passes_every_phase0_gate(phase0: Phase0) -> None:
     assert gates == [(G1A_STATIC, True), (G1B_DYNAMIC, True), (G2_MINBTL, True), (G3_IS, True)]
     assert outcome.trial_id is not None
     assert phase0.ledger.trial_verdicts("c-e2e") == [(outcome.trial_id, "ema", "PASS")]
-    assert (phase0.root / "results" / "returns" / "c-e2e" / "ema.parquet").is_file()
+    (trial,) = [t for t in phase0.ledger.trials("c-e2e") if t.id == outcome.trial_id]
+    returns = Path(trial.returns_path)  # one write-once file per measurement (ADR-0013)
+    assert returns.is_file()
+    assert returns.parent == phase0.root / "results" / "returns" / "c-e2e" / "ema"
 
 
 @pytest.mark.parametrize("level", sorted(ORACLES))

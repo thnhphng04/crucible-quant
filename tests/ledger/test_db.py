@@ -27,6 +27,8 @@ TABLES = [
     "gate_results",
     "portfolio_variants",
     "holdout_access",
+    "holdout_claims",
+    "campaign_abandonments",
 ]
 
 
@@ -74,6 +76,9 @@ def _populate_every_table(lg: Ledger) -> None:
     )  # fmt: skip
     lg.transition("c1", "FROZEN")
     now = datetime.now(UTC)
+    lg.claim_holdout("c1", "p1", "2025-09-21/2026-09-21", "hl")
+    lg.open_campaign("c2", "2027-01-01/2027-12-31", lock_hash="def")
+    lg.abandon_campaign("c2", "test")
     lg.record_holdout_access(
         HoldoutAccess("c1", "p1", now - timedelta(seconds=1), now, "2025/2026", "FAIL")
     )
@@ -155,6 +160,8 @@ def test_holdout_requires_frozen_campaign(ledger: Ledger) -> None:
     )
     now = datetime.now(UTC)
     with pytest.raises(LedgerError, match="FROZEN"):
+        ledger.claim_holdout("c1", "p1", "2025-09-21/2026-09-21", "hl")
+    with pytest.raises(LedgerError, match=r"FROZEN|claimed"):
         ledger.record_holdout_access(
             HoldoutAccess("c1", "p1", now - timedelta(seconds=1), now, "2025/2026", "PASS")
         )
@@ -205,6 +212,7 @@ def test_portfolio_variants_and_holdout_read_back(ledger: Ledger) -> None:
     assert ledger.holdout_access("c1") is None
     ledger.transition("c1", "FROZEN")
     now = datetime.now(UTC)
+    ledger.claim_holdout("c1", "p1", "2025-09-21/2026-09-21", "hl")
     ledger.record_holdout_access(
         HoldoutAccess("c1", "p1", now - timedelta(seconds=1), now, "2025/2026", "PASS", 0.9)
     )
@@ -287,3 +295,79 @@ def test_reopen_existing_ledger(ledger_path: Path, ledger: Ledger) -> None:
     ledger.close()
     again = Ledger.open(ledger_path)
     assert again.trial_stats().n_raw == 1
+
+
+# ── holdout claims and abandoned campaigns (ADR-0016 amendment, ADR-0019) ──────────────
+
+
+def _frozen(lg: Ledger, cid: str, holdout_range: str) -> None:
+    lg.open_campaign(cid, holdout_range, lock_hash=f"lock-{cid}")
+    lg.record_portfolio_variant(
+        PortfolioVariant(portfolio_hash=f"p-{cid}", campaign_id=cid, rule_config={}, members=[])
+    )
+    lg.transition(cid, "FROZEN")
+
+
+def test_opening_needs_a_claim(ledger: Ledger) -> None:
+    _frozen(ledger, "c2", "2027-01-01/2027-12-31")
+    now = datetime.now(UTC)
+    access = HoldoutAccess("c2", "p-c2", now - timedelta(seconds=1), now, "x", "PASS")
+    with pytest.raises(LedgerError, match="claimed first"):
+        ledger.record_holdout_access(access)
+    ledger.claim_holdout("c2", "p-c2", "2027-01-01/2027-12-31", "hl-2027")
+    assert ledger.holdout_claimed("c2")
+    ledger.record_holdout_access(access)
+
+
+def test_a_holdout_is_claimed_once_across_campaigns(ledger: Ledger) -> None:
+    """Review finding 4: same manifest, or an overlapping period, from another campaign."""
+    _frozen(ledger, "c2", "2027-01-01/2027-12-31")
+    _frozen(ledger, "c3", "2027-01-01/2027-12-31")
+    _frozen(ledger, "c4", "2027-06-01/2028-05-31")
+    _frozen(ledger, "c5", "2028-06-01/2029-05-31")
+    ledger.claim_holdout("c2", "p-c2", "2027-01-01/2027-12-31", "hl-2027")
+    with pytest.raises(LedgerError, match="already used"):
+        ledger.claim_holdout("c3", "p-c3", "2027-01-01/2027-12-31", "hl-2027")  # same manifest
+    with pytest.raises(LedgerError, match="already used"):
+        ledger.claim_holdout("c4", "p-c4", "2027-06-01/2028-05-31", "hl-other")  # overlap
+    ledger.claim_holdout("c5", "p-c5", "2028-06-01/2029-05-31", "hl-2028")  # disjoint: fine
+    _frozen(ledger, "c6", "2027-12-31/2028-06-01")
+    ledger.claim_holdout("c6", "p-c6", "2027-12-31/2028-06-01", "hl-gap")  # ends are exclusive
+    with pytest.raises(LedgerError, match="YYYY-MM-DD"):
+        ledger.claim_holdout("c3", "p-c3", "2031/2032", "hl-bad")
+    with pytest.raises(LedgerError, match="append-only"):
+        ledger.claim_holdout("c2", "p-c2", "2030-01-01/2030-12-31", "hl-2030")  # second claim
+    assert ledger.used_holdouts() == [
+        ("2027-01-01/2027-12-31", "hl-2027"), ("2028-06-01/2029-05-31", "hl-2028"),
+        ("2027-12-31/2028-06-01", "hl-gap"),
+    ]  # fmt: skip
+    assert ledger.holdout_collision("2027-06-01/2027-07-01", "new") == "2027-01-01/2027-12-31"
+    assert ledger.holdout_collision("2029-05-31/2030-01-01", "new") is None
+    assert ledger.holdout_collision("2040-01-01/2041-01-01", "hl-2028") is not None
+
+
+def test_abandoned_campaign_is_final_and_keeps_its_trials(ledger: Ledger) -> None:
+    tid = ledger.record_trial(_trial(1.0))
+    ledger.abandon_campaign("c1", "lock predates derived.sizing")
+    campaign = ledger.campaign("c1")
+    assert campaign is not None and campaign.status == "ABANDONED"
+    assert [t.id for t in ledger.trials()] == [tid] and ledger.trial_stats().n_raw == 1
+    with pytest.raises(LedgerError, match="abandoned"):
+        ledger.record_trial(_trial(0.5))
+    with pytest.raises(LedgerError, match="abandoned"):
+        ledger.transition("c1", "FROZEN")
+    with pytest.raises(LedgerError, match="abandoned"):
+        ledger.record_gate_result(
+            GateResultRecord(campaign_id="c1", candidate_id="x", gate="g3_is", passed=True,
+                             reason="x")
+        )  # fmt: skip
+    with pytest.raises(LedgerError, match="append-only"):
+        ledger.abandon_campaign("c1", "again")
+    with pytest.raises(LedgerError):
+        ledger.transition("c1", "ABANDONED")
+
+
+def test_only_an_open_campaign_can_be_abandoned(ledger: Ledger) -> None:
+    ledger.transition("c1", "FROZEN")
+    with pytest.raises(LedgerError, match="OPEN"):
+        ledger.abandon_campaign("c1", "too late: frozen")

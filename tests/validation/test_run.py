@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from quantcrucible.config.lock import LockMismatchError, read_lock
+from quantcrucible.config.lock import CampaignNotOpened, LockMismatchError, read_lock
 from quantcrucible.config.schema import UserConfig
 from quantcrucible.core.strategy.template import template_hash
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.ledger.records import Event
+from quantcrucible.validation.freeze import FreezeError, abandon
 from quantcrucible.validation.run import (
     candidate_pipeline,
     current_campaign,
@@ -26,7 +28,7 @@ def test_opens_once_then_resumes(tmp_path: Path) -> None:
     (tmp_path / "holdout.lock").write_text(json.dumps(manifest), encoding="utf-8")
     ledger = Ledger.open(tmp_path / "ledger.db")
     lock_path = tmp_path / "config" / "evaluation.lock.yaml"
-    cfg = UserConfig()
+    cfg = replace(UserConfig(), research=replace(UserConfig().research, holdout_pass=0.5))
     first = current_campaign(cfg, ledger, lock_path, tmp_path)
     lock = read_lock(lock_path)
     assert lock["holdout_range"] == "2030-01-01/2031-01-01"
@@ -50,3 +52,36 @@ def test_candidate_defaults_to_tunable_values() -> None:
         "g1a_static", "g1b_dynamic", "g2_minbtl", "g3_is",
     ]  # fmt: skip
     assert [g.id for g in candidate_pipeline().gates][-1] == "g4_pbo"
+
+
+def _project(tmp_path: Path) -> tuple[Ledger, Path]:
+    manifest = {"range": "2030-01-01/2031-01-01", "files": {}, "created_at": "x"}
+    (tmp_path / "holdout.lock").write_text(json.dumps(manifest), encoding="utf-8")
+    return Ledger.open(tmp_path / "ledger.db"), tmp_path / "config" / "evaluation.lock.yaml"
+
+
+def test_a_new_campaign_needs_d4(tmp_path: Path) -> None:
+    ledger, lock_path = _project(tmp_path)
+    with pytest.raises(CampaignNotOpened, match="holdout_pass"):
+        current_campaign(UserConfig(), ledger, lock_path, tmp_path)
+    assert not lock_path.exists() and ledger.campaigns() == []
+
+
+def test_abandoned_campaign_is_replaced(tmp_path: Path) -> None:
+    """O16 / ADR-0019: abandon (audited) → the next run opens a new campaign on the unused
+    holdout; the old lock is archived unchanged."""
+    ledger, lock_path = _project(tmp_path)
+    cfg = replace(UserConfig(), research=replace(UserConfig().research, holdout_pass=0.5))
+    first = current_campaign(cfg, ledger, lock_path, tmp_path)
+    old_lock = lock_path.read_bytes()
+    with pytest.raises(FreezeError, match="reason"):
+        abandon(ledger, first, " ")
+    abandon(ledger, first, "lock predates derived.sizing")
+    assert (Event.CAMPAIGN_ABANDONED, None) in ledger.events(first)
+    with pytest.raises(FreezeError, match="ABANDONED"):
+        abandon(ledger, first, "again")
+    second = current_campaign(cfg, ledger, lock_path, tmp_path)
+    assert second != first
+    assert (lock_path.parent / "locks" / f"{first}.lock.yaml").read_bytes() == old_lock
+    statuses = {c.campaign_id: c.status for c in ledger.campaigns()}
+    assert statuses == {first: "ABANDONED", second: "OPEN"}

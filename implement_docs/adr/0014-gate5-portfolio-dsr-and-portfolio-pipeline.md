@@ -24,3 +24,7 @@ From ⑤ on the object under test is a portfolio, which the candidate `GatePipel
 
 - **Compare DSR at `N_raw`:** rejected as the default — §4.1 allows `N_eff` to lower the bar on principled grounds, and the guard keeps that principled; `N_raw` stays reported. Tightening to `N_raw` would be a §10 decision.
 - **Reuse `GatePipeline` with a fake candidate:** rejected — it would write a `trials` row for the portfolio and inflate `N`.
+
+## Amendment — review of d765668
+
+- Every ⑤/⑥′ result also stores `ledger_snapshot` — the ledger-wide counts of trials and portfolio variants when the run started (`Ledger.snapshot()`). DSR falls as either grows, so a result is current only while the snapshot is unchanged; the freeze checks it (ADR-0016 amendment, finding 3).

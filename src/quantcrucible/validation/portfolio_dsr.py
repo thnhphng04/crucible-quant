@@ -4,7 +4,8 @@
 From ⑤ on the object under test is the **portfolio**, not a candidate. The portfolio pipeline
 mirrors the candidate one: explicit order, stop at the first failure, fail closed on an
 exception, and every result — pass or fail — written to ``gate_results`` with
-``candidate_id = portfolio_hash``.
+``candidate_id = portfolio_hash``, together with the ledger snapshot (trial and variant counts)
+the run started from: a result is only current while the snapshot is (the freeze checks it).
 
 Gate ⑤ re-estimates ``N_eff`` (ONC over every trial), then deflates the portfolio's IS Sharpe
 with ``trial_stats`` (``N_eff``, ``V[SR]``) plus ``total_portfolio_variants`` — the only inputs it
@@ -27,6 +28,7 @@ from quantcrucible.validation.statistical import portfolio_dsr
 G5_DSR = "g5_dsr"
 G6P_ROBUSTNESS = "g6p_robustness"
 PORTFOLIO_GATE_ORDER: tuple[str, ...] = (G5_DSR, G6P_ROBUSTNESS)
+SNAPSHOT_KEY = "ledger_snapshot"
 
 
 class PortfolioGate(Protocol):
@@ -58,6 +60,7 @@ class PortfolioPipeline:
 
     def run(self, portfolio: Portfolio, ctx: GateContext) -> PortfolioOutcome:
         p_hash = portfolio.portfolio_hash
+        snapshot = ctx.ledger.snapshot()
         results: list[GateResult] = []
         for gate in self.gates:
             try:
@@ -74,7 +77,7 @@ class PortfolioPipeline:
                 GateResultRecord(
                     campaign_id=portfolio.campaign_id, candidate_id=p_hash, gate=gate.id,
                     passed=result.passed, reason=result.reason, value=result.value,
-                    detail=dict(result.detail) if result.detail else None,
+                    detail={**(result.detail or {}), SNAPSHOT_KEY: snapshot},
                 )
             )  # fmt: skip
             if not result.passed:

@@ -860,8 +860,9 @@ CREATE TABLE holdout_access (
 2. `FROZEN`: ghi `portfolio_hash` (tập strategy + trọng số + quy tắc). Sau bước này **không được thêm/bớt/đổi trọng số**.
 3. Mở holdout **đúng một lần** cho **đúng một danh mục** đã đóng băng. Evaluator trả về **PASS/FAIL** so với ngưỡng đăng ký trước — không trả số, để không có gradient nào chảy ngược.
 4. Đợt chuyển sang `BURNED`. Nếu FAIL và muốn nghiên cứu tiếp: **mở đợt mới với holdout mới** (dữ liệu *sau* holdout cũ, hoặc chờ dữ liệu mới tích lũy). Holdout cũ được sáp nhập vào vùng IS của đợt mới và **không bao giờ được dùng làm holdout lần nữa**.
+5. 🆕 `ABANDONED` (ADR-0019): một đợt `OPEN` có thể bị bỏ **mà không mở holdout** — có lý do, ghi audit, là trạng thái cuối. Trial của nó vẫn nằm trong `N`; lock của nó được lưu trữ nguyên vẹn; holdout của nó chưa bị claim nên vẫn chưa bị dùng. Đợt mới chỉ được mở khi `holdout_pass` (D4) đã đặt.
 
-Cưỡng chế bằng `PRIMARY KEY (campaign_id)`: lần mở holdout thứ hai trong cùng đợt — dù cho strategy khác, danh mục khác — sẽ **ném lỗi ở tầng database**.
+Cưỡng chế bằng `PRIMARY KEY (campaign_id)`: lần mở holdout thứ hai trong cùng đợt — dù cho strategy khác, danh mục khác — sẽ **ném lỗi ở tầng database**. 🆕 ADR-0016 (sửa đổi): evaluator **claim** holdout trong một transaction *trước khi* đọc (`holdout_claims`); claim bị từ chối nếu một đợt trước đã claim cùng hash `holdout.lock` hoặc một khoảng thời gian chồng lấn, và mọi lỗi sau claim vẫn đốt đợt (FAIL).
 
 > ⚠️ **Hệ quả thực tế:** holdout là tài nguyên **tiêu hao**, không tái tạo. Với dữ liệu miễn phí có độ sâu giới hạn (A7), số đợt nghiên cứu có holdout sạch là **rất ít** (vài đợt trong cả dự án). Đây là lý do nữa để đừng mở holdout sớm.
 
@@ -1172,7 +1173,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D15 | Số lệnh / thời gian nắm giữ tối thiểu; tương quan indicator tối đa; số seed | 🟡 Mặc định tạm | 30 lệnh trên IS / 1 bar; 0.9; 3 seed | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Phạm vi tiến hóa | 🟡 Mặc định tạm | `joint` (cả entry + exit + regime) | §3.3.1 |
 | D17 | Sharpe mục tiêu của MinBTL (gate ②) | 🟡 Mặc định tạm | 1.5 năm hóa; chỉ được hạ | ADR-0002. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial |
-| D18 | Dữ liệu nghiên cứu (GĐ 0) | 🟡 Mặc định tạm | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP theo USDT từ 2018; holdout = 12 tháng cuối | ADR-0002, §6.1 |
+| D18 | Dữ liệu nghiên cứu (GĐ 0) | 🟡 Mặc định tạm | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP theo USDT từ 2018; holdout = 12 tháng cuối; nguồn thứ hai cho ⑥′ = Gate.io (`second_exchange`) | ADR-0002, ADR-0015, §6.1 |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 
@@ -1213,7 +1214,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
-  data: {exchange: binance, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: nguồn ⑥′ (ADR-0015)
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 bước 5b
   gates:                        # chỉ được SIẾT, không được NỚI (xem bên dưới)
     dsr_min: 0.95

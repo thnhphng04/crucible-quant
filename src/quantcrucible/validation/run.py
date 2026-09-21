@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from quantcrucible.config.lock import (
+    CampaignNotOpened,
     assert_lock_matches,
     open_campaign,
     read_lock,
@@ -70,14 +71,29 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
 
 
 def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Path) -> str:
-    """The open campaign behind ``lock_path`` (verified), or a new one if there is none."""
+    """The campaign behind ``lock_path`` (verified) while it is OPEN or FROZEN; otherwise —
+    no lock yet, or its campaign BURNED or ABANDONED — a new one.
+
+    A new campaign needs ``research.holdout_pass`` (D4): it is locked with the campaign, so it
+    must be chosen before the campaign's research starts, never after (ADR-0019)."""
     if lock_path.exists():
         campaign_id = str(read_lock(lock_path)["campaign_id"])
-        assert_lock_matches(cfg, lock_path, ledger, campaign_id)
-        return campaign_id
+        campaign = ledger.campaign(campaign_id)
+        if campaign is None or campaign.status in ("OPEN", "FROZEN"):
+            assert_lock_matches(cfg, lock_path, ledger, campaign_id)
+            return campaign_id
+    if cfg.research.holdout_pass is None:
+        raise CampaignNotOpened(
+            "research.holdout_pass (D4) is not set in config/user.yaml: it is locked with the "
+            "campaign, so decide it before a new campaign opens"
+        )
     holdout_lock = root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # range + hashes only: no prices
-    campaign_id = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    campaign_id, n = base, 1
+    while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
+        n += 1
+        campaign_id = f"{base}-{n}"
     open_campaign(
         cfg, ledger, campaign_id, lock_path,
         holdout_range=str(manifest["range"]),

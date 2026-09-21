@@ -24,6 +24,7 @@ from quantcrucible.core.strategy.template import parse
 from quantcrucible.core.strategy.tunable import pbo_grid
 from quantcrucible.data.source import timeframe_delta
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.validation.artifacts import measurement_path, write_once, write_parquet_once
 from quantcrucible.validation.cpcv import cpcv
 from quantcrucible.validation.gates import G4_PBO, GateContext, GateResult, StrategyCandidate
 from quantcrucible.validation.is_gates import backtest_options, universe_bars
@@ -108,13 +109,12 @@ class PboGate:
             return sandbox_failure(self.id, res)
         out: dict[str, Any] = res.report["result"]
         matrix = np.asarray(out["returns"], dtype=np.float64)
-        path = Path(ctx.services["results_dir"]) / "pbo" / candidate.campaign_id
-        path.mkdir(parents=True, exist_ok=True)
-        path = path / f"{candidate.candidate_id}.parquet"
+        base = Path(ctx.services["results_dir"]) / "pbo" / candidate.campaign_id
+        path = measurement_path(base, candidate.candidate_id)
         frame = pd.DataFrame(matrix.T, columns=[f"c{i}" for i in range(len(configs))])
         frame.insert(0, "ts", pd.to_datetime(out["ts"]))
-        frame.to_parquet(path, index=False)
-        path.with_suffix(".configs.json").write_text(json.dumps(configs), encoding="utf-8")
+        write_parquet_once(path, frame)
+        write_once(path.with_suffix(".configs.json"), json.dumps(configs).encode("utf-8"))
         result = pbo(matrix, n_splits)
         holding = list(out.get("avg_holding_bars", [])) or [1.0]
         paths = cpcv(

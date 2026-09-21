@@ -10,7 +10,7 @@
 
 ## Decision
 
-1. **Eligible** = the latest trial of every candidate whose latest gate-④ result in the campaign is a pass.
+1. **Eligible** = the latest trial of every candidate, if *that trial* passed gate ④ (`gate_results.trial_id`); a later failed measurement takes the candidate out (amended below).
 2. **Selection score** ("DSR-rank") = PSR of the trial's IS returns against the *campaign-wide* deflated benchmark SR₀(`N_eff`, `V[SR]`) — one benchmark for all, so it is a ranking that penalizes short, skewed or fat-tailed records; it is never compared with `dsr_min` (no per-strategy DSR gate exists).
 3. **Steps:** one representative per `cell_id` (no cell ⇒ its own cell); |ρ| of IS returns on common dates vs every accepted member, in score order (NaN ⇒ dropped); cap `max_strategies`; weights w ∝ 1/σ (sum 1, no leverage); holdings reset to the weights at every `rebalance` boundary and drift in between.
 4. **`portfolio_hash`** = SHA256 of canonical JSON: members sorted by `strategy_hash` with params and weight (rounded to 1e-10) + the rule (`max_corr`, `max_strategies`, `rebalance`, selection, weighting).
@@ -28,3 +28,8 @@
 - **Rank by raw IS Sharpe:** rejected — ignores track length and higher moments that DSR corrects for.
 - **Per-strategy DSR vs `dsr_min` as a filter:** rejected — §3.1.6 forbids DSR per cell/strategy.
 - **Store source in the ledger:** rejected for now — a schema change; the archive keeps the ledger schema and verifies content by hash.
+
+## Amendment — review of d765668
+
+- **Eligibility is bound to the trial** (finding 2). Before: "passed ④ at some point" was paired with "the latest trial", so a later trial rejected at ③ (which has no ④ result) could be selected. Now a candidate's latest measurement decides; if it failed ③ or ④ — e.g. a failed calibration confirmation — the candidate is out, with no fallback to an older pass. Tests: `tests/validation/test_portfolio.py::test_a_later_rejected_trial_is_not_eligible`, `::test_the_4_pass_must_belong_to_the_selected_trial`.
+- **Measurement artifacts are immutable** (finding 1). Gate-③ returns and the gate-④ matrix were stored under `<candidate_id>.parquet`, so re-measuring the same id rewrote the returns an earlier `trials` row points to (corrupting history, `N_eff` clustering and re-checks of older portfolios). Each measurement now gets a fresh path, created exclusively (`validation/artifacts.py`). Tests: `tests/validation/test_is_gates.py::test_g3_artifacts_are_immutable_per_measurement`, `tests/validation/test_pbo_gate.py::test_g4_matrix_is_immutable_per_measurement`.

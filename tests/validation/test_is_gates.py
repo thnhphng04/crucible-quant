@@ -178,3 +178,14 @@ def test_g3_nan_threshold_fails_closed(ledger: Ledger, tmp_path: Path, key: str)
 
 def test_g3_nan_measurement_fails_closed(ledger: Ledger, tmp_path: Path) -> None:
     assert not InSampleGate().check(cand(), ctx(ledger, tmp_path, corr=float("nan"))).passed
+
+
+def test_g3_artifacts_are_immutable_per_measurement(ledger: Ledger, tmp_path: Path) -> None:
+    """Re-measuring the same candidate id (calibration's confirmation run) must not rewrite the
+    returns an earlier trial row points to (review finding 1)."""
+    first = InSampleGate().check(cand("same"), ctx(ledger, tmp_path))
+    second = InSampleGate().check(cand("same"), ctx(ledger, tmp_path, public={"sharpe_is": 1.2}))
+    assert first.measurement is not None and second.measurement is not None
+    assert first.measurement.returns_path != second.measurement.returns_path
+    saved = pd.read_parquet(first.measurement.returns_path)
+    np.testing.assert_allclose(saved["ret"], [0.01, -0.005])

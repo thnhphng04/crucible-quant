@@ -177,3 +177,13 @@ def test_g4_without_tunables_fails_closed(ledger: Ledger, tmp_path: Path) -> Non
     )  # fmt: skip
     result = PboGate().check(c, ctx(ledger, tmp_path, GridRunner()))
     assert not result.passed and "TUNABLE" in result.reason
+
+
+def test_g4_matrix_is_immutable_per_measurement(ledger: Ledger, tmp_path: Path) -> None:
+    """A second gate-④ run for the same candidate id writes a new matrix; the first stays."""
+    first = PboGate().check(cand(), ctx(ledger, tmp_path, GridRunner(edge=0.002)))
+    before = pd.read_parquet(first.detail["matrix_path"]) if first.detail else None
+    second = PboGate().check(cand(), ctx(ledger, tmp_path, GridRunner(edge=0.0)))
+    assert first.detail is not None and second.detail is not None and before is not None
+    assert first.detail["matrix_path"] != second.detail["matrix_path"]
+    pd.testing.assert_frame_equal(pd.read_parquet(first.detail["matrix_path"]), before)

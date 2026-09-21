@@ -24,3 +24,7 @@ Từ ⑤ trở đi đối tượng được kiểm tra là một danh mục, th�
 
 - **So DSR tại `N_raw`:** loại làm mặc định — §4.1 cho phép `N_eff` hạ ngưỡng khi có cơ sở, và bước bảo vệ giữ cho điều đó có cơ sở; `N_raw` vẫn được báo cáo. Siết về `N_raw` sẽ là một quyết định ở §10.
 - **Dùng lại `GatePipeline` với một ứng viên giả:** loại — nó sẽ ghi một dòng `trials` cho danh mục và làm phình `N`.
+
+## Sửa đổi — review commit d765668
+
+- Mọi kết quả ⑤/⑥′ còn lưu `ledger_snapshot` — số trial và số biến thể danh mục trên toàn ledger lúc lần chạy bắt đầu (`Ledger.snapshot()`). DSR giảm khi một trong hai tăng, nên một kết quả chỉ còn hiệu lực khi snapshot chưa đổi; bước đóng băng kiểm tra điều này (sửa đổi ADR-0016, lỗi 3).

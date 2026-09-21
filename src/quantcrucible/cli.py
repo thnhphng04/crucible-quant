@@ -5,6 +5,7 @@
     uv run python -m quantcrucible.cli validate FILE  run one strategy through gates ①a → ④
     uv run python -m quantcrucible.cli portfolio [--calibrate]   build + gates ⑤ → ⑥′ (5b)
     uv run python -m quantcrucible.cli freeze HASH    freeze the campaign on that portfolio
+    uv run python -m quantcrucible.cli campaign-abandon --reason TEXT   OPEN → ABANDONED
 
 The holdout is opened only by its own process (quantcrucible.holdout.evaluator_proc).
 
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from quantcrucible.config.loader import load_user_config
+from quantcrucible.config.lock import CampaignNotOpened
 
 if TYPE_CHECKING:
     from quantcrucible.core.strategy.base import Bars
@@ -211,6 +213,28 @@ def freeze(portfolio_hash: str, root: Path) -> int:
     return 0
 
 
+def campaign_abandon(reason: str, root: Path) -> int:
+    """OPEN → ABANDONED without opening the holdout (ADR-0019). The lock stays untouched until
+    the next campaign opens and archives it; the holdout, never claimed, stays unused."""
+    from quantcrucible.config.lock import read_lock
+    from quantcrucible.ledger.db import Ledger
+    from quantcrucible.validation.freeze import FreezeError, abandon
+
+    lock = read_lock(root / "config" / "evaluation.lock.yaml")
+    ledger = Ledger.open(root / "ledger" / "crucible.db")
+    campaign_id = str(lock["campaign_id"])
+    try:
+        abandon(ledger, campaign_id, reason)
+    except FreezeError as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+    sys.stdout.write(
+        f"campaign {campaign_id} ABANDONED ({reason}); its trials stay in N. Set "
+        "research.holdout_pass (D4) before the next command opens a new campaign.\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="quantcrucible")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -236,7 +260,20 @@ def main(argv: list[str] | None = None) -> int:
     frz = sub.add_parser("freeze", help="freeze the campaign on one validated portfolio")
     frz.add_argument("portfolio_hash")
     frz.add_argument("--root", type=Path, default=Path("."))
+    aband = sub.add_parser(
+        "campaign-abandon", help="close the OPEN campaign without opening its holdout"
+    )
+    aband.add_argument("--reason", required=True)
+    aband.add_argument("--root", type=Path, default=Path("."))
     args = parser.parse_args(argv)
+    try:
+        return _dispatch(args)
+    except CampaignNotOpened as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "data-fetch":
         return data_fetch(args.config, args.root)
     if args.command == "data-fetch-second":
@@ -249,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
         return portfolio(args.config, args.root, args.calibrate)
     if args.command == "freeze":
         return freeze(args.portfolio_hash, args.root)
+    if args.command == "campaign-abandon":
+        return campaign_abandon(args.reason, args.root)
     return 2
 
 

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-CampaignStatus = Literal["OPEN", "FROZEN", "BURNED"]
+CampaignStatus = Literal["OPEN", "FROZEN", "BURNED", "ABANDONED"]  # ABANDONED: ADR-0019
 TrialSource = Literal["evolution", "param_opt", "manual"]
 
 
@@ -32,6 +32,9 @@ class Event(StrEnum):
     CANDIDATE_SUBMITTED = "CANDIDATE_SUBMITTED"
     CAMPAIGN_FROZEN = "CAMPAIGN_FROZEN"  # detail: portfolio_hash (ADR-0016)
     HOLDOUT_OPENED = "HOLDOUT_OPENED"  # no numbers in detail — only in holdout_access
+    HOLDOUT_CLAIMED = "HOLDOUT_CLAIMED"  # the one-time right to evaluate is taken (ADR-0016)
+    HOLDOUT_EVALUATION_FAILED = "HOLDOUT_EVALUATION_FAILED"  # error type only; still consumed
+    CAMPAIGN_ABANDONED = "CAMPAIGN_ABANDONED"  # detail: reason (ADR-0019)
 
 
 @dataclass(frozen=True, slots=True)

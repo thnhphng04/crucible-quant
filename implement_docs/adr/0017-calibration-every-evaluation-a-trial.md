@@ -12,7 +12,7 @@ Step 5b runs Optuna once, before the freeze, for each selected strategy with a f
 
 1. **`optuna>=4.5,<5`** (MIT; its dependencies are MIT/BSD, tqdm MPL-2.0 + MIT). TPE sampler seeded; integer TUNABLEs sampled as integers, within the declared bounds.
 2. **Each evaluation** runs `GatePipeline([InSampleGate()])` — straight to gate ③ — with `candidate_id = <original>-optNNN` and `trial_source='param_opt'`. Skipping ①a/①b/② is deliberate: the code is the original's, already checked; running ② per evaluation could reject one *before* it is measured and so hide a trial. Evaluations rejected at ③ are still trials and score −10.
-3. **Confirmation:** the best passing parameters go through the full candidate pipeline ①a → ④ **under the original `candidate_id`** (one more `param_opt` trial). Gate ④ recomputes PBO with the calibration rows among its ledger variants (same `strategy_hash`). Because portfolio eligibility takes each candidate's latest gate-④ result and latest trial, the calibrated trial replaces the original at the next build — or the candidate drops out if the recomputed PBO fails; that build's gate ⑤ recomputes DSR.
+3. **Confirmation:** the best passing parameters go through the full candidate pipeline ①a → ④ **under the original `candidate_id`** (one more `param_opt` trial). Gate ④ recomputes PBO with the calibration rows among its ledger variants (same `strategy_hash`). Because eligibility takes each candidate's latest trial and requires *that* trial to have passed ④ (ADR-0013 amendment), the calibrated trial replaces the original at the next build — or the candidate drops out if the confirmation fails ③ or ④; there is no fallback to the original trial. That build's gate ⑤ recomputes DSR.
 4. **Enforcement:** `tests/test_architecture_boundaries.py::test_parameter_optimizer_only_in_calibration` — optuna (and hyperopt, skopt, nevergrad, ray) may be imported only by `validation/calibration.py`.
 
 ## Consequences
@@ -25,3 +25,8 @@ Step 5b runs Optuna once, before the freeze, for each selected strategy with a f
 
 - **Evaluations through the full pipeline:** rejected — ② could hide a measured configuration; ④ per evaluation would cost M backtests each.
 - **Calibrated strategy under a new candidate id:** rejected — original and calibrated versions would compete in the portfolio as two strategies.
+
+## Amendment — review of d765668
+
+- The confirmation re-uses the original `candidate_id`, so it used to overwrite the original trial's returns file (finding 1). Artifacts are now written once per measurement (ADR-0013 amendment); the original trial's returns stay as measured.
+- **Policy when the confirmation fails:** the candidate leaves the portfolio at the next build. Falling back to the pre-calibration trial would select, after the fact, whichever of the two measurements looks better — a hidden selection step.

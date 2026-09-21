@@ -39,6 +39,10 @@ def _make_read_only(path: Path) -> None:
     os.chmod(path, stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)  # read-only attribute on Windows
 
 
+class CampaignNotOpened(RuntimeError):
+    """A new campaign cannot be opened yet (D4 unset, ADR-0019)."""
+
+
 def _make_writable(path: Path) -> None:
     os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
 
@@ -62,16 +66,23 @@ def open_campaign(
 ) -> Campaign:
     """Write the lock for a new campaign and register the campaign in the ledger.
 
-    Refuses while the previous campaign's lock belongs to a campaign that is not BURNED; a burned
-    campaign's lock is archived next to it under ``locks/``.
+    Refuses while the previous campaign's lock belongs to a campaign that is not BURNED or
+    ABANDONED (ADR-0019); that lock is archived byte for byte under ``locks/``. Refuses a holdout
+    that an earlier campaign already used — same manifest or an overlapping period (§4.2).
     """
+    used = ledger.holdout_collision(holdout_range, holdout_lock_hash)
+    if used is not None:
+        raise LockMismatchError(
+            f"holdout {holdout_range} was already used (claimed {used}); a used holdout joins "
+            "the in-sample data and is never a holdout again (§4.2) — carve a new one"
+        )
     if lock_path.exists():
         previous = read_lock(lock_path)
         prev_campaign = ledger.campaign(str(previous["campaign_id"]))
-        if prev_campaign is not None and prev_campaign.status != "BURNED":
+        if prev_campaign is not None and prev_campaign.status not in ("BURNED", "ABANDONED"):
             raise LockMismatchError(
                 f"campaign {prev_campaign.campaign_id!r} is still {prev_campaign.status}; "
-                "finish it (holdout opened ⇒ BURNED) before opening a new one"
+                "finish it (holdout opened ⇒ BURNED) or abandon it before opening a new one"
             )
         archive = lock_path.parent / "locks" / f"{previous['campaign_id']}.lock.yaml"
         archive.parent.mkdir(parents=True, exist_ok=True)

@@ -44,6 +44,7 @@ TradingProject/
 │   │   ├── freeze.py              OPEN → FROZEN on a validated portfolio (research side) §4.2    P1-10
 │   │   ├── calibration.py         step 5b: Optuna, every evaluation a param_opt trial   §3.2.1  P1-11
 │   │   ├── research_run.py        pre-freeze workflow: submit → build → ⑤⑥′ → 5b        §3.2.1  P1-12
+│   │   ├── artifacts.py           write-once measurement files (returns, PBO matrix)    §4.1    P1-12
 │   │   ├── temporal.py            decay monitoring                                     §5      later
 │   │   └── oracles/               leaky-oracle suite, levels 1–4                       07 §9   P0-11
 │   ├── agent/                     ── the ONLY place an LLM is called (A4) ──           §3.1    phase 2

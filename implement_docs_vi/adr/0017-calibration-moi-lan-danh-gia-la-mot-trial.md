@@ -12,7 +12,7 @@ Bước 5b chạy Optuna một lần, trước khi đóng băng, cho mỗi chi�
 
 1. **`optuna>=4.5,<5`** (MIT; các dependency của nó là MIT/BSD, tqdm MPL-2.0 + MIT). Sampler TPE có seed; TUNABLE kiểu nguyên được lấy mẫu là số nguyên, trong bounds đã khai báo.
 2. **Mỗi lần đánh giá** chạy `GatePipeline([InSampleGate()])` — thẳng tới gate ③ — với `candidate_id = <gốc>-optNNN` và `trial_source='param_opt'`. Bỏ qua ①a/①b/② là có chủ ý: code là của bản gốc, đã được kiểm; chạy ② cho từng lần đánh giá có thể loại một lần *trước khi* nó được đo và như vậy làm ẩn một trial. Các lần đánh giá bị loại ở ③ vẫn là trial và nhận điểm −10.
-3. **Xác nhận:** bộ tham số tốt nhất đã qua ③ đi qua toàn bộ pipeline ứng viên ①a → ④ **dưới `candidate_id` gốc** (thêm một trial `param_opt`). Gate ④ tính lại PBO với các dòng calibration nằm trong biến thể ledger của nó (cùng `strategy_hash`). Vì điều kiện vào danh mục lấy kết quả gate ④ mới nhất và trial mới nhất của mỗi ứng viên, trial đã calibrate thay bản gốc ở lần xây kế tiếp — hoặc ứng viên bị loại nếu PBO tính lại không qua; gate ⑤ của lần xây đó tính lại DSR.
+3. **Xác nhận:** bộ tham số tốt nhất đã qua ③ đi qua toàn bộ pipeline ứng viên ①a → ④ **dưới `candidate_id` gốc** (thêm một trial `param_opt`). Gate ④ tính lại PBO với các dòng calibration nằm trong biến thể ledger của nó (cùng `strategy_hash`). Vì điều kiện vào danh mục lấy trial mới nhất của mỗi ứng viên và đòi *chính* trial đó đã qua ④ (sửa đổi ADR-0013), trial đã calibrate thay bản gốc ở lần xây kế tiếp — hoặc ứng viên bị loại nếu bước xác nhận trượt ③ hoặc ④; không quay về trial gốc. Gate ⑤ của lần xây đó tính lại DSR.
 4. **Cưỡng chế:** `tests/test_architecture_boundaries.py::test_parameter_optimizer_only_in_calibration` — optuna (và hyperopt, skopt, nevergrad, ray) chỉ được import bởi `validation/calibration.py`.
 
 ## Hệ quả
@@ -25,3 +25,8 @@ Bước 5b chạy Optuna một lần, trước khi đóng băng, cho mỗi chi�
 
 - **Các lần đánh giá đi qua toàn bộ pipeline:** loại — ② có thể làm ẩn một cấu hình đã đo; ④ cho mỗi lần đánh giá tốn M lần backtest mỗi lần.
 - **Chiến lược đã calibrate dưới một candidate id mới:** loại — bản gốc và bản đã calibrate sẽ cạnh tranh trong danh mục như hai chiến lược.
+
+## Sửa đổi — review commit d765668
+
+- Bước xác nhận dùng lại `candidate_id` gốc, nên trước đây nó ghi đè file returns của trial gốc (lỗi 1). Nay artifact được ghi một lần cho mỗi lần đo (sửa đổi ADR-0013); returns của trial gốc giữ nguyên như lúc đo.
+- **Chính sách khi bước xác nhận thất bại:** ứng viên rời danh mục ở lần xây kế tiếp. Quay về trial trước calibration sẽ là chọn, sau khi đã biết kết quả, lần đo nào trông tốt hơn trong hai lần — một bước chọn ẩn.

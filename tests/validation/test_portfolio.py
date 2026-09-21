@@ -81,6 +81,30 @@ def test_only_candidates_that_passed_gate4_are_eligible(ledger: Ledger, tmp_path
     assert [t.candidate_id for t in eligible_trials(ledger, "c1")] == ["a"]
 
 
+def test_a_later_rejected_trial_is_not_eligible(ledger: Ledger, tmp_path: Path) -> None:
+    """Review finding 2: an earlier ④ pass must not vouch for a later trial of the same id
+    that failed ③ (no ④ result at all). The latest measurement decides; no fallback."""
+    add(ledger, tmp_path, "a", noise(1))
+    add(ledger, tmp_path, "b", noise(2))
+    ledger.record_trial(
+        TrialRecord(
+            run_id="r2", campaign_id="c1", candidate_id="a", engine="manual", seed=0,
+            strategy_hash="h-a", params={"p": 2}, universe="X", timeframe="1d", timerange="t",
+            source="param_opt", sharpe_is=0.1, returns_path="unused.parquet",
+            verdict="REJECT_g3_is", gate_failed="g3_is",
+        )
+    )  # fmt: skip
+    assert [t.candidate_id for t in eligible_trials(ledger, "c1")] == ["b"]
+
+
+def test_the_4_pass_must_belong_to_the_selected_trial(ledger: Ledger, tmp_path: Path) -> None:
+    first = add(ledger, tmp_path, "a", noise(1))
+    second = add(ledger, tmp_path, "a", noise(3), params={"p": 2})
+    assert [t.id for t in eligible_trials(ledger, "c1")] == [second]
+    third = add(ledger, tmp_path, "a", noise(4), params={"p": 3}, passed_g4=False)
+    assert eligible_trials(ledger, "c1") == [] and first < second < third
+
+
 def test_step1_one_representative_per_cell(ledger: Ledger, tmp_path: Path) -> None:
     add(ledger, tmp_path, "weak", noise(1, mean=0.0002), cell="trend")
     add(ledger, tmp_path, "strong", noise(2, mean=0.003), cell="trend")

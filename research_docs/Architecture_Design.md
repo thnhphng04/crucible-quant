@@ -860,8 +860,9 @@ CREATE TABLE holdout_access (
 2. `FROZEN`: record `portfolio_hash` (strategy set + weights + rule). After this point **nothing may be added, removed, or re-weighted**.
 3. Open the holdout **exactly once** for **exactly one** frozen portfolio. The evaluator returns **PASS/FAIL** against a pre-registered threshold — not a number, so no gradient flows back.
 4. The campaign moves to `BURNED`. If it FAILs and you want to keep researching: **start a new campaign with a new holdout** (data *after* the old holdout, or wait for new data to accumulate). The old holdout is merged into the new campaign's IS range and is **never used as a holdout again**.
+5. 🆕 `ABANDONED` (ADR-0019): an `OPEN` campaign can be abandoned **without opening the holdout** — with a reason, audited, final. Its trials stay in `N`; its lock is archived unchanged; its holdout was never claimed, so it stays unused. A new campaign opens only once `holdout_pass` (D4) is set.
 
-Enforced by `PRIMARY KEY (campaign_id)`: a second holdout opening within the same campaign — even for a different strategy or portfolio — **throws at the database layer**.
+Enforced by `PRIMARY KEY (campaign_id)`: a second holdout opening within the same campaign — even for a different strategy or portfolio — **throws at the database layer**. 🆕 ADR-0016 (amended): the evaluator **claims** the holdout in one transaction *before* reading it (`holdout_claims`); a claim is refused if an earlier campaign claimed the same `holdout.lock` hash or an overlapping period, and any error after the claim still burns the campaign (FAIL).
 
 > ⚠️ **Practical consequence:** the holdout is a **consumable**, non-renewable resource. With free data of limited depth (A7), the number of campaigns with a clean holdout is **very small** (a handful over the whole project). One more reason not to open it early.
 
@@ -1172,7 +1173,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
 | D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
-| D18 | Research data (phase 0) | 🟡 Provisional default | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP vs USDT from 2018; holdout = last 12 months | ADR-0002, §6.1 |
+| D18 | Research data (phase 0) | 🟡 Provisional default | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP vs USDT from 2018; holdout = last 12 months; second source for ⑥′ = Gate.io (`second_exchange`) | ADR-0002, ADR-0015, §6.1 |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 
@@ -1213,7 +1214,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
-  data: {exchange: binance, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: the ⑥′ source (ADR-0015)
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened (see below)
     dsr_min: 0.95

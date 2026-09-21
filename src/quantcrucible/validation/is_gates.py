@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from quantcrucible.core.strategy.base import Bars
+from quantcrucible.validation.artifacts import measurement_path, write_parquet_once
 from quantcrucible.validation.gates import (
     G2_MINBTL,
     G3_IS,
@@ -113,11 +114,18 @@ class InSampleGate:
             return sandbox_failure(self.id, res)
         out: dict[str, Any] = res.report["result"]
         public = {k: float(v) for k, v in out["public"].items()}
-        path = results_dir / "returns" / candidate.campaign_id / f"{candidate.candidate_id}.parquet"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
-            {"ts": pd.to_datetime(out["ts"][1:]), "ret": np.asarray(out["returns"], dtype=float)}
-        ).to_parquet(path, index=False)
+        path = measurement_path(
+            results_dir / "returns" / candidate.campaign_id, candidate.candidate_id
+        )
+        write_parquet_once(
+            path,
+            pd.DataFrame(
+                {
+                    "ts": pd.to_datetime(out["ts"][1:]),
+                    "ret": np.asarray(out["returns"], dtype=float),
+                }
+            ),
+        )
         problems: list[str] = []
         # written as `not (ok)` so a NaN on either side fails closed instead of passing
         if not public["n_trades"] >= limits["min_trades"]:

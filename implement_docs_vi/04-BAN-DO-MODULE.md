@@ -44,6 +44,7 @@ TradingProject/
 │   │   ├── freeze.py              OPEN → FROZEN trên danh mục đã qua gate (phía research) §4.2  P1-10
 │   │   ├── calibration.py         bước 5b: Optuna, mỗi lần đánh giá là trial param_opt  §3.2.1  P1-11
 │   │   ├── research_run.py        quy trình trước đóng băng: nộp → xây → ⑤⑥′ → 5b       §3.2.1  P1-12
+│   │   ├── artifacts.py           file đo ghi một lần (returns, ma trận PBO)           §4.1    P1-12
 │   │   ├── temporal.py            theo dõi suy giảm                                    §5      sau
 │   │   └── oracles/               bộ leaky oracle, cấp 1–4                             07 §9   P0-11
 │   ├── agent/                     ── NƠI DUY NHẤT gọi LLM (A4) ──                      §3.1    GĐ 2

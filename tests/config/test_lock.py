@@ -88,3 +88,33 @@ def test_new_campaign_requires_previous_burned(ledger: Ledger, lock_path: Path) 
 def test_unknown_campaign(ledger: Ledger, lock_path: Path) -> None:
     with pytest.raises(LockMismatchError, match="unknown campaign"):
         assert_lock_matches(UserConfig(), lock_path, ledger, "nope")
+
+
+def test_new_campaign_after_an_abandoned_one(ledger: Ledger, lock_path: Path) -> None:
+    """ADR-0019: an abandoned campaign frees the lock path; its lock is archived unchanged."""
+    cfg = UserConfig()
+    open_campaign(cfg, ledger, "c1", lock_path, HOLDOUT)
+    original = lock_path.read_bytes()
+    ledger.abandon_campaign("c1", "lock predates derived.sizing")
+    open_campaign(cfg, ledger, "c2", lock_path, HOLDOUT)  # never claimed: the same holdout is fine
+    archived = lock_path.parent / "locks" / "c1.lock.yaml"
+    assert archived.read_bytes() == original and not _writable(archived)
+    stored = ledger.campaign("c1")
+    assert stored is not None and sha256_file(archived) == stored.lock_hash
+
+
+def test_a_used_holdout_cannot_open_a_new_campaign(ledger: Ledger, lock_path: Path) -> None:
+    """Review finding 4 at the source: same manifest or an overlapping period is refused."""
+    cfg = UserConfig()
+    open_campaign(cfg, ledger, "c1", lock_path, HOLDOUT, holdout_lock_hash="m1")
+    ledger.transition("c1", "FROZEN")
+    ledger.claim_holdout("c1", "p", HOLDOUT, "m1")
+    ledger.transition("c1", "BURNED")
+    for holdout, manifest in [
+        (HOLDOUT, "m2"),
+        ("2026-03-01/2027-03-01", "m2"),
+        ("2030-01-01/2031-01-01", "m1"),
+    ]:
+        with pytest.raises(LockMismatchError, match="already used"):
+            open_campaign(cfg, ledger, "c2", lock_path, holdout, holdout_lock_hash=manifest)
+    open_campaign(cfg, ledger, "c2", lock_path, "2026-09-21/2027-09-21", holdout_lock_hash="m2")

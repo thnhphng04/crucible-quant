@@ -26,7 +26,14 @@ import pandas as pd
 
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.store import ResearchStore, file_name, parse_range, read_bars
-from quantcrucible.holdout.campaign import HoldoutRefused, burn, find_frozen, preflight
+from quantcrucible.holdout.campaign import (
+    HoldoutRefused,
+    burn,
+    burn_after_error,
+    claim,
+    find_frozen,
+    preflight,
+)
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import utc_now
 from quantcrucible.validation.archive import StrategyArchive
@@ -131,21 +138,27 @@ def evaluate(
         timeframe = members[0].timeframe
         options: Mapping[str, Any] = backtest_options(lock, seed=0)
         symbols = sorted({s for m in members for s in m.universe})
-        bars = evaluation_bars(
-            paths, symbols, timeframe, campaign.holdout_range, int(options["lookback"])
-        )
-        start = pd.Timestamp(parse_range(campaign.holdout_range)[0])
         archive = StrategyArchive(paths.archive)
-        series = {
-            m.trial_id: rerun_member(m, archive.get(m.strategy_hash), bars, options, runner)
-            for m in members
-        }
-        frame = pd.concat(series, axis=1, join="inner")
-        frame = frame[frame.index >= start]
-        oos = combine(frame[[m.trial_id for m in members]], weights_of(members), rebalance)
-        sharpe = annual_sharpe(oos, periods_per_year(timeframe))
+        sources = {m.strategy_hash: archive.get(m.strategy_hash) for m in members}
         threshold = float(lock["research"]["holdout_pass"])
-        verdict = "PASS" if sharpe >= threshold else "FAIL"
+        claim(ledger, campaign, freeze, now)  # from here on the holdout is consumed
+        try:
+            bars = evaluation_bars(
+                paths, symbols, timeframe, campaign.holdout_range, int(options["lookback"])
+            )
+            start = pd.Timestamp(parse_range(campaign.holdout_range)[0])
+            series = {
+                m.trial_id: rerun_member(m, sources[m.strategy_hash], bars, options, runner)
+                for m in members
+            }
+            frame = pd.concat(series, axis=1, join="inner")
+            frame = frame[frame.index >= start]
+            oos = combine(frame[[m.trial_id for m in members]], weights_of(members), rebalance)
+            sharpe = annual_sharpe(oos, periods_per_year(timeframe))
+            verdict = "PASS" if sharpe >= threshold else "FAIL"
+        except BaseException as e:
+            burn_after_error(ledger, campaign, freeze, now, e)
+            raise
         burn(ledger, campaign, freeze, now, verdict, sharpe)
         return Verdict(verdict, sharpe)
     finally:

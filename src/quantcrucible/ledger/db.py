@@ -7,6 +7,7 @@ this class. This API only adds rows; it has no update, delete or generic ``execu
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import datetime
@@ -30,8 +31,13 @@ from quantcrucible.ledger.records import (
 )
 
 # Scripts taking a ledger from version i to i + 1, applied in order; never edit a shipped one.
-MIGRATIONS = ("schema.sql", "migration_002_no_replace.sql")
+MIGRATIONS = (
+    "schema.sql",
+    "migration_002_no_replace.sql",
+    "migration_003_claims_and_abandon.sql",
+)
 SCHEMA_VERSION = len(MIGRATIONS)
+RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
 
 
 class LedgerError(Exception):
@@ -108,8 +114,11 @@ class Ledger:
 
     def campaign(self, campaign_id: str) -> Campaign | None:
         row = self._conn.execute(
-            "SELECT campaign_id, started_at, holdout_range, lock_hash, holdout_lock_hash, status "
-            "FROM campaigns WHERE campaign_id = ?",
+            "SELECT c.campaign_id, c.started_at, c.holdout_range, c.lock_hash,"
+            " c.holdout_lock_hash,"
+            " CASE WHEN a.campaign_id IS NULL THEN c.status ELSE 'ABANDONED' END"
+            " FROM campaigns c LEFT JOIN campaign_abandonments a ON a.campaign_id = c.campaign_id"
+            " WHERE c.campaign_id = ?",
             (campaign_id,),
         ).fetchone()
         if row is None:
@@ -123,12 +132,72 @@ class Ledger:
     def transition(self, campaign_id: str, status: CampaignStatus) -> None:
         if self.campaign(campaign_id) is None:
             raise LedgerError(f"unknown campaign {campaign_id!r}")
+        if status == "ABANDONED":
+            raise LedgerError("use abandon_campaign(): abandoning is recorded, not a status move")
         try:
             self._conn.execute(
                 "UPDATE campaigns SET status = ? WHERE campaign_id = ?", (status, campaign_id)
             )
         except sqlite3.IntegrityError as e:
             raise LedgerError(str(e)) from e
+
+    def abandon_campaign(self, campaign_id: str, reason: str, at: datetime | None = None) -> None:
+        """Close an OPEN campaign without opening its holdout (ADR-0019). Final: the campaign
+        takes no trial, gate result, variant or freeze after this; its trials stay in ``N``."""
+        if self.campaign(campaign_id) is None:
+            raise LedgerError(f"unknown campaign {campaign_id!r}")
+        self._insert(
+            "INSERT INTO campaign_abandonments VALUES (?, ?, ?)",
+            (campaign_id, _ts(at or utc_now()), reason),
+        )
+
+    def claim_holdout(
+        self,
+        campaign_id: str,
+        portfolio_hash: str,
+        holdout_range: str,
+        holdout_lock_hash: str,
+        at: datetime | None = None,
+    ) -> None:
+        """Take the one-time right to evaluate on this holdout (ADR-0016). Atomic: of two
+        concurrent claimants one gets a :class:`LedgerError`. Never undone."""
+        if not RANGE.fullmatch(holdout_range):
+            raise LedgerError(f"holdout range {holdout_range!r} is not YYYY-MM-DD/YYYY-MM-DD")
+        self._insert(
+            "INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?)",
+            (campaign_id, portfolio_hash, holdout_range, holdout_lock_hash, _ts(at or utc_now())),
+        )  # fmt: skip
+
+    def holdout_claimed(self, campaign_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM holdout_claims WHERE campaign_id = ?", (campaign_id,)
+        ).fetchone()
+        return row is not None
+
+    def holdout_collision(self, holdout_range: str, holdout_lock_hash: str | None) -> str | None:
+        """The range of an already-claimed holdout that has the same manifest or an overlapping
+        period (``YYYY-MM-DD/YYYY-MM-DD``, end exclusive as in the store) — the claim trigger's
+        rule, asked before a campaign opens or an evaluator claims."""
+        row = self._conn.execute(
+            "SELECT holdout_range FROM holdout_claims"
+            " WHERE holdout_lock_hash = ?"
+            "    OR (substr(?, 1, 10) < substr(holdout_range, 12, 10)"
+            "        AND substr(holdout_range, 1, 10) < substr(?, 12, 10))"
+            " ORDER BY claimed_at LIMIT 1",
+            (holdout_lock_hash, holdout_range, holdout_range),
+        ).fetchone()
+        return None if row is None else str(row[0])
+
+    def used_holdouts(self) -> list[tuple[str, str]]:
+        """(holdout_range, holdout_lock_hash) of every claimed holdout, any campaign."""
+        rows = self._conn.execute("SELECT holdout_range, holdout_lock_hash FROM holdout_claims")
+        return [(r[0], r[1]) for r in rows]
+
+    def snapshot(self) -> dict[str, int]:
+        """What the statistical gates depend on: the number of trials and of portfolio variants
+        (both ledger-wide). A gate-⑤/⑥′ result is only current while this is unchanged."""
+        (n_trials,) = self._conn.execute("SELECT COUNT(*) FROM trials").fetchone()
+        return {"trials": int(n_trials), "portfolio_variants": self.total_portfolio_variants()}
 
     # ── audit log + trials (§4.1) ───────────────────────────────────────────────────────
     def log_event(self, e: GenerationEvent) -> int:
@@ -300,6 +369,15 @@ class Ledger:
         )
         latest = {r[0]: bool(r[1]) for r in rows}
         return {c for c, ok in latest.items() if ok}
+
+    def passed_trials(self, campaign_id: str, gate: str) -> set[int]:
+        """Trial ids whose own result at ``gate`` in ``campaign_id`` is a pass."""
+        rows = self._conn.execute(
+            "SELECT trial_id FROM gate_results WHERE campaign_id = ? AND gate = ? AND passed = 1"
+            " AND trial_id IS NOT NULL",
+            (campaign_id, gate),
+        )
+        return {int(r[0]) for r in rows}
 
     def event_details(self, campaign_id: str) -> list[tuple[str, dict[str, Any] | None]]:
         """(event, detail) for one campaign, in order."""

@@ -125,13 +125,16 @@ def load_returns(path: str) -> pd.Series:
 
 
 def eligible_trials(ledger: Ledger, campaign_id: str) -> list[TrialRow]:
-    """Latest trial of every candidate that passed gate ④ in this campaign."""
-    passed = ledger.passed_gate(campaign_id, G4_PBO)
+    """The latest trial of every candidate, if *that trial* passed gate ④ (ADR-0013).
+
+    The latest measurement of a candidate id decides: a later trial that failed ③ or ④ (e.g. a
+    failed calibration confirmation) takes the candidate out — an earlier pass never vouches for
+    it, and there is no fallback to an older trial."""
+    passed = ledger.passed_trials(campaign_id, G4_PBO)
     latest: dict[str, TrialRow] = {}
     for t in ledger.trials(campaign_id):
-        if t.candidate_id in passed:
-            latest[t.candidate_id] = t
-    return list(latest.values())
+        latest[t.candidate_id] = t
+    return [t for t in latest.values() if t.id in passed and t.verdict == "PASS"]
 
 
 def selection_score(returns: pd.Series, sr_benchmark: float) -> float:
