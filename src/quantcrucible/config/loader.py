@@ -138,6 +138,8 @@ def _validate(cfg: UserConfig) -> None:
             problems.append(f"{name} must be <= 1")
     if not r.data.symbols:
         problems.append("research.data.symbols must not be empty")
+    if r.data.second_exchange is not None and r.data.second_exchange == r.data.exchange:
+        problems.append("research.data.second_exchange must differ from research.data.exchange")
     if problems:
         raise ConfigError("; ".join(problems))
 

@@ -38,6 +38,7 @@ from quantcrucible.validation.guardrail import DynamicGuardrail, StaticGuardrail
 from quantcrucible.validation.is_gates import InSampleGate, MinBtlGate
 from quantcrucible.validation.pbo import DEFAULT_SPLITS
 from quantcrucible.validation.pbo_gate import PboGate
+from quantcrucible.validation.robustness import COST_MULTIPLIER, MAX_SHARPE_DROP
 from quantcrucible.validation.sandbox import SandboxRunner
 
 DEFAULT_LOOKBACK = 400
@@ -64,6 +65,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "lookback": DEFAULT_LOOKBACK,
         "sizing": {"vol_span": VOL_SPAN, "max_leverage": MAX_LEVERAGE, "idm_cap": IDM_CAP},
         "pbo": {"n_splits": DEFAULT_SPLITS},
+        "robustness": {"cost_multiplier": COST_MULTIPLIER, "max_sharpe_drop": MAX_SHARPE_DROP},
     }
 
 

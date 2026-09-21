@@ -1,6 +1,7 @@
 """Command line entry points.
 
     uv run python -m quantcrucible.cli data-fetch     download research data + carve the holdout
+    uv run python -m quantcrucible.cli data-fetch-second   in-sample bars of the second source (⑥′)
     uv run python -m quantcrucible.cli validate FILE  run one strategy through gates ①a → ③
 
 Never prints holdout prices — only row counts and hashes.
@@ -57,6 +58,31 @@ def data_fetch(config: Path, root: Path) -> int:
     return 0
 
 
+def second_source_dir(root: Path, exchange: str) -> Path:
+    return root / "data" / f"is-{exchange}"
+
+
+def data_fetch_second(config: Path, root: Path) -> int:
+    """In-sample bars from ``research.data.second_exchange`` — never the holdout period."""
+    from quantcrucible.data.ccxt_source import CcxtSource
+    from quantcrucible.data.holdout_split import read_holdout_lock
+    from quantcrucible.data.second_source import download_in_sample
+    from quantcrucible.data.store import parse_range
+
+    cfg = load_user_config(config).research.data
+    if cfg.second_exchange is None:
+        sys.stderr.write("research.data.second_exchange is not set\n")
+        return 2
+    manifest = read_holdout_lock(root / "holdout.lock")  # the range only: no prices
+    written = download_in_sample(
+        CcxtSource(cfg.second_exchange), cfg.symbols, cfg.timeframe, cfg.start,
+        [parse_range(str(manifest["range"]))], second_source_dir(root, cfg.second_exchange),
+    )  # fmt: skip
+    for symbol, rows in written.items():
+        sys.stdout.write(f"{cfg.second_exchange} in-sample {symbol}: {rows} bars\n")
+    return 0
+
+
 def holdout_reharden(root: Path) -> int:
     from quantcrucible.data.holdout_split import reharden
 
@@ -109,6 +135,11 @@ def main(argv: list[str] | None = None) -> int:
     fetch = sub.add_parser("data-fetch", help="download research data and carve the holdout")
     fetch.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     fetch.add_argument("--root", type=Path, default=Path("."))
+    second = sub.add_parser(
+        "data-fetch-second", help="in-sample bars from the second source for gate ⑥′"
+    )
+    second.add_argument("--config", type=Path, default=Path("config/user.yaml"))
+    second.add_argument("--root", type=Path, default=Path("."))
     harden = sub.add_parser("holdout-reharden", help="verify holdout hashes and re-lock the files")
     harden.add_argument("--root", type=Path, default=Path("."))
     val = sub.add_parser("validate", help="run one strategy file through gates ①a → ③")
@@ -119,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "data-fetch":
         return data_fetch(args.config, args.root)
+    if args.command == "data-fetch-second":
+        return data_fetch_second(args.config, args.root)
     if args.command == "holdout-reharden":
         return holdout_reharden(args.root)
     if args.command == "validate":

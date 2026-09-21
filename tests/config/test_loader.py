@@ -63,6 +63,7 @@ def test_tightening_is_allowed() -> None:
         ({"research": {"max_risk_pct": 2}}, "<= 1"),
         ({"research": {"data": {"start": "yesterday"}}}, "date"),
         ({"research": {"data": {"symbols": []}}}, "symbols"),
+        ({"research": {"data": {"second_exchange": "binance"}}}, "second_exchange"),
         ({"research": {"calibration": {"enabled": "yes"}}}, "true/false"),
     ],
 )

@@ -69,13 +69,24 @@ class Member:
     strategy_hash: str
     params: dict[str, Any]
     weight: float
+    universe: tuple[str, ...] = ()
+    timeframe: str = "1d"
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "trial_id": self.trial_id, "candidate_id": self.candidate_id,
             "strategy_hash": self.strategy_hash, "params": self.params,
-            "weight": round(self.weight, WEIGHT_DIGITS),
+            "weight": round(self.weight, WEIGHT_DIGITS), "universe": list(self.universe),
+            "timeframe": self.timeframe,
         }  # fmt: skip
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Member:
+        return cls(
+            int(d["trial_id"]), str(d["candidate_id"]), str(d["strategy_hash"]),
+            dict(d["params"]), float(d["weight"]), tuple(d.get("universe", ())),
+            str(d.get("timeframe", "1d")),
+        )  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,9 +208,12 @@ def build_portfolio(
         raise ValueError("every selected strategy has zero IS volatility")
     weights = inv / inv.sum()
     members = tuple(
-        Member(t.id, t.candidate_id, t.strategy_hash, dict(t.params), float(w))
+        Member(
+            t.id, t.candidate_id, t.strategy_hash, dict(t.params), float(w),
+            tuple(s for s in t.universe.split(",") if s), t.timeframe,
+        )
         for t, w in zip(chosen, weights, strict=True)
-    )
+    )  # fmt: skip
     # 5. rebalanced consolidated returns
     combined = combine(frame[[t.id for t in chosen]], weights, rule.rebalance)
     steps = {

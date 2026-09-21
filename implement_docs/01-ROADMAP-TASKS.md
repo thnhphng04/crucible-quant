@@ -178,9 +178,9 @@ No agent code in this phase (P1).
 - **Arch:** §3.2 row ⑤, §3.1.6 DSR box, §4.1.
 - **Accept when:** inputs come only from `trial_stats` + `total_portfolio_variants`; a test proves adding trials (any engine, any verdict) lowers the result; DSR is never computed per cell (no API for it). Done: [ADR-0014](adr/0014-gate5-portfolio-dsr-and-portfolio-pipeline.md).
 
-### ☐ P1-09 Gate ⑥′ — data-source robustness + cost sensitivity
+### ✅ P1-09 Gate ⑥′ — data-source robustness + cost sensitivity
 - **Arch:** §3.2 row ⑥′, §6.1 (two-tier data).
-- **Accept when:** fees × 2 and slippage × 2 re-run; Sharpe > 0 and DSR within the campaign-locked drop; broker/second-source re-run within the 30% Sharpe-drop rule.
+- **Accept when:** fees × 2 and slippage × 2 re-run; Sharpe > 0 and DSR within the campaign-locked drop; broker/second-source re-run within the 30% Sharpe-drop rule. Done: [ADR-0015](adr/0015-gate6p-robustness-costs-and-second-source.md); second source = Gate.io (`cli data-fetch-second`).
 
 ### ☐ P1-10 Holdout evaluator process + campaign state machine
 - **Arch:** §4.2 (procedure, 3 layers), P6, D4.

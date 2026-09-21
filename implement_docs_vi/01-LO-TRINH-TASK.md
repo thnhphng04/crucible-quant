@@ -178,9 +178,9 @@ Không có code agent trong giai đoạn này (P1).
 - **Kiến trúc:** §3.2 dòng ⑤, hộp DSR ở §3.1.6, §4.1.
 - **Nghiệm thu khi:** đầu vào chỉ lấy từ `trial_stats` + `total_portfolio_variants`; một test chứng minh thêm trial (bất kỳ engine, bất kỳ phán quyết) làm kết quả giảm; DSR không bao giờ tính theo từng ô (không có API cho việc đó). Xong: [ADR-0014](adr/0014-cong-5-dsr-danh-muc-va-pipeline-danh-muc.md).
 
-### ☐ P1-09 Cổng ⑥′ — độ bền theo nguồn dữ liệu + độ nhạy chi phí
+### ✅ P1-09 Cổng ⑥′ — độ bền theo nguồn dữ liệu + độ nhạy chi phí
 - **Kiến trúc:** §3.2 dòng ⑥′, §6.1 (dữ liệu hai tầng).
-- **Nghiệm thu khi:** chạy lại với phí × 2 và trượt giá × 2; Sharpe > 0 và DSR không giảm quá ngưỡng khóa theo campaign; chạy lại trên dữ liệu broker/nguồn thứ hai nằm trong quy tắc Sharpe giảm ≤ 30%.
+- **Nghiệm thu khi:** chạy lại với phí × 2 và trượt giá × 2; Sharpe > 0 và DSR không giảm quá ngưỡng khóa theo campaign; chạy lại trên dữ liệu broker/nguồn thứ hai nằm trong quy tắc Sharpe giảm ≤ 30%. Xong: [ADR-0015](adr/0015-cong-6p-do-ben-chi-phi-va-nguon-thu-hai.md); nguồn thứ hai = Gate.io (`cli data-fetch-second`).
 
 ### ☐ P1-10 Tiến trình đánh giá holdout + máy trạng thái campaign
 - **Kiến trúc:** §4.2 (quy trình, 3 lớp), P6, D4.

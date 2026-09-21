@@ -89,6 +89,7 @@ class Data:
     timeframe: str = "1d"
     start: date = date(2018, 1, 1)
     holdout_months: int = 12
+    second_exchange: str | None = "gate"  # gate ⑥′ data-source robustness (P1-09, ADR-0015)
 
 
 @dataclass(frozen=True, slots=True)

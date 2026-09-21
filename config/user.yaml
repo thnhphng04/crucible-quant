@@ -33,6 +33,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
     timeframe: 1d
     start: 2018-01-01
     holdout_months: 12
+    second_exchange: gate       # gate ⑥′: re-run on a second free source; Sharpe may drop ≤ 30%
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened
     dsr_min: 0.95               # hard floor: ≥ 0.95
