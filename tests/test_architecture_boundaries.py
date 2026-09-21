@@ -41,6 +41,22 @@ def test_purgedcv_only_in_wrapper_modules() -> None:
     assert not offenders, f"purgedcv imported outside its wrappers (ADR-0007): {offenders}"
 
 
+OPTIMIZERS = {"optuna", "hyperopt", "skopt", "nevergrad", "ray"}
+
+
+def test_parameter_optimizer_only_in_calibration() -> None:
+    """§3.3.1 v0.5: no optimizer inside the evolution loop; Optuna runs once, pre-freeze, in
+    validation/calibration.py, where every evaluation is a trials row (ADR-0017)."""
+    offenders = [
+        f"{path.relative_to(SRC).as_posix()}: {module}"
+        for path in SRC.rglob("*.py")
+        if path.relative_to(SRC).as_posix() != "validation/calibration.py"
+        for module in _imported_modules(path)
+        if module.split(".")[0] in OPTIMIZERS
+    ]
+    assert not offenders, f"parameter optimizer imported outside calibration: {offenders}"
+
+
 def test_llm_sdks_only_in_agent_layer() -> None:
     offenders = [
         f"{path.relative_to(SRC)}: {module}"

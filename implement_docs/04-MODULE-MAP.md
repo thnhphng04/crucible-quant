@@ -40,6 +40,7 @@ TradingProject/
 │   │   ├── portfolio_dsr.py       portfolio pipeline ⑤ → ⑥′ + gate ⑤                   §3.2    P1-08
 │   │   ├── robustness.py          gate ⑥′: costs × 2 + second source; member re-runs    §3.2    P1-09
 │   │   ├── freeze.py              OPEN → FROZEN on a validated portfolio (research side) §4.2    P1-10
+│   │   ├── calibration.py         step 5b: Optuna, every evaluation a param_opt trial   §3.2.1  P1-11
 │   │   ├── temporal.py            decay monitoring                                     §5      later
 │   │   └── oracles/               leaky-oracle suite, levels 1–4                       07 §9   P0-11
 │   ├── agent/                     ── the ONLY place an LLM is called (A4) ──           §3.1    phase 2

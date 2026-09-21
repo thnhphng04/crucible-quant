@@ -189,9 +189,9 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test trên holdout **tổng hợp** trong thư mục tmp: mở lần hai báo lỗi; file holdout bị sửa ⇒ từ chối; đầu ra là một token; `sharpe_oos` được lưu nhưng không bao giờ in ra. Xong: [ADR-0016](adr/0016-bo-danh-gia-holdout-va-dong-bang-campaign.md); đóng băng nằm ở `validation/freeze.py` (CLI không được import package của bộ đánh giá); D4 vẫn mở — bộ đánh giá từ chối tới khi `holdout_pass` được đặt.
 - **Cần:** P0-02, P0-03, P0-09, P1-07.
 
-### ☐ P1-11 Hiệu chỉnh (bước 5b)
+### ✅ P1-11 Hiệu chỉnh (bước 5b)
 - **Kiến trúc:** §3.2.1 bước 5b, §3.3.1 (tắt optimizer trong vòng lặp).
-- **Nghiệm thu khi:** Optuna trên bounds của TUNABLE với ngân sách cố định; **mọi** lần đánh giá là một dòng `trials` với `source='param_opt'`; PBO và DSR được tính lại sau đó.
+- **Nghiệm thu khi:** Optuna trên bounds của TUNABLE với ngân sách cố định; **mọi** lần đánh giá là một dòng `trials` với `source='param_opt'`; PBO và DSR được tính lại sau đó. Xong: [ADR-0017](adr/0017-calibration-moi-lan-danh-gia-la-mot-trial.md).
 - **Cần:** P1-03, P1-08.
 
 ### ☐ P1-12 Chạy đầu-cuối GĐ 1

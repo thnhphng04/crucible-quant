@@ -53,11 +53,12 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-41 | PBO ≈ 0.5 trên nhiễu, → 0 khi có edge cài sẵn; khớp định nghĩa của bài báo và `purgedcv` | §3.2 | Code | `tests/validation/test_pbo.py::test_pbo_noise`, `::test_pbo_planted_edge`, `::test_pbo_reference_example`, `::test_matches_purgedcv`; cổng: `tests/validation/test_pbo_gate.py` | P1-03 | ✅ |
 | INV-42 | DSR chỉ trên danh mục hợp nhất; đầu vào từ `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (không có API theo ô) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr`, `::test_inputs_are_trial_stats_plus_variants`, `::test_no_per_cell_dsr_api` | P1-08 | ✅ |
 | INV-43 | Chỉ cấu hình đã tới ③ mới tính là trial; sự kiện audit thì không | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
-| INV-44 | Các lần đánh giá khi hiệu chỉnh là trial (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
+| INV-44 | Các lần đánh giá calibration là trial (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial`, `::test_rejected_evaluations_still_count` | P1-11 | ✅ |
 | INV-45 | Mọi thay đổi quy tắc danh mục ⇒ một dòng `portfolio_variants` mới, được tính vào `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ✅ |
 | INV-46 | Metric `private` không bao giờ vào prompt; `feedback` chỉ phụ thuộc `public` | §3.3.2 | Code (+ quét log prompt ở GĐ 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ✅ |
 | INV-47 | Đường cong IS→OOS dùng các path CPCV, không bao giờ dùng holdout | §3.2 | Code + Lint | `tests/validation/test_cpcv.py::test_oos_curve_is_private`, `::test_purge_removes_rows_whose_label_overlaps_the_test_block`, `::test_embargo_drops_rows_after_each_test_block` | P1-04 | ✅ |
 | INV-48 | `N_eff` không bao giờ gộp các trial không liên quan về thống kê (chỉ hạ ngưỡng khi có bằng chứng) | §4.1 | Code (ONC + bước bảo vệ ý nghĩa) | `tests/validation/test_n_eff.py::test_onc_recovers_the_number_of_independent_sources`, `::test_onc_on_independent_series_keeps_them_apart`, `::test_update_n_eff_appends_a_clustering_run` | P1-05 | ✅ |
+| INV-49 | Optimizer tham số chỉ chạy trong calibration (một lần, trước khi đóng băng) — không bao giờ trong vòng tiến hoá | §3.3.1, §3.2.1 5b | Lint (test AST) | `tests/test_architecture_boundaries.py::test_parameter_optimizer_only_in_calibration` | P1-11 | ✅ |
 
 ## GĐ 2+ (điền khi giai đoạn được chia thành task)
 

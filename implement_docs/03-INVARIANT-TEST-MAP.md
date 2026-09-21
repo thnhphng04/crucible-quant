@@ -53,11 +53,12 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-41 | PBO ≈ 0.5 on noise, → 0 with a planted edge; matches the paper's definition and `purgedcv` | §3.2 | Code | `tests/validation/test_pbo.py::test_pbo_noise`, `::test_pbo_planted_edge`, `::test_pbo_reference_example`, `::test_matches_purgedcv`; gate: `tests/validation/test_pbo_gate.py` | P1-03 | ✅ |
 | INV-42 | DSR only on the consolidated portfolio; inputs from `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (no per-cell API) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr`, `::test_inputs_are_trial_stats_plus_variants`, `::test_no_per_cell_dsr_api` | P1-08 | ✅ |
 | INV-43 | Only configurations that reached ③ count as trials; audit events don't | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
-| INV-44 | Calibration evaluations are trials (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
+| INV-44 | Calibration evaluations are trials (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial`, `::test_rejected_evaluations_still_count` | P1-11 | ✅ |
 | INV-45 | Any portfolio-rule change ⇒ a new `portfolio_variants` row, counted in `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ✅ |
 | INV-46 | `private` metrics never reach prompts; `feedback` depends on `public` only | §3.3.2 | Code (+ prompt-log scan in phase 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ✅ |
 | INV-47 | IS→OOS curve uses CPCV paths, never the holdout | §3.2 | Code + Lint | `tests/validation/test_cpcv.py::test_oos_curve_is_private`, `::test_purge_removes_rows_whose_label_overlaps_the_test_block`, `::test_embargo_drops_rows_after_each_test_block` | P1-04 | ✅ |
 | INV-48 | `N_eff` never merges statistically unrelated trials (only lowers the bar on evidence) | §4.1 | Code (ONC + significance guard) | `tests/validation/test_n_eff.py::test_onc_recovers_the_number_of_independent_sources`, `::test_onc_on_independent_series_keeps_them_apart`, `::test_update_n_eff_appends_a_clustering_run` | P1-05 | ✅ |
+| INV-49 | A parameter optimizer runs only in calibration (once, pre-freeze) — never in the evolution loop | §3.3.1, §3.2.1 5b | Lint (AST test) | `tests/test_architecture_boundaries.py::test_parameter_optimizer_only_in_calibration` | P1-11 | ✅ |
 
 ## Phase 2+ (fill in when the phase is broken into tasks)
 

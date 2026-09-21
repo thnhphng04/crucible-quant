@@ -189,9 +189,9 @@ No agent code in this phase (P1).
 - **Accept when:** tests on a **synthetic** holdout in a tmp dir: second opening raises; tampered holdout file ⇒ refuse; output is one token; `sharpe_oos` is stored but never printed. Done: [ADR-0016](adr/0016-holdout-evaluator-and-campaign-freeze.md); freeze lives in `validation/freeze.py` (the CLI may not import the evaluator package); D4 still open — the evaluator refuses until `holdout_pass` is set.
 - **Needs:** P0-02, P0-03, P0-09, P1-07.
 
-### ☐ P1-11 Calibration (step 5b)
+### ✅ P1-11 Calibration (step 5b)
 - **Arch:** §3.2.1 step 5b, §3.3.1 (optimizer off in the loop).
-- **Accept when:** Optuna over TUNABLE bounds with a fixed budget; **every** evaluation is a `trials` row with `source='param_opt'`; PBO and DSR are recomputed afterwards.
+- **Accept when:** Optuna over TUNABLE bounds with a fixed budget; **every** evaluation is a `trials` row with `source='param_opt'`; PBO and DSR are recomputed afterwards. Done: [ADR-0017](adr/0017-calibration-every-evaluation-a-trial.md).
 - **Needs:** P1-03, P1-08.
 
 ### ☐ P1-12 End-to-end phase-1 run
