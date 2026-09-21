@@ -159,10 +159,10 @@ No agent code in this phase (P1).
 - **Arch:** §3.2 (degradation curve), 07 §3.
 - **Accept when:** purging/embargo removes the overlapping observations on a hand-built fixture; CPCV-OOS median Sharpe goes into `EvaluationReport.private`, never `public`.
 
-### ☐ P1-05 `N_eff` (ONC clustering)
+### ✅ P1-05 `N_eff` (ONC clustering)
 - **Arch:** §4.1 ("Estimating `N_eff`").
 - **Files:** `validation/n_eff.py`.
-- **Accept when:** on synthetic trials built from *k* independent sources plus noise, the estimate recovers *k* (± tolerance); appends a clustering run to `trial_clusters`; see O10.
+- **Accept when:** on synthetic trials built from *k* independent sources plus noise, the estimate recovers *k* (± tolerance); appends a clustering run to `trial_clusters`; see O10. Done: [ADR-0009](adr/0009-n-eff-onc-with-significance-guard.md).
 
 ### ☐ P1-06 Risk & Sizing
 - **Arch:** §3.4 (all), D7, D12.

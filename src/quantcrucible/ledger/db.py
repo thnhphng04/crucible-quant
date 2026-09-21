@@ -24,6 +24,7 @@ from quantcrucible.ledger.records import (
     PortfolioVariant,
     StarvedCell,
     TrialRecord,
+    TrialRow,
     TrialStats,
     utc_now,
 )
@@ -232,6 +233,35 @@ class Ledger:
             (campaign_id,),
         )
         return [(r[0], r[1]) for r in rows]
+
+    def trials(self, campaign_id: str | None = None) -> list[TrialRow]:
+        """Every trial (all campaigns unless ``campaign_id`` is given), in insertion order."""
+        sql = (
+            "SELECT id, campaign_id, candidate_id, engine, strategy_hash, params, universe,"
+            " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id FROM trials"
+        )
+        args: tuple[Any, ...] = ()
+        if campaign_id is not None:
+            sql += " WHERE campaign_id = ?"
+            args = (campaign_id,)
+        rows = self._conn.execute(sql + " ORDER BY id", args)
+        return [
+            TrialRow(
+                int(r[0]), r[1], r[2], r[3], r[4], json.loads(r[5]), r[6], r[7], r[8],
+                float(r[9]), r[10], r[11], r[12], r[13],
+            )
+            for r in rows
+        ]  # fmt: skip
+
+    def passed_gate(self, campaign_id: str, gate: str) -> set[str]:
+        """Candidate ids whose latest result at ``gate`` in ``campaign_id`` is a pass."""
+        rows = self._conn.execute(
+            "SELECT candidate_id, passed FROM gate_results WHERE campaign_id = ? AND gate = ?"
+            " ORDER BY id",
+            (campaign_id, gate),
+        )
+        latest = {r[0]: bool(r[1]) for r in rows}
+        return {c for c, ok in latest.items() if ok}
 
     def trial_verdicts(self, campaign_id: str) -> list[tuple[int, str, str]]:
         """(trial_id, candidate_id, verdict) for one campaign, in order."""

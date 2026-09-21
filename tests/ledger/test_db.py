@@ -1,5 +1,6 @@
 """Ledger (Architecture §4.1, §4.2, ADR-0002) — INV-02, INV-07, INV-23, INV-43."""
 
+import dataclasses
 import sqlite3
 import statistics
 from datetime import UTC, datetime, timedelta
@@ -182,6 +183,32 @@ def test_campaign_must_start_open(ledger_path: Path, ledger: Ledger) -> None:
     raw = sqlite3.connect(ledger_path)
     with pytest.raises(sqlite3.DatabaseError, match="start OPEN"):
         raw.execute("INSERT INTO campaigns VALUES ('c2', '2026', 'x', 'h', NULL, 'FROZEN')")
+
+
+def test_trials_read_back(ledger: Ledger) -> None:
+    first = ledger.record_trial(_trial(1.5, "a"))
+    ledger.open_campaign("c2", "2025-09-21/2026-09-21", lock_hash="def")
+    ledger.record_trial(dataclasses.replace(_trial(0.5, "b"), campaign_id="c2"))
+    rows = ledger.trials()
+    assert [r.candidate_id for r in rows] == ["a", "b"]
+    assert rows[0].id == first and rows[0].params == {"fast": 20} and rows[0].sharpe_is == 1.5
+    assert [r.candidate_id for r in ledger.trials("c1")] == ["a"]
+    assert [r.candidate_id for r in ledger.trials("c2")] == ["b"]
+
+
+def test_passed_gate_uses_latest_result(ledger: Ledger) -> None:
+    def result(cand: str, passed: bool) -> None:
+        ledger.record_gate_result(
+            GateResultRecord(campaign_id="c1", candidate_id=cand, gate="g4_pbo",
+                             passed=passed, reason="x")
+        )  # fmt: skip
+
+    result("a", True)
+    result("b", True)
+    result("b", False)
+    result("c", False)
+    assert ledger.passed_gate("c1", "g4_pbo") == {"a"}
+    assert ledger.passed_gate("c1", "g3_is") == set()
 
 
 def test_trial_stats_n_eff_falls_back_to_n_raw(ledger: Ledger) -> None:

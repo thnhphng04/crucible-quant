@@ -57,6 +57,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-45 | Any portfolio-rule change ⇒ a new `portfolio_variants` row, counted in `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ☐ |
 | INV-46 | `private` metrics never reach prompts; `feedback` depends on `public` only | §3.3.2 | Code (+ prompt-log scan in phase 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ✅ |
 | INV-47 | IS→OOS curve uses CPCV paths, never the holdout | §3.2 | Code + Lint | `tests/validation/test_cpcv.py::test_oos_curve_is_private` | P1-04 | ☐ |
+| INV-48 | `N_eff` never merges statistically unrelated trials (only lowers the bar on evidence) | §4.1 | Code (ONC + significance guard) | `tests/validation/test_n_eff.py::test_onc_recovers_the_number_of_independent_sources`, `::test_onc_on_independent_series_keeps_them_apart`, `::test_update_n_eff_appends_a_clustering_run` | P1-05 | ✅ |
 
 ## Phase 2+ (fill in when the phase is broken into tasks)
 

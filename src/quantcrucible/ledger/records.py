@@ -83,6 +83,26 @@ class TrialRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class TrialRow:
+    """A ``trials`` row as read back (``id`` assigned by the database)."""
+
+    id: int
+    campaign_id: str
+    candidate_id: str
+    engine: str
+    strategy_hash: str
+    params: dict[str, Any]
+    universe: str
+    timeframe: str
+    source: TrialSource
+    sharpe_is: float
+    returns_path: str
+    verdict: str
+    hypothesis: str | None
+    cell_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class GateResultRecord:
     campaign_id: str
     candidate_id: str

@@ -57,6 +57,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-45 | Mọi thay đổi quy tắc danh mục ⇒ một dòng `portfolio_variants` mới, được tính vào `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ☐ |
 | INV-46 | Metric `private` không bao giờ vào prompt; `feedback` chỉ phụ thuộc `public` | §3.3.2 | Code (+ quét log prompt ở GĐ 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ✅ |
 | INV-47 | Đường cong IS→OOS dùng các path CPCV, không bao giờ dùng holdout | §3.2 | Code + Lint | `tests/validation/test_cpcv.py::test_oos_curve_is_private` | P1-04 | ☐ |
+| INV-48 | `N_eff` không bao giờ gộp các trial không liên quan về thống kê (chỉ hạ ngưỡng khi có bằng chứng) | §4.1 | Code (ONC + bước bảo vệ ý nghĩa) | `tests/validation/test_n_eff.py::test_onc_recovers_the_number_of_independent_sources`, `::test_onc_on_independent_series_keeps_them_apart`, `::test_update_n_eff_appends_a_clustering_run` | P1-05 | ✅ |
 
 ## GĐ 2+ (điền khi giai đoạn được chia thành task)
 

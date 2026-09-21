@@ -159,10 +159,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Kiến trúc:** §3.2 (đường cong suy giảm), 07 §3.
 - **Nghiệm thu khi:** purging/embargo loại đúng các quan sát chồng lấn trên một fixture dựng tay; Sharpe trung vị CPCV-OOS đi vào `EvaluationReport.private`, không bao giờ vào `public`.
 
-### ☐ P1-05 `N_eff` (phân cụm ONC)
+### ✅ P1-05 `N_eff` (phân cụm ONC)
 - **Kiến trúc:** §4.1 ("Ước lượng `N_eff`").
 - **File:** `validation/n_eff.py`.
-- **Nghiệm thu khi:** trên trial tổng hợp dựng từ *k* nguồn độc lập cộng nhiễu, ước lượng thu lại được *k* (± dung sai); ghi thêm một lần gom cụm vào `trial_clusters`; xem O10.
+- **Nghiệm thu khi:** trên trial tổng hợp dựng từ *k* nguồn độc lập cộng nhiễu, ước lượng thu lại được *k* (± dung sai); ghi thêm một lần gom cụm vào `trial_clusters`; xem O10. Xong: [ADR-0009](adr/0009-n-eff-onc-kem-kiem-dinh-y-nghia.md).
 
 ### ☐ P1-06 Risk & Sizing
 - **Kiến trúc:** §3.4 (toàn bộ), D7, D12.
