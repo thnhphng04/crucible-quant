@@ -113,7 +113,7 @@ No agent code in this phase (P1).
 - **Accept when:** a deterministic golden test (fixed bars → exact trades/PnL); a test that a signal on bar *t* fills at bar *t+1*; a limit that only touches is not filled.
 - **Needs:** P0-04, P0-09.
 
-### ☐ P0-11 Leaky-oracle suite + gate ①b
+### ✅ P0-11 Leaky-oracle suite + gate ①b
 - **Goal:** prove the harness catches cheating — the phase-0 gate.
 - **Arch:** 07-VALIDATION-LAYER §9, §3.2 row ①b.
 - **Files:** `validation/oracles/level{1..4}_*.py` (strategies in template form), `validation/guardrail.py` (dynamic part), `tests/validation/test_oracles.py`.
@@ -122,7 +122,7 @@ No agent code in this phase (P1).
   2. Uses the forming bar's close — dynamic check: re-run with the last bar's close perturbed; signals for that bar must not change.
   3. Repainting indicator (e.g. centered window / future pivot) — dynamic truncation test: run on data truncated at *t* vs full data; all signals `≤ t` must be identical.
   4. Late-published information (PIT error) — a synthetic feature available with delay *d* but joined at event time; caught by the truncation test on the joined feature. See O8.
-- **Accept when:** each of the 4 oracles is rejected at the expected gate with a ledger row, and the EMA crossover passes ①b.
+- **Accept when:** each of the 4 oracles is rejected at the expected gate with a ledger row, and the EMA crossover passes ①b. As built, all four die at ①a and ①b alone rejects all four too — [ADR-0005](adr/0005-leaky-oracles-and-dynamic-guardrail.md).
 - **Needs:** P0-07, P0-08, P0-10.
 
 ### ☐ P0-12 Gates ② MinBTL + ③ IS backtest; end-to-end run

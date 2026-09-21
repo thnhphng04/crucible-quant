@@ -1,12 +1,15 @@
-"""Gate ①a — static guardrail (Architecture §3.2, §3.3.1 rules 1–3, §3.1.6).
+"""Gates ①a (static) and ①b (dynamic) — the guardrail (Architecture §3.2, §3.3.1, §3.1.6).
 
-Runs before any candidate code executes. It checks, in order:
+①a runs before any candidate code executes. It checks, in order:
 
 1. template structure and the fixed-region hash against the campaign lock (TEMPLATE_TAMPER);
 2. TUNABLE declarations, and that the candidate's params are exactly those, within bounds;
 3. an AST whitelist over every editable block (AST_REJECT): only ``indicators`` / ``signal``
    methods built from whitelisted indicators, arithmetic, comparisons and ``Signal``; no imports,
    loops, dunders, dynamic execution, indexing into bars (look-ahead) or undeclared constants.
+
+①b executes the candidate in the sandbox and compares its signals on full, truncated and
+perturbed data (``validation/leak_check.py``, ADR-0005).
 """
 
 from __future__ import annotations
@@ -27,10 +30,12 @@ from quantcrucible.core.strategy.tunable import Tunable, TunableError
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.gates import (
     G1A_STATIC,
+    G1B_DYNAMIC,
     GateContext,
     GateResult,
     StrategyCandidate,
 )
+from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
 
 BAR_FIELDS = frozenset({"open", "high", "low", "close", "volume"})
 BUILTIN_CALLS = frozenset({"Signal", "min", "max", "abs"})
@@ -208,6 +213,8 @@ class _BlockChecker(ast.NodeVisitor):
             return
         else:
             self.fail(node, "only ind.<indicator>(), Signal(), min(), max(), abs() may be called")
+            if isinstance(func, ast.Attribute):  # also report what the chain is built on,
+                self.check_expr(func.value)  # e.g. the `.shift(-1)` in `s.shift(-1).to_numpy()`
             return
         for arg in node.args:
             if isinstance(arg, ast.Starred):
@@ -341,3 +348,41 @@ class StaticGuardrail:
                 event=Event.AST_REJECT,
             )  # fmt: skip
         return GateResult(True, self.id, 0.0, "static checks passed")
+
+
+class DynamicGuardrail:
+    """Gate ①b. Needs ``services['sandbox']`` (a SandboxRunner) and ``services['is_data']``
+    (IS bars by symbol); the candidate's universe selects from them."""
+
+    id = G1B_DYNAMIC
+    cost = 2
+
+    def __init__(self, cut_points: int = 20, window: int = 20) -> None:
+        self.cut_points = cut_points
+        self.window = window
+
+    def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
+        runner: SandboxRunner = ctx.services["sandbox"]
+        data = ctx.services["is_data"]
+        missing = [s for s in candidate.universe if s not in data]
+        if missing or not candidate.universe:
+            return GateResult(False, self.id, None, f"no IS data for {missing or 'empty universe'}")
+        options = {"cut_points": self.cut_points, "window": self.window, "seed": candidate.seed}
+        job = SandboxJob(
+            "leak_check", candidate.source, {s: data[s] for s in candidate.universe},
+            candidate.params, options,
+        )  # fmt: skip
+        res = runner.run(job)
+        if not res.ok or res.report is None:
+            return sandbox_failure(self.id, res)
+        result = res.report["result"]
+        n_leaks, checked = int(result["n_leaks"]), int(result["checked"])
+        if n_leaks:
+            return GateResult(
+                False, self.id, float(n_leaks),
+                f"look-ahead: {n_leaks} of {checked} signals changed when bars after the cut"
+                " were removed or replaced",
+                detail={"leaks": result["leaks"]},
+                event=Event.LEAK_REJECT,
+            )  # fmt: skip
+        return GateResult(True, self.id, 0.0, f"{checked} signals unchanged without the future")

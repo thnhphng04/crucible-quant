@@ -28,7 +28,7 @@ TradingProject/
 │   ├── ledger/                    schema.sql, db.py                                    §4      P0-02
 │   ├── validation/
 │   │   ├── gates.py, report.py    Gate pipeline, EvaluationReport                      §3.2    P0-06
-│   │   ├── guardrail.py           gate ①a static + ①b dynamic                          §3.2    P0-07/11
+│   │   ├── guardrail.py           gate ①a static + ①b dynamic (leak_check.py)          §3.2    P0-07/11
 │   │   ├── sandbox.py             Docker runner (host) + sandbox_runner.py (in-container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, DSR, PBO, CPCV (wraps purgedcv)              §3.2    P0-12, P1-0x
 │   │   ├── n_eff.py               ONC clustering → N_eff                               §4.1    P1-05

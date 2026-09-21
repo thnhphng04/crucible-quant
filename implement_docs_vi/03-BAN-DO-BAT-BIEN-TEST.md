@@ -39,7 +39,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-31 | ≤ 6 TUNABLE, bounds hữu hạn; hằng số chưa khai báo bị loại | §3.3.1 r2 | Code (cổng ①a) | `tests/core/strategy/test_tunable.py`, `tests/validation/test_guardrail.py::test_undeclared_constant_rejected` | P0-05, P0-07 | ✅ |
 | INV-32 | Chỉ phép toán `ind.*`/DSL trong whitelist; không import/exec/dunder | §3.3.1 r3, §3.1.6 | Code (cổng ①a) | `tests/validation/test_guardrail.py::test_malicious_snippets` | P0-07 | ✅ |
 | INV-33 | Mọi indicator đều nhân quả | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ✅ |
-| INV-34 | Cả 4 cấp leaky oracle đều bị loại | 07 §9, §7 GĐ 0 | Cổng ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
+| INV-34 | Cả 4 cấp leaky oracle đều bị loại | 07 §9, §7 GĐ 0 | Cổng ①a/①b | `tests/validation/test_oracles.py::test_oracle_rejected_at_static_gate`, `::test_oracle_level_rejected_by_dynamic_gate_alone`, `::test_full_guardrail_rejects_oracles_and_passes_ema` | P0-11 | ✅ |
 | INV-35 | Tín hiệu ở bar *t* khớp ở *t+1*; lệnh limit chỉ khớp khi giá đi xuyên qua | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution_entry_and_exit`, `::test_signal_on_close_fills_at_next_open`, `::test_limit_touch_not_filled` | P0-10 | ✅ |
 | INV-36 | Code được sinh chạy trong sandbox: không mạng, env rỗng, không thấy `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ✅ |
 | INV-37 | Cổng fail closed; mọi `GateResult` đều vào ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ✅ |
