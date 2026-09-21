@@ -40,7 +40,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-32 | Only whitelisted `ind.*`/DSL ops; no imports/exec/dunder | §3.3.1 r3, §3.1.6 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_malicious_snippets` | P0-07 | ✅ |
 | INV-33 | Every indicator is causal | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ✅ |
 | INV-34 | All 4 leaky-oracle levels rejected | 07 §9, §7 phase 0 | Gates ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
-| INV-35 | Signal on bar *t* fills at *t+1*; limit fills only on trade-through | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution`, `::test_limit_touch_not_filled` | P0-10 | ☐ |
+| INV-35 | Signal on bar *t* fills at *t+1*; limit fills only on trade-through | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution_entry_and_exit`, `::test_signal_on_close_fills_at_next_open`, `::test_limit_touch_not_filled` | P0-10 | ✅ |
 | INV-36 | Generated code runs sandboxed: no network, empty env, no view of `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ☐ |
 | INV-37 | Gates fail closed; every `GateResult` reaches the ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ✅ |
 | INV-38 | Gate ③ rejects `< min_trades`, `< min_holding_bars`, indicator abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_gates.py::test_g3_constraints` | P0-12 | ☐ |
