@@ -8,6 +8,7 @@ requires-python = ">=3.12,<3.13"
 # are added by the roadmap task that first needs them — see implement_docs/02-CONVENTIONS.md.
 dependencies = [
     "ccxt>=4.5,<5",
+    "nautilus-trader>=1.231,<1.232",
     "numpy>=2.1,<3",
     "pandas>=2.2,<3",
     "pyarrow>=17",
@@ -71,7 +72,7 @@ files = ["src", "tests", "scripts"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["scipy.*", "ccxt.*"]
+module = ["scipy.*", "ccxt.*", "nautilus_trader.*"]
 ignore_missing_imports = true
 
 # ─── pytest ──────────────────────────────────────────────────────────────

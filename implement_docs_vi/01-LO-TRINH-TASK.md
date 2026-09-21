@@ -100,14 +100,14 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test offline với sàn giả (fixture); yêu cầu chồng lấn khoảng holdout báo lỗi; hash trong `holdout.lock` khớp; test tải dữ liệu có tồn tại dưới marker `network`.
 - **Cần:** P0-02, P0-03.
 
-### ☐ P0-10 Bộ chạy backtest (NautilusTrader) — phần cho GĐ 0
+### ✅ P0-10 Bộ chạy backtest (NautilusTrader) — phần cho GĐ 0
 - **Mục tiêu:** chạy một `Strategy` trên bar qua NautilusTrader với mô hình fill bi quan, để cùng đường đó dùng được cho live sau này (P5).
 - **Kiến trúc:** §3.5 (`FillModel` bi quan), §3.3.
 - **File:** `execution/engine.py`, `execution/nautilus_bridge.py` (adapter Strategy → strategy của Nautilus), `tests/execution/`.
 - **Chi tiết:**
   - Thêm `nautilus_trader` (ghim phiên bản; xem O3).
   - Tín hiệu tính trên bar **đã đóng** được khớp ở giá mở cửa của bar **kế tiếp** — không bao giờ trên chính bar sinh ra tín hiệu (vô hiệu hóa oracle cấp 2).
-  - Phí theo biểu phí của sàn, trượt giá cố định theo tick, lệnh limit chỉ khớp khi giá đi xuyên qua.
+  - Phí theo biểu phí của sàn, trượt giá (tính thành phí taker cộng thêm theo bps — [ADR-0003](adr/0003-ngu-nghia-khop-lenh-nautilus.md)), lệnh limit chỉ khớp khi giá đi xuyên qua.
   - Sizing: cho đến P1-06, dùng `PlaceholderSizer` đặt tên rõ ràng (notional cố định × `strength`), sẽ bị P1-06 xóa.
   - Đầu ra: chuỗi lợi nhuận + danh sách lệnh → `EvaluationReport.public`.
 - **Nghiệm thu khi:** một test golden tất định (bar cố định → lệnh/PnL chính xác); test tín hiệu ở bar *t* được khớp ở bar *t+1*; lệnh limit chỉ chạm giá thì không khớp.

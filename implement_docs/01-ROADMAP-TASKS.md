@@ -100,14 +100,14 @@ No agent code in this phase (P1).
 - **Accept when:** offline tests with a fixture exchange; a request overlapping the holdout range raises; the hash in `holdout.lock` matches; download tests exist under the `network` marker.
 - **Needs:** P0-02, P0-03.
 
-### ☐ P0-10 Backtest runner (NautilusTrader) — phase-0 subset
+### ✅ P0-10 Backtest runner (NautilusTrader) — phase-0 subset
 - **Goal:** run a `Strategy` on bars through NautilusTrader with the pessimistic fill model, so the same path serves live later (P5).
 - **Arch:** §3.5 (pessimistic `FillModel`), §3.3.
 - **Files:** `execution/engine.py`, `execution/nautilus_bridge.py` (Strategy → Nautilus strategy adapter), `tests/execution/`.
 - **Details:**
   - Add `nautilus_trader` (pin; see O3).
   - Signals computed on a **closed** bar execute at the **next** bar's open — never on the bar that produced them (defeats oracle level 2).
-  - Fees per venue schedule, fixed slippage in ticks, limit orders fill only on trade-through.
+  - Fees per venue schedule, slippage (charged as extra taker fee in bps — [ADR-0003](adr/0003-nautilus-fill-semantics.md)), limit orders fill only on trade-through.
   - Sizing: until P1-06, a clearly named `PlaceholderSizer` (fixed notional × `strength`) that P1-06 deletes.
   - Output: returns series + trade list → `EvaluationReport.public`.
 - **Accept when:** a deterministic golden test (fixed bars → exact trades/PnL); a test that a signal on bar *t* fills at bar *t+1*; a limit that only touches is not filled.
