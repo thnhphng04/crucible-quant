@@ -207,12 +207,12 @@ class Params:
     """Read-only attribute access to a strategy's parameters (``self.p.fast``)."""
 
     __slots__ = ("_values",)
-    _values: dict[str, float]
+    _values: dict[str, float | int]
 
-    def __init__(self, values: Mapping[str, float]) -> None:
+    def __init__(self, values: Mapping[str, float | int]) -> None:
         object.__setattr__(self, "_values", dict(values))
 
-    def __getattr__(self, name: str) -> float:
+    def __getattr__(self, name: str) -> Any:  # int or float, as declared by TUNABLE
         try:
             return self._values[name]
         except KeyError:
@@ -221,14 +221,14 @@ class Params:
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError("strategy parameters are read-only")
 
-    def as_dict(self) -> dict[str, float]:
+    def as_dict(self) -> dict[str, float | int]:
         return dict(self._values)
 
 
 class Strategy:
     """Base class for strategies. Venue-agnostic; subclasses implement the two methods."""
 
-    def __init__(self, params: Mapping[str, float] | None = None) -> None:
+    def __init__(self, params: Mapping[str, float | int] | None = None) -> None:
         self.p = Params(params or {})
 
     def indicators(self, bars: Bars) -> Features:

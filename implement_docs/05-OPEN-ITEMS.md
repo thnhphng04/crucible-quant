@@ -15,6 +15,7 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | O9 | When to move the ledger from SQLite to Postgres | — | Phase 2 | Trigger: concurrent writers from the async pipeline (§3.1.10) cause lock contention in WAL mode |
 | O10 | ONC implementation: own code vs a library; silhouette-based cluster count on thousands of series may be slow | P1-05 | P1-05 | Start from López de Prado's published ONC algorithm; cache the correlation matrix incrementally |
 | O11 | `PlaceholderSizer` used in phase 0 before real sizing exists | — | P1-06 | Must be deleted by P1-06; a grep in P1-06's review |
+| O13 | Module-wise template: how named blocks `entry` / `exit` / `regime` map onto `indicators()` / `signal()` | Module-wise evolution (D16 ≠ `joint`) | Phase 2 | The parser and `evolve_scope` hashing already support named blocks (P0-05); the phase-0 template has one `joint` block |
 
 ## Closed
 

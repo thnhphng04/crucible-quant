@@ -15,6 +15,7 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | O9 | Khi nào chuyển ledger từ SQLite sang Postgres | — | GĐ 2 | Dấu hiệu: nhiều tiến trình ghi đồng thời từ pipeline bất đồng bộ (§3.1.10) gây tranh chấp khóa ở chế độ WAL |
 | O10 | Cài đặt ONC: tự viết hay dùng thư viện; chọn số cụm theo silhouette trên hàng nghìn chuỗi có thể chậm | P1-05 | P1-05 | Bắt đầu từ thuật toán ONC đã công bố của López de Prado; cache ma trận tương quan theo kiểu tăng dần |
 | O11 | `PlaceholderSizer` dùng ở GĐ 0 khi chưa có sizing thật | — | P1-06 | Phải bị xóa ở P1-06; grep khi review P1-06 |
+| O13 | Template theo module: các block có tên `entry` / `exit` / `regime` ánh xạ vào `indicators()` / `signal()` thế nào | Tiến hóa theo module (D16 ≠ `joint`) | GĐ 2 | Bộ phân tích và cách hash theo `evolve_scope` đã hỗ trợ block có tên (P0-05); template của GĐ 0 chỉ có một block `joint` |
 
 ## Đã đóng
 
