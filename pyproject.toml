@@ -147,6 +147,19 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "the in-container sandbox runner never reaches the ledger or config (§3.3.3)"
+type = "forbidden"
+source_modules = ["quantcrucible.validation.sandbox_runner"]
+forbidden_modules = [
+    "quantcrucible.ledger",
+    "quantcrucible.config",
+    "quantcrucible.agent",
+    "quantcrucible.holdout",
+    "quantcrucible.validation.gates",
+    "quantcrucible.validation.sandbox",
+]
+
+[[tool.importlinter.contracts]]
 name = "config imports only the ledger"
 type = "forbidden"
 source_modules = ["quantcrucible.config"]

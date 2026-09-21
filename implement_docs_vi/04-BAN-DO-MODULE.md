@@ -29,7 +29,7 @@ TradingProject/
 │   ├── validation/
 │   │   ├── gates.py, report.py    pipeline cổng, EvaluationReport                      §3.2    P0-06
 │   │   ├── guardrail.py           cổng ①a tĩnh + ①b động                               §3.2    P0-07/11
-│   │   ├── sandbox.py             bộ chạy Docker                                       §3.3.3  P0-08
+│   │   ├── sandbox.py             bộ chạy Docker (host) + sandbox_runner.py (trong container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, DSR, PBO, CPCV (bọc purgedcv)                §3.2    P0-12, P1-0x
 │   │   ├── n_eff.py               phân cụm ONC → N_eff                                 §4.1    P1-05
 │   │   ├── portfolio.py           xây danh mục §3.2.1 + portfolio_hash                 §3.2.1  P1-07
@@ -70,6 +70,7 @@ Các hướng bị cấm được cưỡng chế bằng contract import-linter t
 | `execution` không bao giờ import `agent`, `validation`, `holdout` | Đường live phải chính là đường backtest, không kèm bộ máy nghiên cứu (P5) |
 | Không ai import `holdout` | Chỉ tới được tiến trình đánh giá bằng cách khởi chạy nó (§4.2 lớp 3) |
 | `data` không import gì từ `agent`, `validation`, `execution` | Nguồn dữ liệu thay thế được (§6.1 `DataSource`) |
+| `validation.sandbox_runner` không import `ledger`, `config`, `agent`, `holdout`, code gate hay code sandbox phía host | Nó chạy trong container cùng code sinh ra; chỉ có thể trả về một báo cáo (§3.3.3) |
 | `ledger` không import package `quantcrucible` nào khác; `config` chỉ import `ledger` | Ledger là nguồn sự thật duy nhất (P2) và không được phụ thuộc vào thứ nó ghi lại |
 
 Thêm một test AST cho import bên thứ ba: SDK của LLM (`openai`, `anthropic`, `litellm`, `langchain`, `langgraph`, …) chỉ nằm dưới `agent/` (A4).
