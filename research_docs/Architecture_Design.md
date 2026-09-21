@@ -503,7 +503,7 @@ class Gate(Protocol):
 | ⑦ | Dry-run | 5 | Portfolio | |
 | ⑧ | Live | — | Portfolio | |
 
-> Note the "applies to" column: gates ⓪–④ filter **individual candidates**, but from ⑤ onward the object under test is the **portfolio** — because this system's output is a basket of weakly-correlated strategies, not a single strategy.
+> Note the "applies to" column: gates ⓪–④ filter **individual candidates**, but from ⑤ onward the object under test is the **portfolio** — because this system's output is a basket of weakly-correlated strategies, not a single strategy. 🆕 **Execution order follows this table, not ascending `cost`** — the two disagree (② has cost 1 but runs after ①b); see [ADR-0002](../implement_docs/adr/0002-ledger-and-config-additions.md).
 
 **🆕 What PBO actually tests (v0.3).** CSCV needs a **performance matrix** `T × M` over `M` compared configurations *and* a **winner-selection rule**. PBO measures the probability that this selection rule picks a configuration whose OOS rank falls below the median. It is not a property of a single return series. For gate ④ we define:
 
@@ -744,10 +744,10 @@ CREATE TABLE trials (
     timeframe      TEXT NOT NULL,
     timerange      TEXT NOT NULL,
     cell_id        TEXT,
-    source         TEXT NOT NULL,        -- 🆕 evolution | param_opt — parameter-optimizer evaluations ARE trials too
+    source         TEXT NOT NULL,        -- 🆕 evolution | param_opt | manual (hand-written) — parameter-optimizer evaluations ARE trials too
     sharpe_is      REAL NOT NULL,        -- needed for V[SR] across trials
     returns_path   TEXT NOT NULL,        -- needed for N_eff clustering and DSR
-    cluster_id     INTEGER,              -- assigned by the N_eff estimation step
+    candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: links gate_results; N_eff clusters live in trial_clusters
     gate_failed    TEXT,                 -- NULL if everything passed
     verdict        TEXT NOT NULL         -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer veto after backtest)
 );
@@ -763,16 +763,49 @@ CREATE TABLE portfolio_variants (
     ts             TIMESTAMP NOT NULL
 );
 
+-- 🆕 ADR-0002: N_eff clustering history — replaces trials.cluster_id (the ledger never UPDATEs)
+CREATE TABLE clustering_runs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             TIMESTAMP NOT NULL,
+    method         TEXT NOT NULL,
+    n_trials       INTEGER NOT NULL
+);
+CREATE TABLE trial_clusters (
+    clustering_run INTEGER NOT NULL REFERENCES clustering_runs(id),
+    trial_id       INTEGER NOT NULL REFERENCES trials(id),
+    cluster_id     INTEGER NOT NULL,
+    PRIMARY KEY (clustering_run, trial_id)
+);
+
+-- 🆕 ADR-0002: every GateResult, pass or fail — gates after ③ cannot update the trials row
+CREATE TABLE gate_results (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             TIMESTAMP NOT NULL,
+    campaign_id    TEXT NOT NULL,
+    candidate_id   TEXT NOT NULL,
+    strategy_hash  TEXT,
+    trial_id       INTEGER,              -- NULL before gate ③
+    gate           TEXT NOT NULL,
+    passed         INTEGER NOT NULL,
+    value          REAL,
+    reason         TEXT NOT NULL,
+    detail         JSON
+);
+
 CREATE INDEX idx_hash ON trials(strategy_hash);
 CREATE INDEX idx_cell ON trials(cell_id);
 CREATE INDEX idx_gen_cell ON generation_log(cell_id);
 
 -- DSR inputs: count statistical trials, every verdict, every run, NEVER reset
 CREATE VIEW trial_stats AS
-SELECT COUNT(*)                                  AS n_raw,
-       COUNT(DISTINCT cluster_id)                AS n_eff,   -- NULL cluster ⇒ fall back to n_raw
-       AVG(sharpe_is * sharpe_is) - AVG(sharpe_is) * AVG(sharpe_is) AS var_sr
-FROM trials;
+WITH latest AS (SELECT MAX(id) AS run FROM clustering_runs),
+     covered AS (SELECT trial_id, cluster_id FROM trial_clusters
+                 JOIN latest ON clustering_run = latest.run)
+SELECT (SELECT COUNT(*) FROM trials)                  AS n_raw,
+       (SELECT COUNT(DISTINCT cluster_id) FROM covered)
+         + (SELECT COUNT(*) FROM trials
+            WHERE id NOT IN (SELECT trial_id FROM covered)) AS n_eff,  -- uncovered trial = own cluster
+       (SELECT AVG(sharpe_is * sharpe_is) - AVG(sharpe_is) * AVG(sharpe_is) FROM trials) AS var_sr;
 
 CREATE VIEW total_portfolio_variants AS SELECT COUNT(*) AS n FROM portfolio_variants;
 
@@ -805,6 +838,8 @@ CREATE TABLE campaigns (
     campaign_id     TEXT PRIMARY KEY,
     started_at      TIMESTAMP NOT NULL,
     holdout_range   TEXT NOT NULL,        -- this campaign's holdout period
+    lock_hash       TEXT NOT NULL,        -- 🆕 ADR-0002: SHA256 of evaluation.lock.yaml (§10.1)
+    holdout_lock_hash TEXT,               -- 🆕 ADR-0002: SHA256 of holdout.lock
     status          TEXT NOT NULL CHECK (status IN ('OPEN','FROZEN','BURNED'))
 );
 
@@ -1136,6 +1171,8 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D14 | Engine budget shares; mode | 🟡 Provisional default | A 0.5 / B 0.4 / C 0.1; `isolated` in phase 2 | §3.1.11 |
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
+| D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
+| D18 | Research data (phase 0) | 🟡 Provisional default | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP vs USDT from 2018; holdout = last 12 months | ADR-0002, §6.1 |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 
@@ -1175,6 +1212,8 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
+  minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
+  data: {exchange: binance, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened (see below)
     dsr_min: 0.95
@@ -1188,7 +1227,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
 |---|---|---|
 | **Group B is locked per campaign** | When a campaign opens, `research:` is copied into `evaluation.lock.yaml` + hashed into the `campaigns` table. Editing `user.yaml` mid-campaign ⇒ the system **refuses to run** until the user either reverts or opens a new campaign | Changing parameters after seeing results = one more selection round the ledger does not count |
 | **Changing portfolio-construction parameters = a new variant** | Within a campaign, a different `portfolio:` config may be tried **through a dedicated command**; each attempt is recorded in `portfolio_variants` and added to `N` (§3.2.1) | Allows experimentation but makes you pay for it in DSR |
-| **Gate thresholds have hard floors** | `dsr_min` may not be < 0.95 and `pbo_max` may not be > 0.5 — looser values are rejected when the config loads. Stricter is fine | This is the minimum for results to mean anything statistically; loosening it disables the validation layer |
+| **Gate thresholds have hard floors** | `dsr_min` may not be < 0.95 and `pbo_max` may not be > 0.5, `minbtl_target_sharpe` may not be > 1.5 — looser values are rejected when the config loads. Stricter is fine | This is the minimum for results to mean anything statistically; loosening it disables the validation layer |
 
 > Group A changes freely because it does not feed into *selecting* strategies: capital, base currency and kill-switch only matter live. Model routing does affect the search but does not bias the statistics — it is traced in `generation_log`.
 

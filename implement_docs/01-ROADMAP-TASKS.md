@@ -20,13 +20,13 @@ No agent code in this phase (P1).
 - **Files:** `pyproject.toml`, `src/quantcrucible/**/__init__.py`, `tests/`, `.github/workflows/ci.yml`, `.claude/`, `scripts/check_doc_mirror.py`, `config/user.yaml`.
 - **Accept when:** `ruff`, `mypy --strict`, `lint-imports` (7 contracts), `pytest`, `check_doc_mirror.py` all pass locally and in CI.
 
-### ☐ P0-02 Ledger schema + append-only API
+### ✅ P0-02 Ledger schema + append-only API
 - **Goal:** the single source of truth for every trial (P2), created before anything that produces trials.
 - **Arch:** §4.1 (`generation_log`, `trials`, `portfolio_variants`, views), §4.2 (`campaigns`, `holdout_access`).
 - **Files:** `ledger/schema.sql`, `ledger/db.py`, `tests/ledger/`.
 - **Details:**
   - SQLite, WAL mode. Schema is the arch DDL verbatim, plus the additions in [05](05-OPEN-ITEMS.md) O4/O5 (decide via ADR).
-  - Append-only is enforced **in the database**, not only in Python: `BEFORE DELETE` triggers raise on every table; `BEFORE UPDATE` on `trials` raises unless only `cluster_id` changes; `campaigns.status` may only move `OPEN → FROZEN → BURNED`.
+  - Append-only is enforced **in the database**, not only in Python: `BEFORE DELETE` triggers raise on every table; `BEFORE UPDATE` raises on every table (clusters go to `trial_clusters`, ADR-0002); `campaigns.status` may only move `OPEN → FROZEN → BURNED`.
   - Python API exposes `log_event(...)`, `record_trial(...)`, `record_portfolio_variant(...)`, `trial_stats()`, `starved_cells()`. No generic `execute()`.
 - **Accept when:** tests show DELETE/UPDATE rejected at the SQL level (raw `sqlite3` connection, bypassing the API); a second `holdout_access` insert for the same campaign raises; illegal status transitions raise; `trial_stats` returns `n_raw`, `n_eff` (falls back to `n_raw` when `cluster_id` is NULL), `var_sr` on a fixture.
 
@@ -162,7 +162,7 @@ No agent code in this phase (P1).
 ### ☐ P1-05 `N_eff` (ONC clustering)
 - **Arch:** §4.1 ("Estimating `N_eff`").
 - **Files:** `validation/n_eff.py`.
-- **Accept when:** on synthetic trials built from *k* independent sources plus noise, the estimate recovers *k* (± tolerance); writes `trials.cluster_id` through the ledger's single allowed update; see O10.
+- **Accept when:** on synthetic trials built from *k* independent sources plus noise, the estimate recovers *k* (± tolerance); appends a clustering run to `trial_clusters`; see O10.
 
 ### ☐ P1-06 Risk & Sizing
 - **Arch:** §3.4 (all), D7, D12.

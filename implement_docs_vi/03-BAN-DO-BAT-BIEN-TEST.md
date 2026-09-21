@@ -9,12 +9,12 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | ID | Bất biến | Kiến trúc | Cơ chế | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
 | INV-01 | Mọi backtest đều đi qua ledger; không có đường vòng | P2, §4.1 | Code: bộ chạy backtest bắt buộc có handle ledger và ghi trước khi trả kết quả | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ☐ |
-| INV-02 | Dòng ledger không bao giờ bị xóa; `trials` không bao giờ bị update trừ `cluster_id` | P2, §4.1 | Trigger DB | `tests/ledger/test_db.py::test_delete_rejected_by_sql`, `::test_update_rejected_except_cluster_id` | P0-02 | ☐ |
+| INV-02 | Dòng ledger không bao giờ bị xóa hay sửa (chỉ `campaigns.status` được đi tiếp) | P2, §4.1, ADR-0002 | Trigger DB | `tests/ledger/test_db.py::test_every_table_rejects_delete_at_sql_level`, `::test_update_rejected_by_sql` | P0-02 | ✅ |
 | INV-03 | Strategy nói bằng `Signal`, không bao giờ bằng khối lượng | P3, §3.3 | Code (kiểm tra `Signal`) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ☐ |
 | INV-04 | Strategy không bao giờ import tầng adapter/execution | §3.3 | Lint: import-linter "core is the bottom layer" | `lint-imports` | P0-01 | ✅ |
 | INV-05 | Volatility đi vào size đúng một lần; stop là trần `min` | P4, §3.4 | Code | `tests/core/sizing/test_position_sizer.py::test_half_size_when_vol_doubles`, `::test_stop_cap_is_min_not_multiplier` | P1-06 | ☐ |
 | INV-06 | Backtest ≡ live: execution chỉ phụ thuộc core | P5, §3.5 | Lint | `lint-imports` ("execution depends on core only") | P0-01 | ✅ |
-| INV-07 | Holdout chỉ mở một lần mỗi campaign | P6, §4.2 L1 | DB: `PRIMARY KEY (campaign_id)` | `tests/ledger/test_db.py::test_second_holdout_access_raises` | P0-02 | ☐ |
+| INV-07 | Holdout chỉ mở một lần mỗi campaign | P6, §4.2 L1 | DB: `PRIMARY KEY (campaign_id)` | `tests/ledger/test_db.py::test_second_holdout_access_raises` | P0-02 | ✅ |
 | INV-08 | Dữ liệu holdout phát hiện được việc sửa đổi và chỉ-đọc | P6, §4.2 L2 | OS: chỉ-đọc + hash `holdout.lock` | `tests/data/test_holdout_split.py::test_lock_hash_matches`, `tests/holdout/test_evaluator.py::test_tampered_holdout_refused` | P0-09, P1-10 | ☐ |
 | INV-09 | Holdout được đánh giá trong tiến trình riêng; chỉ trả PASS/FAIL | P6, §4.2 L3 | OS (tiến trình riêng) + Lint (không ai import `holdout`) | `tests/holdout/test_evaluator.py::test_output_is_single_token`, `lint-imports` | P1-10 | ◐ |
 | INV-10 | Bộ nạp dữ liệu nghiên cứu không bao giờ trả bar trong khoảng holdout | P6, §4.2 | Code | `tests/data/test_store.py::test_holdout_range_refused` | P0-09 | ☐ |
@@ -28,7 +28,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-20 | `dsr_min < 0.95` hoặc `pbo_max > 0.5` bị từ chối khi nạp | §10.1 | Code | `tests/config/test_loader.py::test_hard_floors` | P0-03 | ☐ |
 | INV-21 | Sửa Nhóm B giữa campaign ⇒ từ chối chạy | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ☐ |
 | INV-22 | `evaluation.lock.yaml` được sinh tự động, chỉ-đọc, hash lưu trong `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ☐ |
-| INV-23 | Trạng thái campaign chỉ đi `OPEN → FROZEN → BURNED` | §4.2 | Trigger DB | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ☐ |
+| INV-23 | Trạng thái campaign chỉ đi `OPEN → FROZEN → BURNED` | §4.2 | Trigger DB | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |
 | INV-24 | Không mở được holdout khi `holdout_pass` (D4) chưa đặt | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ☐ |
 
 ## Code được sinh & các cổng
@@ -52,7 +52,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-40 | DSR khớp ví dụ của Bailey & López de Prado (2014) | §6, 07 §4 | Code | `tests/validation/test_statistical.py::test_dsr_reference_example` | P1-02 | ☐ |
 | INV-41 | PBO ≈ 0.5 trên nhiễu, → 0 khi cài sẵn edge; khớp Bailey et al. (2017) | §3.2 | Code | `tests/validation/test_statistical.py::test_pbo_noise`, `::test_pbo_planted_edge`, `::test_pbo_reference_example` | P1-03 | ☐ |
 | INV-42 | DSR chỉ tính trên danh mục hợp nhất; đầu vào từ `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (không có API theo ô) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr` | P1-08 | ☐ |
-| INV-43 | Chỉ cấu hình đã tới ③ mới tính là trial; sự kiện audit thì không | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ☐ |
+| INV-43 | Chỉ cấu hình đã tới ③ mới tính là trial; sự kiện audit thì không | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
 | INV-44 | Các lần đánh giá khi hiệu chỉnh là trial (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
 | INV-45 | Mọi thay đổi quy tắc danh mục ⇒ một dòng `portfolio_variants` mới, được tính vào `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ☐ |
 | INV-46 | Metric `private` không bao giờ vào prompt; `feedback` chỉ phụ thuộc `public` | §3.3.2 | Code (+ quét log prompt ở GĐ 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ☐ |

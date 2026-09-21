@@ -20,13 +20,13 @@ Không có code agent trong giai đoạn này (P1).
 - **File:** `pyproject.toml`, `src/quantcrucible/**/__init__.py`, `tests/`, `.github/workflows/ci.yml`, `.claude/`, `scripts/check_doc_mirror.py`, `config/user.yaml`.
 - **Nghiệm thu khi:** `ruff`, `mypy --strict`, `lint-imports` (7 contract), `pytest`, `check_doc_mirror.py` đều đạt trên máy và trên CI.
 
-### ☐ P0-02 Schema ledger + API chỉ-ghi-thêm
+### ✅ P0-02 Schema ledger + API chỉ-ghi-thêm
 - **Mục tiêu:** nguồn sự thật duy nhất cho mọi trial (P2), phải có trước mọi thứ sinh ra trial.
 - **Kiến trúc:** §4.1 (`generation_log`, `trials`, `portfolio_variants`, các view), §4.2 (`campaigns`, `holdout_access`).
 - **File:** `ledger/schema.sql`, `ledger/db.py`, `tests/ledger/`.
 - **Chi tiết:**
   - SQLite, chế độ WAL. Schema lấy nguyên DDL của kiến trúc, cộng các bổ sung ở [05](05-VAN-DE-MO.md) O4/O5 (quyết định bằng ADR).
-  - Chỉ-ghi-thêm được cưỡng chế **trong database**, không chỉ trong Python: trigger `BEFORE DELETE` báo lỗi trên mọi bảng; `BEFORE UPDATE` trên `trials` báo lỗi trừ khi chỉ `cluster_id` thay đổi; `campaigns.status` chỉ được đi `OPEN → FROZEN → BURNED`.
+  - Chỉ-ghi-thêm được cưỡng chế **trong database**, không chỉ trong Python: trigger `BEFORE DELETE` báo lỗi trên mọi bảng; `BEFORE UPDATE` báo lỗi trên mọi bảng (cụm ghi vào `trial_clusters`, ADR-0002); `campaigns.status` chỉ được đi `OPEN → FROZEN → BURNED`.
   - API Python cung cấp `log_event(...)`, `record_trial(...)`, `record_portfolio_variant(...)`, `trial_stats()`, `starved_cells()`. Không có `execute()` tổng quát.
 - **Nghiệm thu khi:** test cho thấy DELETE/UPDATE bị từ chối ở mức SQL (kết nối `sqlite3` thô, bỏ qua API); lần insert `holdout_access` thứ hai cho cùng campaign báo lỗi; chuyển trạng thái sai báo lỗi; `trial_stats` trả về `n_raw`, `n_eff` (quay về `n_raw` khi `cluster_id` là NULL), `var_sr` trên một fixture.
 
@@ -162,7 +162,7 @@ Không có code agent trong giai đoạn này (P1).
 ### ☐ P1-05 `N_eff` (phân cụm ONC)
 - **Kiến trúc:** §4.1 ("Ước lượng `N_eff`").
 - **File:** `validation/n_eff.py`.
-- **Nghiệm thu khi:** trên trial tổng hợp dựng từ *k* nguồn độc lập cộng nhiễu, ước lượng thu lại được *k* (± dung sai); ghi `trials.cluster_id` qua đúng một kiểu update mà ledger cho phép; xem O10.
+- **Nghiệm thu khi:** trên trial tổng hợp dựng từ *k* nguồn độc lập cộng nhiễu, ước lượng thu lại được *k* (± dung sai); ghi thêm một lần gom cụm vào `trial_clusters`; xem O10.
 
 ### ☐ P1-06 Risk & Sizing
 - **Kiến trúc:** §3.4 (toàn bộ), D7, D12.

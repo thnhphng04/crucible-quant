@@ -9,12 +9,12 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
 | INV-01 | Every backtest goes through the ledger; no bypass path | P2, §4.1 | Code: the backtest runner requires a ledger handle and writes before returning | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ☐ |
-| INV-02 | Ledger rows are never deleted; `trials` never updated except `cluster_id` | P2, §4.1 | DB triggers | `tests/ledger/test_db.py::test_delete_rejected_by_sql`, `::test_update_rejected_except_cluster_id` | P0-02 | ☐ |
+| INV-02 | Ledger rows are never deleted or updated (only `campaigns.status` moves forward) | P2, §4.1, ADR-0002 | DB triggers | `tests/ledger/test_db.py::test_every_table_rejects_delete_at_sql_level`, `::test_update_rejected_by_sql` | P0-02 | ✅ |
 | INV-03 | Strategies speak `Signal`, never quantities | P3, §3.3 | Code (`Signal` validation) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ☐ |
 | INV-04 | Strategies never import the adapter/execution layer | §3.3 | Lint: import-linter "core is the bottom layer" | `lint-imports` | P0-01 | ✅ |
 | INV-05 | Volatility enters size exactly once; stop is a `min` cap | P4, §3.4 | Code | `tests/core/sizing/test_position_sizer.py::test_half_size_when_vol_doubles`, `::test_stop_cap_is_min_not_multiplier` | P1-06 | ☐ |
 | INV-06 | Backtest ≡ live: execution depends on core only | P5, §3.5 | Lint | `lint-imports` ("execution depends on core only") | P0-01 | ✅ |
-| INV-07 | Holdout opened once per campaign | P6, §4.2 L1 | DB: `PRIMARY KEY (campaign_id)` | `tests/ledger/test_db.py::test_second_holdout_access_raises` | P0-02 | ☐ |
+| INV-07 | Holdout opened once per campaign | P6, §4.2 L1 | DB: `PRIMARY KEY (campaign_id)` | `tests/ledger/test_db.py::test_second_holdout_access_raises` | P0-02 | ✅ |
 | INV-08 | Holdout data tamper-evident and read-only | P6, §4.2 L2 | OS: read-only + `holdout.lock` hash | `tests/data/test_holdout_split.py::test_lock_hash_matches`, `tests/holdout/test_evaluator.py::test_tampered_holdout_refused` | P0-09, P1-10 | ☐ |
 | INV-09 | Holdout evaluated in its own process; returns PASS/FAIL only | P6, §4.2 L3 | OS (separate process) + Lint (nothing imports `holdout`) | `tests/holdout/test_evaluator.py::test_output_is_single_token`, `lint-imports` | P1-10 | ◐ |
 | INV-10 | Research data loader never returns holdout-range bars | P6, §4.2 | Code | `tests/data/test_store.py::test_holdout_range_refused` | P0-09 | ☐ |
@@ -28,7 +28,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-20 | `dsr_min < 0.95` or `pbo_max > 0.5` rejected at load | §10.1 | Code | `tests/config/test_loader.py::test_hard_floors` | P0-03 | ☐ |
 | INV-21 | Group B edited mid-campaign ⇒ refuse to run | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ☐ |
 | INV-22 | `evaluation.lock.yaml` is generated, read-only, hashed in `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ☐ |
-| INV-23 | Campaign status only `OPEN → FROZEN → BURNED` | §4.2 | DB trigger | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ☐ |
+| INV-23 | Campaign status only `OPEN → FROZEN → BURNED` | §4.2 | DB trigger | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |
 | INV-24 | Holdout cannot be opened while `holdout_pass` (D4) is unset | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ☐ |
 
 ## Generated code & gates
@@ -52,7 +52,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-40 | DSR matches Bailey & López de Prado (2014) example | §6, 07 §4 | Code | `tests/validation/test_statistical.py::test_dsr_reference_example` | P1-02 | ☐ |
 | INV-41 | PBO ≈ 0.5 on noise, → 0 with a planted edge; matches Bailey et al. (2017) | §3.2 | Code | `tests/validation/test_statistical.py::test_pbo_noise`, `::test_pbo_planted_edge`, `::test_pbo_reference_example` | P1-03 | ☐ |
 | INV-42 | DSR only on the consolidated portfolio; inputs from `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (no per-cell API) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr` | P1-08 | ☐ |
-| INV-43 | Only configurations that reached ③ count as trials; audit events don't | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ☐ |
+| INV-43 | Only configurations that reached ③ count as trials; audit events don't | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
 | INV-44 | Calibration evaluations are trials (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
 | INV-45 | Any portfolio-rule change ⇒ a new `portfolio_variants` row, counted in `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ☐ |
 | INV-46 | `private` metrics never reach prompts; `feedback` depends on `public` only | §3.3.2 | Code (+ prompt-log scan in phase 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ☐ |
