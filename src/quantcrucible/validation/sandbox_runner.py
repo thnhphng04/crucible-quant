@@ -54,6 +54,7 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
     # imported here: NautilusTrader takes ~2 s to import and only this job needs it (O6)
     from quantcrucible.execution.engine import run_backtest
     from quantcrucible.execution.nautilus_bridge import CostModel
+    from quantcrucible.execution.risk import RiskSettings
 
     costs = CostModel(**job.get("costs", {}))
     res = run_backtest(
@@ -64,6 +65,7 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
         initial_cash=float(job.get("initial_cash", 100_000.0)),
         lookback=int(job["lookback"]),
         seed=int(job.get("seed", 0)),
+        risk=RiskSettings(**job["risk"]),  # required: sizing is locked per campaign (ADR-0010)
     )
     strategy = cls(job.get("params") or {})
     corr, pair = 0.0, None

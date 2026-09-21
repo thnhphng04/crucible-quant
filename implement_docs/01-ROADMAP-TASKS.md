@@ -164,10 +164,10 @@ No agent code in this phase (P1).
 - **Files:** `validation/n_eff.py`.
 - **Accept when:** on synthetic trials built from *k* independent sources plus noise, the estimate recovers *k* (± tolerance); appends a clustering run to `trial_clusters`; see O10. Done: [ADR-0009](adr/0009-n-eff-onc-with-significance-guard.md).
 
-### ☐ P1-06 Risk & Sizing
+### ✅ P1-06 Risk & Sizing
 - **Arch:** §3.4 (all), D7, D12.
 - **Files:** `core/sizing/vol_target.py`, `core/sizing/position_sizer.py`; delete `PlaceholderSizer`.
-- **Accept when:** **the ½-size test** — double both `vol_estimate` and ATR ⇒ size exactly halves when the stop cap does not bind; the stop cap binds as `min`, never as a multiplier; `round_to_lot` respects step/min/max; FX conversion to base currency; portfolio-level scaling back to `target_vol` with a leverage cap and IDM re-estimation.
+- **Accept when:** **the ½-size test** — double both `vol_estimate` and ATR ⇒ size exactly halves when the stop cap does not bind; the stop cap binds as `min`, never as a multiplier; `round_to_lot` respects step/min/max; FX conversion to base currency; portfolio-level scaling back to `target_vol` with a leverage cap and IDM re-estimation. Done: [ADR-0010](adr/0010-risk-sizing-in-the-execution-path.md); `PlaceholderSizer` deleted.
 
 ### ☐ P1-07 Portfolio construction
 - **Arch:** §3.2.1 steps 1–6, D9.

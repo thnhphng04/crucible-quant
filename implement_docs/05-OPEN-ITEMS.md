@@ -8,7 +8,6 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 |---|---|---|---|---|
 | O1 | **D4 — economic threshold** (`holdout_pass`) | First holdout opening, live | Before P1-10 is *used* (not built) | Arch §10. P1-10 refuses to open the holdout while it is unset, so building doesn't wait |
 | O9 | When to move the ledger from SQLite to Postgres | — | Phase 2 | Trigger: concurrent writers from the async pipeline (§3.1.10) cause lock contention in WAL mode |
-| O11 | `PlaceholderSizer` used in phase 0 before real sizing exists | — | P1-06 | Must be deleted by P1-06; a grep in P1-06's review |
 | O13 | Module-wise template: how named blocks `entry` / `exit` / `regime` map onto `indicators()` / `signal()` | Module-wise evolution (D16 ≠ `joint`) | Phase 2 | The parser and `evolve_scope` hashing already support named blocks (P0-05); the phase-0 template has one `joint` block |
 
 ## Closed
@@ -25,3 +24,4 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | O2 | `purgedcv` real API: does DSR take `N` and `V[SR]` separately? What PBO input/selection rule? License/version? | 0.1.6, MIT, pin `<0.2`; DSR takes `N` and `V[SR]` separately but only a returns series — DSR/PSR implemented ourselves from moments, PBO (`(n_configs, n_obs)`, IS-argmax Sharpe) and CPCV wrapped | [ADR-0007](adr/0007-purgedcv-wrap-vs-implement.md) |
 | O8 | Leaky oracle level 4 needs point-in-time data | a synthetic report published 3 bars after its event date but joined at the event date; real PIT data matters from phase 4 (equities) | [ADR-0005](adr/0005-leaky-oracles-and-dynamic-guardrail.md) |
 | O10 | ONC implementation: own code vs a library; silhouette-based cluster count on thousands of series may be slow | own ONC (scikit-learn k-means) + a significance guard so unrelated trials are never merged; O(n²) fine for hundreds, revisit in phase 2 | [ADR-0009](adr/0009-n-eff-onc-with-significance-guard.md) |
+| O11 | `PlaceholderSizer` used in phase 0 before real sizing exists | deleted; `RiskSizer` (execution) over `PositionSizer` (core); sizing constants locked in `derived.sizing` | [ADR-0010](adr/0010-risk-sizing-in-the-execution-path.md) |

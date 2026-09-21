@@ -13,10 +13,10 @@ Execution rules (ADR-0003):
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from nautilus_trader.backtest.engine import BacktestEngine
@@ -176,7 +176,12 @@ def to_nautilus_data(bars: Bars, instrument: CurrencyPair) -> tuple[list[Bar], l
     return out_bars, ticks
 
 
-Sizer = Callable[[Signal, float], float]  # (signal, price) -> target quantity in base units
+class TargetSizer(Protocol):
+    """Signal → target quantity in base units, given the closed-bar window and the account's
+    equity in the quote currency (the Risk layer, §3.4; :class:`~quantcrucible.execution.risk.
+    RiskSizer` in production)."""
+
+    def target(self, symbol: str, signal: Signal, window: Bars, equity: float) -> float: ...
 
 
 class BridgeConfig(StrategyConfig, frozen=True):
@@ -192,7 +197,7 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
         instruments: Mapping[str, CurrencyPair],
         bar_types: Mapping[str, BarType],
         timeframe: str,
-        sizer: Sizer,
+        sizer: TargetSizer,
         lookback: int,
         log: BridgeLog,
     ) -> None:
@@ -208,6 +213,18 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
         self._history: dict[str, list[tuple[int, float, float, float, float, float]]] = {
             s: [] for s in instruments
         }
+        self._last_close: dict[str, float] = {}
+
+    def _equity(self) -> float:
+        """Cash in the quote currency plus every open position marked at its last close."""
+        venue = next(iter(self._instruments.values())).id.venue
+        account = self.portfolio.account(venue)
+        cash = float(account.balance_total(USDT)) if account is not None else 0.0
+        held = sum(
+            float(self.portfolio.net_position(inst.id)) * self._last_close.get(sym, 0.0)
+            for sym, inst in self._instruments.items()
+        )
+        return cash + held
 
     def on_start(self) -> None:
         for bt in self._bar_types.values():
@@ -230,9 +247,13 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
             (bar.ts_event, float(bar.open), float(bar.high), float(bar.low), close,
              float(bar.volume))
         )  # fmt: skip
-        sig = step(self._strategy, self._window(symbol))
+        self._last_close[symbol] = close
+        window = self._window(symbol)
+        sig = step(self._strategy, window)
         self._record.signals[sig.direction] += 1
-        target = self._sizer(sig, close) if sig.direction == "long" else 0.0
+        target = self._sizer.target(symbol, sig, window, self._equity())
+        if sig.direction != "long":
+            target = 0.0  # spot, cash account: long or flat
         inst = self._instruments[symbol]
         current = float(self.portfolio.net_position(inst.id))
         self.cancel_all_orders(inst.id)  # the protective stop is re-issued every bar

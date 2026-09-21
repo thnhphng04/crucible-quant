@@ -44,7 +44,7 @@ TradingProject/
 │   │   ├── dsl.py, drift.py, patcher.py, pipeline.py, routing.py, scheduler.py, insights.py
 │   │   └── prompts/
 │   ├── holdout/                   evaluator_proc.py (tiến trình riêng), campaign.py    §4.2    P1-10
-│   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py       §3.5    P0-10
+│   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py, risk.py §3.5 P0-10, P1-06
 │       └── adapters/ssi/          adapter VN30F1M                                      §3.5    GĐ 6
 └── tests/                         phản chiếu src/quantcrucible/; e2e/ cho cổng giai đoạn
 ```

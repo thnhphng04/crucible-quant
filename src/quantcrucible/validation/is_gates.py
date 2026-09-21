@@ -39,6 +39,36 @@ def universe_bars(candidate: StrategyCandidate, ctx: GateContext) -> dict[str, B
     return {s: data[s] for s in candidate.universe}
 
 
+def risk_settings(lock: Mapping[str, Any]) -> dict[str, Any]:
+    """Sizing locked for the campaign: Group B (target vol, max risk, rebalance) + the lock's
+    ``derived.sizing`` (ADR-0010). A lock written before P1-06 has no sizing — refuse rather than
+    mix two sizing rules inside one campaign's trials."""
+    derived: Mapping[str, Any] = lock["derived"]
+    if "sizing" not in derived:
+        raise ValueError(
+            "this campaign's lock predates the Risk layer (no derived.sizing): its trials were "
+            "sized differently — open a new campaign"
+        )
+    research: Mapping[str, Any] = lock["research"]
+    return {
+        "target_vol": float(research["target_vol"]),
+        "max_risk_pct": float(research["max_risk_pct"]),
+        "rebalance": str(research["portfolio"]["rebalance"]),
+        **dict(derived["sizing"]),
+    }
+
+
+def backtest_options(lock: Mapping[str, Any], seed: int) -> dict[str, Any]:
+    """Everything a sandbox backtest job needs from the campaign lock: costs, lookback, sizing."""
+    derived: Mapping[str, Any] = lock["derived"]
+    return {
+        "costs": dict(derived["costs"]),
+        "lookback": int(derived.get("lookback", 400)),
+        "risk": risk_settings(lock),
+        "seed": seed,
+    }
+
+
 def span_years(bars: Bars) -> float:
     span = (bars.ts[-1] - bars.ts[0]) / np.timedelta64(1, "D")
     return float(span) / DAYS_PER_YEAR
@@ -73,13 +103,8 @@ class InSampleGate:
     def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
         runner: SandboxRunner = ctx.services["sandbox"]
         results_dir = Path(ctx.services["results_dir"])
-        derived: Mapping[str, Any] = ctx.lock["derived"]
         limits: Mapping[str, Any] = ctx.lock["research"]["constraints"]
-        options = {
-            "costs": dict(derived["costs"]),
-            "lookback": int(derived.get("lookback", 400)),
-            "seed": candidate.seed,
-        }
+        options = backtest_options(ctx.lock, candidate.seed)
         job = SandboxJob(
             "backtest", candidate.source, universe_bars(candidate, ctx), candidate.params, options
         )

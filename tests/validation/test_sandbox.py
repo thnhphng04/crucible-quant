@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,7 @@ import pytest
 from quantcrucible.core.strategy.base import generate_signals
 from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.execution.engine import run_backtest
+from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation import sandbox_runner
@@ -42,7 +44,8 @@ PARAMS = {"fast": 10, "slow": 50, "k_atr": 2.0}
 
 
 def job(source: str = ZOO, kind: str = "signals", n: int = 120) -> SandboxJob:
-    return SandboxJob(kind, source, {"BTC/USDT": make_bars(n)}, PARAMS, {"lookback": 400})
+    options = {"lookback": 400, "risk": asdict(RiskSettings())}
+    return SandboxJob(kind, source, {"BTC/USDT": make_bars(n)}, PARAMS, options)
 
 
 # ── unit: no Docker needed ────────────────────────────────────────────────

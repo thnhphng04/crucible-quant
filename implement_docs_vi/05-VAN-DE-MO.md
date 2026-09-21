@@ -8,7 +8,6 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 |---|---|---|---|---|
 | O1 | **D4 — ngưỡng kinh tế** (`holdout_pass`) | Lần mở holdout đầu tiên, live | Trước khi P1-10 được *dùng* (không phải khi xây) | Kiến trúc §10. P1-10 từ chối mở holdout khi giá trị này chưa đặt, nên việc xây không phải chờ |
 | O9 | Khi nào chuyển ledger từ SQLite sang Postgres | — | GĐ 2 | Dấu hiệu: nhiều tiến trình ghi đồng thời từ pipeline bất đồng bộ (§3.1.10) gây tranh chấp khóa ở chế độ WAL |
-| O11 | `PlaceholderSizer` dùng ở GĐ 0 khi chưa có sizing thật | — | P1-06 | Phải bị xóa ở P1-06; grep khi review P1-06 |
 | O13 | Template theo module: các block có tên `entry` / `exit` / `regime` ánh xạ vào `indicators()` / `signal()` thế nào | Tiến hóa theo module (D16 ≠ `joint`) | GĐ 2 | Bộ phân tích và cách hash theo `evolve_scope` đã hỗ trợ block có tên (P0-05); template của GĐ 0 chỉ có một block `joint` |
 
 ## Đã đóng
@@ -25,3 +24,4 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | O2 | API thật của `purgedcv`: DSR có nhận `N` và `V[SR]` riêng không? Đầu vào/quy tắc chọn của PBO là gì? License/phiên bản? | 0.1.6, MIT, ghim `<0.2`; DSR nhận `N` và `V[SR]` riêng nhưng chỉ nhận chuỗi lợi nhuận — DSR/PSR tự cài đặt từ moment, PBO (`(n_configs, n_obs)`, argmax Sharpe trên IS) và CPCV được bọc lại | [ADR-0007](adr/0007-purgedcv-boc-lai-hay-tu-cai-dat.md) |
 | O8 | Leaky oracle cấp 4 cần dữ liệu point-in-time | một báo cáo tổng hợp công bố 3 bar sau ngày sự kiện nhưng được ghép tại ngày sự kiện; dữ liệu PIT thật cần từ GĐ 4 (cổ phiếu) | [ADR-0005](adr/0005-leaky-oracle-va-guardrail-dong.md) |
 | O10 | Cài đặt ONC: tự viết hay dùng thư viện; chọn số cụm theo silhouette trên hàng nghìn chuỗi có thể chậm | tự viết ONC (k-means của scikit-learn) + bước bảo vệ ý nghĩa để không bao giờ gộp các trial không liên quan; O(n²) ổn với vài trăm, xem lại ở GĐ 2 | [ADR-0009](adr/0009-n-eff-onc-kem-kiem-dinh-y-nghia.md) |
+| O11 | `PlaceholderSizer` dùng ở GĐ 0 khi chưa có sizing thật | đã xoá; `RiskSizer` (execution) dựa trên `PositionSizer` (core); hằng số sizing khoá trong `derived.sizing` | [ADR-0010](adr/0010-risk-sizing-trong-duong-thuc-thi.md) |

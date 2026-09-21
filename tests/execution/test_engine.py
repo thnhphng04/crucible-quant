@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -13,8 +14,7 @@ from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
 
 from quantcrucible.core.strategy.base import FLAT, Bars, Features, FeatureView, Signal, Strategy
 from quantcrucible.core.zoo.ema_crossover import GeneratedStrategy
-from quantcrucible.execution import engine as engine_mod
-from quantcrucible.execution.engine import BacktestAbortedError, run_backtest
+from quantcrucible.execution.engine import BacktestAbortedError, BacktestResult, run_backtest
 from quantcrucible.execution.nautilus_bridge import CostModel, bar_type_for, build_engine
 from tests.factories import make_bars
 
@@ -53,12 +53,33 @@ class AlwaysShort(Strategy):
         return Signal("short", 1.0, 5.0)
 
 
+@dataclass(frozen=True)
+class FixedNotional:
+    """Test-only sizer: a fixed notional per instrument × strength. The execution mechanics
+    tested here (next-open fills, stops, costs) do not depend on the Risk layer, which has its
+    own tests (tests/core/sizing, tests/execution/test_risk.py)."""
+
+    notional: float
+
+    def target(self, symbol: str, signal: Signal, window: Bars, equity: float) -> float:
+        return self.notional * signal.strength / float(window.close[-1])
+
+
+def bt(
+    strategy: Strategy, bars_by_symbol: dict[str, Bars], gross: float = 0.5, **kw: Any
+) -> BacktestResult:
+    """run_backtest with a fixed notional of ``gross`` × cash, split across the symbols."""
+    cash = float(kw.get("initial_cash", 100_000.0))
+    sizer = FixedNotional(cash * gross / len(bars_by_symbol))
+    return run_backtest(strategy, bars_by_symbol, sizer=sizer, **kw)
+
+
 OPENS = [100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0]
 
 
 def test_signal_on_close_fills_at_next_open() -> None:
     bars = ladder(OPENS)
-    res = run_backtest(LongFrom(0), {"TEST/USDT": bars}, lookback=len(bars))
+    res = bt(LongFrom(0), {"TEST/USDT": bars}, lookback=len(bars))
     fill = res.fills[0]
     assert fill.side == "BUY"
     assert fill.price == pytest.approx(OPENS[1])  # not bar 0's close (102), not bar 1's close
@@ -68,7 +89,7 @@ def test_signal_on_close_fills_at_next_open() -> None:
 
 def test_next_bar_execution_entry_and_exit() -> None:
     bars = ladder(OPENS)
-    res = run_backtest(LongFrom(3, 6), {"TEST/USDT": bars}, lookback=len(bars))
+    res = bt(LongFrom(3, 6), {"TEST/USDT": bars}, lookback=len(bars))
     assert [(f.side, f.price) for f in res.fills] == [("BUY", OPENS[4]), ("SELL", OPENS[7])]
     assert res.n_trades == 1
     assert res.avg_holding_bars == 3
@@ -78,8 +99,8 @@ def test_golden_equity_and_costs() -> None:
     opens = OPENS[:4]  # the target drifts < 25% here, so the position is never resized
     bars = ladder(opens)
     costs = CostModel(fee_rate=0.001, slippage_bps=5.0)
-    res = run_backtest(LongFrom(0), {"TEST/USDT": bars}, costs=costs, initial_cash=100_000)
-    qty = 50_000 / 102.0  # PlaceholderSizer: 50% of cash / close of the signal bar
+    res = bt(LongFrom(0), {"TEST/USDT": bars}, costs=costs, initial_cash=100_000)
+    qty = 50_000 / 102.0  # FixedNotional: 50% of cash / close of the signal bar
     (fill,) = res.fills
     assert fill.qty == pytest.approx(qty, rel=1e-6)
     fee = qty * 110.0 * 0.0015
@@ -114,14 +135,14 @@ def test_protective_stop_fills_at_gap_open() -> None:
     bars = ladder([100.0, 100.0, 100.0, 80.0, 80.0, 80.0], wick=1.0, up=0.0)
     # entry at the open of bar 1; the stop (close - 3 = 97) is re-issued every bar; bar 3 gaps
     # down to 80, so the stop fills there — at the gap, not at its trigger price
-    res = run_backtest(LongFrom(0, stop_distance=3.0), {"TEST/USDT": bars})
+    res = bt(LongFrom(0, stop_distance=3.0), {"TEST/USDT": bars})
     assert [(f.side, f.price) for f in res.fills][:2] == [("BUY", 100.0), ("SELL", 80.0)]
     assert res.n_trades >= 1
 
 
 def test_short_signal_means_flat_on_spot() -> None:
     bars = ladder(OPENS)
-    res = run_backtest(AlwaysShort(), {"TEST/USDT": bars})
+    res = bt(AlwaysShort(), {"TEST/USDT": bars})
     assert res.fills == ()
     assert res.signals["short"] == len(bars)
     np.testing.assert_allclose(res.equity, 100_000.0)
@@ -130,23 +151,22 @@ def test_short_signal_means_flat_on_spot() -> None:
 def test_multi_symbol() -> None:
     a = make_bars(120, seed=1, symbol="AAA/USDT")
     b = make_bars(120, seed=2, symbol="BBB/USDT")
-    res = run_backtest(LongFrom(0), {"AAA/USDT": a, "BBB/USDT": b})
+    res = bt(LongFrom(0), {"AAA/USDT": a, "BBB/USDT": b})
     assert {f.symbol for f in res.fills} == {"AAA/USDT", "BBB/USDT"}
     assert res.denied_orders == 0
     assert len(res.equity) == 120
 
 
-def test_engine_stop_is_not_a_silent_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(engine_mod, "PLACEHOLDER_GROSS", 1.0)  # buying at a higher open overdraws
-    with pytest.raises(BacktestAbortedError):
-        run_backtest(LongFrom(0), {"TEST/USDT": ladder(OPENS)})
+def test_engine_stop_is_not_a_silent_truncation() -> None:
+    with pytest.raises(BacktestAbortedError):  # all cash at the close, filled at a higher open
+        bt(LongFrom(0), {"TEST/USDT": ladder(OPENS)}, gross=1.0)
 
 
 def test_mixed_timeframes_rejected() -> None:
     a = make_bars(10)
     b = Bars("B/USDT", "4h", a.ts, a.open, a.high, a.low, a.close, a.volume)
     with pytest.raises(ValueError, match="mixed timeframes"):
-        run_backtest(LongFrom(0), {"A/USDT": a, "B/USDT": b})
+        bt(LongFrom(0), {"A/USDT": a, "B/USDT": b})
 
 
 class _LimitCfg(StrategyConfig, frozen=True):
@@ -205,7 +225,7 @@ def test_round_trips_inside_one_bar_are_counted() -> None:
     """Entry at the open, stopped out in the same bar: the position is flat at every close, but
     each round trip is still a trade — with 0 bars held (gate ③'s min_holding_bars)."""
     bars = ladder([100.0] * 6, wick=5.0, up=0.0)  # every bar dips 5 below its open
-    res = run_backtest(LongFrom(0, stop_distance=3.0), {"TEST/USDT": bars})
+    res = bt(LongFrom(0, stop_distance=3.0), {"TEST/USDT": bars})
     buys = [f for f in res.fills if f.side == "BUY"]
     assert len(buys) >= 4  # (a stop may fill in parts: Nautilus splits a bar's volume in 4)
     assert res.n_trades == len(buys)
@@ -214,7 +234,7 @@ def test_round_trips_inside_one_bar_are_counted() -> None:
 
 def test_holding_counts_bars_between_entry_and_exit_fills() -> None:
     bars = ladder(OPENS)
-    res = run_backtest(LongFrom(3, 6), {"TEST/USDT": bars}, lookback=len(bars))
+    res = bt(LongFrom(3, 6), {"TEST/USDT": bars}, lookback=len(bars))
     # bought at bar 4's open, sold at bar 7's open: held through the closes of bars 4, 5, 6
     assert res.n_trades == 1 and res.avg_holding_bars == 3
 
@@ -230,7 +250,7 @@ def test_gap_in_data_is_not_a_look_ahead() -> None:
     """Bars close on Jan 2, 5, 6: the bar closing Jan 5 opened Jan 4. A signal at Jan 2's
     close must wait for Jan 4's open — not fill on Jan 2 at a price printed two days later."""
     bars = bars_closing_on([2, 5, 6], [100.0, 130.0, 140.0])
-    res = run_backtest(LongFrom(0), {"TEST/USDT": bars})
+    res = bt(LongFrom(0), {"TEST/USDT": bars})
     fill = res.fills[0]
     jan4 = int(np.datetime64("2020-01-04", "ns").astype(np.int64))
     jan5 = int(bars.ts[1].astype(np.int64))
@@ -243,4 +263,4 @@ def test_overlapping_bars_rejected() -> None:
     bad = Bars("TEST/USDT", "1d", bars.ts - np.arange(len(bars)) * np.timedelta64(1, "h"),
                bars.open, bars.high, bars.low, bars.close, bars.volume)  # fmt: skip
     with pytest.raises(ValueError, match="overlap"):
-        run_backtest(LongFrom(0), {"TEST/USDT": bad})
+        bt(LongFrom(0), {"TEST/USDT": bad})

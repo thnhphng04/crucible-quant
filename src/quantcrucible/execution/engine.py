@@ -1,7 +1,8 @@
 """Backtest runner — NautilusTrader underneath, the same path live trading will use (§3.5, P5).
 
 ``run_backtest`` returns the equity curve (marked to each bar's close), per-bar returns, fills and
-trade statistics. Sizing is :class:`PlaceholderSizer` until the Risk layer lands (P1-06, O11).
+trade statistics. Sizing is the Risk layer's :class:`~quantcrucible.execution.risk.RiskSizer`
+(§3.4, ADR-0010) unless a caller passes its own ``TargetSizer``.
 """
 
 from __future__ import annotations
@@ -13,32 +14,24 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from quantcrucible.core.strategy.base import Bars, Signal, Strategy
+from quantcrucible.core.strategy.base import Bars, Strategy
 from quantcrucible.data.source import timeframe_delta
 from quantcrucible.execution.nautilus_bridge import (
+    SIZE_PRECISION,
     BridgeLog,
     BridgeStrategy,
     CostModel,
     FillRecord,
+    TargetSizer,
     build_engine,
 )
+from quantcrucible.execution.risk import RiskSettings, RiskSizer
 
 _FLAT = 1e-12  # a |position| at or below this is flat
-PLACEHOLDER_GROSS = 0.5  # share of cash the placeholder sizer commits; the rest pays for gaps
 
 
 class BacktestAbortedError(RuntimeError):
     """The engine stopped before the last bar (e.g. the cash balance went negative)."""
-
-
-@dataclass(frozen=True, slots=True)
-class PlaceholderSizer:
-    """TEMPORARY (O11): fixed notional per instrument × strength. Deleted by P1-06."""
-
-    notional: float
-
-    def __call__(self, signal: Signal, price: float) -> float:
-        return self.notional * signal.strength / price if price > 0 else 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +86,8 @@ def run_backtest(
     initial_cash: float = 100_000.0,
     lookback: int = 400,
     seed: int = 0,
+    risk: RiskSettings | None = None,
+    sizer: TargetSizer | None = None,
 ) -> BacktestResult:
     if not bars_by_symbol:
         raise ValueError("no data")
@@ -105,7 +100,9 @@ def run_backtest(
         bars_by_symbol, exchange, costs, initial_cash, seed
     )
     log = BridgeLog()
-    sizer = PlaceholderSizer(initial_cash * PLACEHOLDER_GROSS / len(bars_by_symbol))
+    ppy = _periods_per_year(timeframe)
+    if sizer is None:
+        sizer = RiskSizer(list(bars_by_symbol), risk or RiskSettings(), ppy, 10.0**-SIZE_PRECISION)
     engine.add_strategy(
         BridgeStrategy(strategy, instruments, bar_types, timeframe, sizer, lookback, log)
     )
@@ -116,7 +113,7 @@ def run_backtest(
     expected = sum(len(b) for b in bars_by_symbol.values())
     if log.bars_seen != expected:  # Nautilus stops quietly; a truncated run must not pass as whole
         raise BacktestAbortedError(f"engine stopped after {log.bars_seen}/{expected} bars")
-    return _summarize(bars_by_symbol, log, initial_cash, _periods_per_year(timeframe))
+    return _summarize(bars_by_symbol, log, initial_cash, ppy)
 
 
 def _summarize(

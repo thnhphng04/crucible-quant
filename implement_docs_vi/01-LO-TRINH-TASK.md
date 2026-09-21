@@ -164,10 +164,10 @@ Không có code agent trong giai đoạn này (P1).
 - **File:** `validation/n_eff.py`.
 - **Nghiệm thu khi:** trên trial tổng hợp dựng từ *k* nguồn độc lập cộng nhiễu, ước lượng thu lại được *k* (± dung sai); ghi thêm một lần gom cụm vào `trial_clusters`; xem O10. Xong: [ADR-0009](adr/0009-n-eff-onc-kem-kiem-dinh-y-nghia.md).
 
-### ☐ P1-06 Risk & Sizing
+### ✅ P1-06 Risk & Sizing
 - **Kiến trúc:** §3.4 (toàn bộ), D7, D12.
 - **File:** `core/sizing/vol_target.py`, `core/sizing/position_sizer.py`; xóa `PlaceholderSizer`.
-- **Nghiệm thu khi:** **test ½ size** — nhân đôi cả `vol_estimate` và ATR ⇒ size giảm đúng một nửa khi trần stop không ràng buộc; trần stop tác động dưới dạng `min`, không bao giờ là hệ số nhân; `round_to_lot` tôn trọng bước/min/max; quy đổi FX về tiền tệ gốc; co giãn ở mức danh mục về lại `target_vol` với trần đòn bẩy và ước lượng lại IDM.
+- **Nghiệm thu khi:** **test ½ size** — nhân đôi cả `vol_estimate` và ATR ⇒ size giảm đúng một nửa khi trần stop không ràng buộc; trần stop tác động dưới dạng `min`, không bao giờ là hệ số nhân; `round_to_lot` tôn trọng bước/min/max; quy đổi FX về tiền tệ gốc; co giãn ở mức danh mục về lại `target_vol` với trần đòn bẩy và ước lượng lại IDM. Xong: [ADR-0010](adr/0010-risk-sizing-trong-duong-thuc-thi.md); đã xoá `PlaceholderSizer`.
 
 ### ☐ P1-07 Xây danh mục
 - **Kiến trúc:** §3.2.1 bước 1–6, D9.
