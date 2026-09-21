@@ -910,6 +910,8 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 └── tests/
 ```
 
+> 🆕 **Triển khai:** code nằm dưới `src/quantcrucible/` (src layout); `holdout/` ở gốc chỉ chứa dữ liệu, còn `evaluator_proc.py` nằm ở `src/quantcrucible/holdout/`. Xem [ADR-0001](../implement_docs/adr/0001-src-layout-and-holdout-split.md) và [cây thư mục cập nhật](../implement_docs/04-MODULE-MAP.md).
+
 ---
 
 ## 6. Tech stack

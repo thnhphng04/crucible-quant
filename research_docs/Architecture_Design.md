@@ -910,6 +910,8 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 └── tests/
 ```
 
+> 🆕 **Implementation:** code lives under `src/quantcrucible/` (src layout); the root `holdout/` holds data only, and `evaluator_proc.py` lives in `src/quantcrucible/holdout/`. See [ADR-0001](../implement_docs/adr/0001-src-layout-and-holdout-split.md) and the [up-to-date tree](../implement_docs/04-MODULE-MAP.md).
+
 ---
 
 ## 6. Tech stack

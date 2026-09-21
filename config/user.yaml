@@ -1,0 +1,33 @@
+# config/user.yaml — the ONLY file the user edits (Architecture §10.1).
+# Every key is optional; omitted ⇒ the default from the §10 decision register.
+# evaluation.lock.yaml is GENERATED from this file when a campaign opens — never edit it by hand.
+# Secrets (API keys) do NOT belong here — put them in .env (gitignored).
+
+operational:            # GROUP A — change any time, does not affect statistical results
+  live_capital: 10000           # D5
+  base_currency: USD            # D6
+  kill_switch_drawdown: 0.20    # D8
+  models:                       # D11 — recorded in generation_log.model_used
+    research: gpt-oss-120b
+    coding: null                # <mid-tier> — choose in phase 2
+    eval: null                  # <mid-tier> — choose in phase 2
+
+research:               # GROUP B — locked per campaign; mid-campaign changes are refused
+  target_vol: 0.10              # D7
+  max_risk_pct: 0.01            # D12
+  portfolio:                    # D9
+    max_corr: 0.5
+    max_strategies: 20
+    rebalance: monthly
+  pbo_grid: {values_per_param: 5, range: 0.30, max_configs: 200}   # D13
+  drift: {allow_below: 0.05, reject_at: 0.15, n_scenarios: 20}      # D10, D13
+  engines: {quantevolve: 0.5, simple_loop: 0.4, random: 0.1}       # D14
+  engine_mode: isolated         # D14 — isolated | collaborative
+  evolve_scope: joint           # D16 — entry | exit | regime | joint
+  constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
+  seeds: 3                      # D15
+  calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
+  gates:                        # may only be TIGHTENED, never loosened
+    dsr_min: 0.95               # hard floor: ≥ 0.95
+    pbo_max: 0.5                # hard floor: ≤ 0.5
+  holdout_pass: null            # REQUIRED before the first holdout opening — D4 (open). null ⇒ holdout cannot be opened

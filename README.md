@@ -2,7 +2,7 @@
 
 *An AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 
-> **Status:** design phase — no code yet. This repository currently holds the research and the architecture design.
+> **Status:** starting implementation (phase 0 — harness first). The design is done; the code under `src/` is a scaffold. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
 
 ## What it is
 
@@ -19,6 +19,7 @@ An LLM-driven research loop that generates **deterministic, rule-based trading s
 |---|---|---|
 | Start here | [research_docs/README.md](research_docs/README.md) | [research_docs_vi/README.md](research_docs_vi/README.md) |
 | Architecture | [research_docs/Architecture_Design.md](research_docs/Architecture_Design.md) | [research_docs_vi/Architecture_Design.md](research_docs_vi/Architecture_Design.md) |
+| Implementation | [implement_docs/README.md](implement_docs/README.md) | — (English only) |
 
 The Vietnamese documents are the original; the English ones are a 1:1 translation. The four raw source reports (`90`–`93`) exist in Vietnamese only.
 

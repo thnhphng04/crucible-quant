@@ -1,0 +1,142 @@
+[project]
+name = "quantcrucible"
+version = "0.0.1"
+description = "Crucible Quant — an AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# Keep runtime deps minimal. Heavy deps (nautilus_trader, optuna, purgedcv, ccxt, LLM SDKs…)
+# are added by the roadmap task that first needs them — see implement_docs/02-CONVENTIONS.md.
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "types-PyYAML",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quantcrucible"]
+
+# ─── ruff ────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = ["*.md"]  # docs hold illustrative, unverified snippets (§10) — never reformat
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",  # pycodestyle / pyflakes
+    "I",            # isort
+    "B",            # bugbear
+    "UP",           # pyupgrade
+    "SIM",          # simplify
+    "RUF",
+    "DTZ",          # naive datetimes are banned — UTC everywhere
+    "T20",          # no print(); use logging
+    "NPY",          # numpy: no legacy global RNG
+]
+ignore = ["RUF001", "RUF002", "RUF003"]  # docs/comments legitimately use Unicode (①, ⓪, ×, …)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+"scripts/**" = ["T20"]
+".claude/hooks/**" = ["T20"]
+
+# ─── mypy ────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests", "scripts"]
+mypy_path = "src"
+
+# ─── pytest ──────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running (full backtests, CPCV over many paths)",
+    "docker: needs a running Docker daemon (sandbox tests)",
+    "network: hits the network (data downloads) — never in CI",
+]
+
+# ─── import-linter: architectural boundaries (implement_docs/04-MODULE-MAP.md) ──
+[tool.importlinter]
+root_package = "quantcrucible"
+
+[[tool.importlinter.contracts]]
+name = "core is the bottom layer — it imports nothing above it"
+type = "forbidden"
+source_modules = ["quantcrucible.core"]
+forbidden_modules = [
+    "quantcrucible.agent",
+    "quantcrucible.validation",
+    "quantcrucible.execution",
+    "quantcrucible.ledger",
+    "quantcrucible.holdout",
+]
+
+[[tool.importlinter.contracts]]
+name = "validation never imports the agent layer"
+type = "forbidden"
+source_modules = ["quantcrucible.validation"]
+forbidden_modules = ["quantcrucible.agent"]
+
+[[tool.importlinter.contracts]]
+name = "execution depends on core only (backtest == live, P5)"
+type = "forbidden"
+source_modules = ["quantcrucible.execution"]
+forbidden_modules = ["quantcrucible.agent", "quantcrucible.validation", "quantcrucible.holdout"]
+
+[[tool.importlinter.contracts]]
+name = "holdout is reachable only through its own process (P6, §4.2 layer 3)"
+type = "forbidden"
+source_modules = [
+    "quantcrucible.agent",
+    "quantcrucible.validation",
+    "quantcrucible.core",
+    "quantcrucible.execution",
+    "quantcrucible.data",
+    "quantcrucible.config",
+]
+forbidden_modules = ["quantcrucible.holdout"]
+
+[[tool.importlinter.contracts]]
+name = "data sources stay below research and execution"
+type = "forbidden"
+source_modules = ["quantcrucible.data"]
+forbidden_modules = ["quantcrucible.agent", "quantcrucible.validation", "quantcrucible.execution"]
+
+[[tool.importlinter.contracts]]
+name = "ledger depends on nothing it records (P2)"
+type = "forbidden"
+source_modules = ["quantcrucible.ledger"]
+forbidden_modules = [
+    "quantcrucible.agent",
+    "quantcrucible.validation",
+    "quantcrucible.execution",
+    "quantcrucible.core",
+    "quantcrucible.data",
+    "quantcrucible.config",
+]
+
+[[tool.importlinter.contracts]]
+name = "config imports only the ledger"
+type = "forbidden"
+source_modules = ["quantcrucible.config"]
+forbidden_modules = [
+    "quantcrucible.agent",
+    "quantcrucible.validation",
+    "quantcrucible.execution",
+    "quantcrucible.core",
+    "quantcrucible.data",
+]

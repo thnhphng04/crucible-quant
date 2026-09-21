@@ -13,6 +13,7 @@ Project goal: build an AI system that develops trading strategies (agent loop: g
 | File | Contents |
 |---|---|
 | **[Architecture_Design.md](Architecture_Design.md)** | **System design.** Assumptions, 6 principles, layer-by-layer specs, data model, tech stack, 7-phase roadmap, risks. **Read §0 and §10 first** — they contain assumptions that need your confirmation |
+| **[../implement_docs/](../implement_docs/README.md)** | **How to build it** (English only): task list with acceptance tests, code conventions, invariant → test map, module map, ADRs. Coding-agent instructions: [../CLAUDE.md](../CLAUDE.md) |
 
 ## Synthesis & analysis
 
