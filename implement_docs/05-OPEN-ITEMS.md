@@ -9,8 +9,6 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | O1 | **D4 — economic threshold** (`holdout_pass`) | First holdout opening, live | Before P1-10 is *used* (not built) | Arch §10. P1-10 refuses to open the holdout while it is unset, so building doesn't wait |
 | O2 | `purgedcv` real API: does DSR take `N` and `V[SR]` separately? What PBO input/selection rule? License/version? | P1-02, P1-03, P1-04 | P1-01 | Arch §6 note. Fallback: implement DSR/PBO ourselves (~50 lines each) |
 | O3 | NautilusTrader: version to pin; Windows + Python 3.12 wheels; can `FillModel` express "fill only on trade-through" and fixed-tick slippage? | P0-10 | P0-10 (spike first) | If `FillModel` can't, subclass or post-process fills — record in an ADR |
-| O4 | `campaigns` has no column for the lock hash, though §10.1 says the lock is "hashed into the `campaigns` table" | P0-02, P0-03 | P0-02 | Proposal: add `lock_hash TEXT NOT NULL` (+ `holdout_lock_hash`). Record as ADR, then mirror into arch §4.2 (VI first) |
-| O5 | `trials.cluster_id` is written after insert (by the `N_eff` step), so `trials` can't be strictly append-only | P0-02 | P0-02 | Proposal: trigger allows an UPDATE that changes only `cluster_id`. Alternative: a separate append-only `trial_clusters(trial_id, run_ts, cluster_id)` table, which also keeps the history of each re-clustering — probably better; decide by ADR |
 | O6 | Docker on Windows: Docker Desktop + WSL2 mount paths, `--read-only` + tmpfs behaviour, startup cost per evaluation (thousands of runs) | P0-08 | P0-08 | If per-run startup is too slow: a long-lived sandbox container per worker with a fresh tmp dir per job — keep network/env/mount limits identical |
 | O7 | Holdout file protection on Windows (no `chmod 0400`) | P0-09 | ADR-0001 (approach), P0-09 (implement) | Read-only attribute + `icacls` deny-write for the user; the SHA256 in `holdout.lock` is the real tamper check |
 | O8 | Leaky oracle level 4 (late-published information) needs point-in-time data; free crypto data has none | P0-11 | P0-11 | Use a synthetic feature with a known publication delay; real PIT data matters from phase 4 (equities) |
@@ -23,3 +21,6 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | ID | Question | Answer | Where |
 |---|---|---|---|
 | — | Code layout vs arch §5 (`core/` at root, package `quantcrucible`); holdout code vs data in one folder | src layout; holdout data at root, code in the package | [ADR-0001](adr/0001-src-layout-and-holdout-split.md) |
+| O4 | `campaigns` had no column for the lock hash | `lock_hash` + `holdout_lock_hash` columns | [ADR-0002](adr/0002-ledger-and-config-additions.md) |
+| O5 | `trials.cluster_id` was written after insert | append-only `clustering_runs` + `trial_clusters`; no table accepts UPDATE | [ADR-0002](adr/0002-ledger-and-config-additions.md) |
+| O12 | Gates after ③ had nowhere to write their `GateResult` | append-only `gate_results` table | [ADR-0002](adr/0002-ledger-and-config-additions.md) |

@@ -503,7 +503,7 @@ class Gate(Protocol):
 | ⑦           | Dry-run                              | 5    | Danh mục                        |                                                                                             |
 | ⑧           | Live                                 | —   | Danh mục                        |                                                                                             |
 
-> Chú ý cột "cấp áp dụng": gate ⓪–④ lọc **từng ứng viên**, nhưng từ ⑤ trở đi đối tượng kiểm định là **danh mục** — vì output của hệ này là một rổ strategy ít tương quan, không phải một strategy.
+> Chú ý cột "cấp áp dụng": gate ⓪–④ lọc **từng ứng viên**, nhưng từ ⑤ trở đi đối tượng kiểm định là **danh mục** — vì output của hệ này là một rổ strategy ít tương quan, không phải một strategy. 🆕 **Thứ tự chạy theo bảng này, không theo `cost` tăng dần** — hai thứ mâu thuẫn nhau (② có cost 1 nhưng chạy sau ①b); xem [ADR-0002](../implement_docs_vi/adr/0002-bo-sung-ledger-va-config.md).
 
 **🆕 PBO kiểm định cái gì (v0.3).** CSCV cần một **ma trận hiệu suất** `T × M` của `M` cấu hình được so sánh *và* một **quy tắc chọn winner**. PBO đo xác suất quy tắc chọn đó chọn phải cấu hình mà OOS nằm dưới trung vị. Nó không phải thuộc tính của một chuỗi returns đơn lẻ. Với gate ④, ta định nghĩa:
 
@@ -744,10 +744,10 @@ CREATE TABLE trials (
     timeframe      TEXT NOT NULL,
     timerange      TEXT NOT NULL,
     cell_id        TEXT,
-    source         TEXT NOT NULL,        -- 🆕 evolution | param_opt — lần đánh giá của bộ tối ưu tham số CŨNG là trial
+    source         TEXT NOT NULL,        -- 🆕 evolution | param_opt | manual (viết tay) — lần đánh giá của bộ tối ưu tham số CŨNG là trial
     sharpe_is      REAL NOT NULL,        -- cần cho V[SR] giữa các trial
     returns_path   TEXT NOT NULL,        -- cần cho gom cụm N_eff và DSR
-    cluster_id     INTEGER,              -- gán bởi bước ước lượng N_eff
+    candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: nối với gate_results; cụm N_eff nằm ở trial_clusters
     gate_failed    TEXT,                 -- NULL nếu pass hết
     verdict        TEXT NOT NULL         -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer phủ quyết sau backtest)
 );
@@ -763,16 +763,49 @@ CREATE TABLE portfolio_variants (
     ts             TIMESTAMP NOT NULL
 );
 
+-- 🆕 ADR-0002: lịch sử gom cụm N_eff — thay cho trials.cluster_id (ledger không bao giờ UPDATE)
+CREATE TABLE clustering_runs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             TIMESTAMP NOT NULL,
+    method         TEXT NOT NULL,
+    n_trials       INTEGER NOT NULL
+);
+CREATE TABLE trial_clusters (
+    clustering_run INTEGER NOT NULL REFERENCES clustering_runs(id),
+    trial_id       INTEGER NOT NULL REFERENCES trials(id),
+    cluster_id     INTEGER NOT NULL,
+    PRIMARY KEY (clustering_run, trial_id)
+);
+
+-- 🆕 ADR-0002: mọi GateResult, pass hay fail — các gate sau ③ không sửa được dòng trials
+CREATE TABLE gate_results (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             TIMESTAMP NOT NULL,
+    campaign_id    TEXT NOT NULL,
+    candidate_id   TEXT NOT NULL,
+    strategy_hash  TEXT,
+    trial_id       INTEGER,              -- NULL trước gate ③
+    gate           TEXT NOT NULL,
+    passed         INTEGER NOT NULL,
+    value          REAL,
+    reason         TEXT NOT NULL,
+    detail         JSON
+);
+
 CREATE INDEX idx_hash ON trials(strategy_hash);
 CREATE INDEX idx_cell ON trials(cell_id);
 CREATE INDEX idx_gen_cell ON generation_log(cell_id);
 
 -- Đầu vào DSR: đếm trial thống kê, mọi verdict, mọi run, KHÔNG reset
 CREATE VIEW trial_stats AS
-SELECT COUNT(*)                                  AS n_raw,
-       COUNT(DISTINCT cluster_id)                AS n_eff,   -- NULL cluster ⇒ dùng n_raw
-       AVG(sharpe_is * sharpe_is) - AVG(sharpe_is) * AVG(sharpe_is) AS var_sr
-FROM trials;
+WITH latest AS (SELECT MAX(id) AS run FROM clustering_runs),
+     covered AS (SELECT trial_id, cluster_id FROM trial_clusters
+                 JOIN latest ON clustering_run = latest.run)
+SELECT (SELECT COUNT(*) FROM trials)                  AS n_raw,
+       (SELECT COUNT(DISTINCT cluster_id) FROM covered)
+         + (SELECT COUNT(*) FROM trials
+            WHERE id NOT IN (SELECT trial_id FROM covered)) AS n_eff,  -- trial chưa gom = một cụm riêng
+       (SELECT AVG(sharpe_is * sharpe_is) - AVG(sharpe_is) * AVG(sharpe_is) FROM trials) AS var_sr;
 
 CREATE VIEW total_portfolio_variants AS SELECT COUNT(*) AS n FROM portfolio_variants;
 
@@ -805,6 +838,8 @@ CREATE TABLE campaigns (
     campaign_id     TEXT PRIMARY KEY,
     started_at      TIMESTAMP NOT NULL,
     holdout_range   TEXT NOT NULL,        -- khoảng thời gian holdout của đợt này
+    lock_hash       TEXT NOT NULL,        -- 🆕 ADR-0002: SHA256 của evaluation.lock.yaml (§10.1)
+    holdout_lock_hash TEXT,               -- 🆕 ADR-0002: SHA256 của holdout.lock
     status          TEXT NOT NULL CHECK (status IN ('OPEN','FROZEN','BURNED'))
 );
 
@@ -1136,6 +1171,8 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D14 | Tỉ lệ ngân sách engine; chế độ | 🟡 Mặc định tạm | A 0.5 / B 0.4 / C 0.1; `isolated` ở GĐ 2 | §3.1.11 |
 | D15 | Số lệnh / thời gian nắm giữ tối thiểu; tương quan indicator tối đa; số seed | 🟡 Mặc định tạm | 30 lệnh trên IS / 1 bar; 0.9; 3 seed | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Phạm vi tiến hóa | 🟡 Mặc định tạm | `joint` (cả entry + exit + regime) | §3.3.1 |
+| D17 | Sharpe mục tiêu của MinBTL (gate ②) | 🟡 Mặc định tạm | 1.5 năm hóa; chỉ được hạ | ADR-0002. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial |
+| D18 | Dữ liệu nghiên cứu (GĐ 0) | 🟡 Mặc định tạm | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP theo USDT từ 2018; holdout = 12 tháng cuối | ADR-0002, §6.1 |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 
@@ -1175,6 +1212,8 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
+  minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
+  data: {exchange: binance, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 bước 5b
   gates:                        # chỉ được SIẾT, không được NỚI (xem bên dưới)
     dsr_min: 0.95
@@ -1188,7 +1227,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
 |---|---|---|
 | **Nhóm B khóa theo đợt** | Lúc mở đợt, `research:` được chép vào `evaluation.lock.yaml` + hash vào bảng `campaigns`. Sửa `user.yaml` giữa đợt ⇒ hệ thống **từ chối chạy** tới khi người dùng hoặc hoàn tác, hoặc mở đợt mới | Đổi tham số sau khi đã thấy kết quả = chọn lọc thêm một vòng mà ledger không đếm |
 | **Đổi tham số dựng danh mục = một phương án mới** | Trong cùng đợt, được phép thử cấu hình `portfolio:` khác **qua lệnh riêng**, mỗi lần ghi `portfolio_variants` và cộng vào `N` (§3.2.1) | Cho phép thử nghiệm nhưng bắt trả giá bằng DSR |
-| **Ngưỡng gate có sàn cứng** | `dsr_min` không được < 0.95, `pbo_max` không được > 0.5 — giá trị lỏng hơn bị từ chối lúc nạp config. Siết chặt hơn thì được | Đây là mức tối thiểu để kết quả có nghĩa thống kê; nới ra thì validation layer mất tác dụng |
+| **Ngưỡng gate có sàn cứng** | `dsr_min` không được < 0.95, `pbo_max` không được > 0.5, `minbtl_target_sharpe` không được > 1.5 — giá trị lỏng hơn bị từ chối lúc nạp config. Siết chặt hơn thì được | Đây là mức tối thiểu để kết quả có nghĩa thống kê; nới ra thì validation layer mất tác dụng |
 
 > Nhóm A đổi tự do vì nó không đi vào việc *chọn* strategy: vốn, đồng tiền base, kill-switch chỉ ảnh hưởng lúc live. Model routing có ảnh hưởng tìm kiếm nhưng không làm sai thống kê — nó được truy vết trong `generation_log`.
 

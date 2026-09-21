@@ -9,8 +9,6 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | O1 | **D4 — ngưỡng kinh tế** (`holdout_pass`) | Lần mở holdout đầu tiên, live | Trước khi P1-10 được *dùng* (không phải khi xây) | Kiến trúc §10. P1-10 từ chối mở holdout khi giá trị này chưa đặt, nên việc xây không phải chờ |
 | O2 | API thật của `purgedcv`: DSR có nhận `N` và `V[SR]` riêng không? Đầu vào/quy tắc chọn của PBO là gì? License/phiên bản? | P1-02, P1-03, P1-04 | P1-01 | Ghi chú §6 của kiến trúc. Dự phòng: tự cài đặt DSR/PBO (~50 dòng mỗi cái) |
 | O3 | NautilusTrader: ghim phiên bản nào; có wheel cho Windows + Python 3.12 không; `FillModel` có biểu diễn được "chỉ khớp khi giá đi xuyên qua" và trượt giá cố định theo tick không? | P0-10 | P0-10 (làm spike trước) | Nếu `FillModel` không làm được: kế thừa lớp hoặc hậu xử lý các lần khớp — ghi vào ADR |
-| O4 | `campaigns` không có cột cho hash của lock, dù §10.1 nói lock được "hash vào bảng `campaigns`" | P0-02, P0-03 | P0-02 | Đề xuất: thêm `lock_hash TEXT NOT NULL` (+ `holdout_lock_hash`). Ghi thành ADR, rồi phản ánh vào §4.2 của kiến trúc (VI trước) |
-| O5 | `trials.cluster_id` được ghi sau khi insert (bởi bước `N_eff`), nên `trials` không thể chỉ-ghi-thêm tuyệt đối | P0-02 | P0-02 | Đề xuất: trigger cho phép UPDATE chỉ thay đổi `cluster_id`. Phương án khác: bảng chỉ-ghi-thêm riêng `trial_clusters(trial_id, run_ts, cluster_id)`, giữ được cả lịch sử mỗi lần phân cụm lại — có lẽ tốt hơn; quyết định bằng ADR |
 | O6 | Docker trên Windows: đường dẫn mount của Docker Desktop + WSL2, hành vi `--read-only` + tmpfs, chi phí khởi động mỗi lần đánh giá (hàng nghìn lần chạy) | P0-08 | P0-08 | Nếu khởi động mỗi lần quá chậm: một container sandbox sống lâu cho mỗi worker, mỗi job một thư mục tmp mới — giữ nguyên giới hạn mạng/env/mount |
 | O7 | Bảo vệ file holdout trên Windows (không có `chmod 0400`) | P0-09 | ADR-0001 (cách làm), P0-09 (cài đặt) | Thuộc tính read-only + `icacls` cấm ghi với user; SHA256 trong `holdout.lock` mới là cơ chế phát hiện sửa đổi thực sự |
 | O8 | Leaky oracle cấp 4 (thông tin công bố trễ) cần dữ liệu point-in-time; dữ liệu crypto miễn phí không có | P0-11 | P0-11 | Dùng một feature tổng hợp với độ trễ công bố đã biết; dữ liệu PIT thật chỉ quan trọng từ GĐ 4 (cổ phiếu) |
@@ -23,3 +21,6 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | ID | Câu hỏi | Trả lời | Ở đâu |
 |---|---|---|---|
 | — | Bố cục code so với §5 của kiến trúc (`core/` ở gốc, package `quantcrucible`); code và dữ liệu holdout chung một thư mục | src layout; dữ liệu holdout ở gốc, code trong package | [ADR-0001](adr/0001-src-layout-va-tach-holdout.md) |
+| O4 | `campaigns` không có cột cho hash của lock | thêm cột `lock_hash` + `holdout_lock_hash` | [ADR-0002](adr/0002-bo-sung-ledger-va-config.md) |
+| O5 | `trials.cluster_id` bị ghi sau khi insert | bảng chỉ-ghi-thêm `clustering_runs` + `trial_clusters`; không bảng nào nhận UPDATE | [ADR-0002](adr/0002-bo-sung-ledger-va-config.md) |
+| O12 | Các gate sau ③ không có chỗ ghi `GateResult` | bảng chỉ-ghi-thêm `gate_results` | [ADR-0002](adr/0002-bo-sung-ledger-va-config.md) |
