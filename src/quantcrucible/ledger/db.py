@@ -301,6 +301,14 @@ class Ledger:
         latest = {r[0]: bool(r[1]) for r in rows}
         return {c for c, ok in latest.items() if ok}
 
+    def event_details(self, campaign_id: str) -> list[tuple[str, dict[str, Any] | None]]:
+        """(event, detail) for one campaign, in order."""
+        rows = self._conn.execute(
+            "SELECT event, detail FROM generation_log WHERE campaign_id = ? ORDER BY id",
+            (campaign_id,),
+        )
+        return [(r[0], json.loads(r[1]) if r[1] else None) for r in rows]
+
     def trial_verdicts(self, campaign_id: str) -> list[tuple[int, str, str]]:
         """(trial_id, candidate_id, verdict) for one campaign, in order."""
         rows = self._conn.execute(

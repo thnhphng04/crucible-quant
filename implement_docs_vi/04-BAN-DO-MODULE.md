@@ -39,6 +39,7 @@ TradingProject/
 │   │   ├── archive.py             kho source theo strategy_hash (chạy lại ở ⑥′, ⑥)      §3.2.1  P1-07
 │   │   ├── portfolio_dsr.py       pipeline danh mục ⑤ → ⑥′ + cổng ⑤                    §3.2    P1-08
 │   │   ├── robustness.py          cổng ⑥′: chi phí × 2 + nguồn thứ hai; chạy lại thành viên §3.2 P1-09
+│   │   ├── freeze.py              OPEN → FROZEN trên danh mục đã qua gate (phía research) §4.2  P1-10
 │   │   ├── temporal.py            theo dõi suy giảm                                    §5      sau
 │   │   └── oracles/               bộ leaky oracle, cấp 1–4                             07 §9   P0-11
 │   ├── agent/                     ── NƠI DUY NHẤT gọi LLM (A4) ──                      §3.1    GĐ 2

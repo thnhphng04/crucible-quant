@@ -26,7 +26,7 @@ from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.is_gates import backtest_options
 from quantcrucible.validation.portfolio import Member, Portfolio, combine, load_returns
 from quantcrucible.validation.portfolio_dsr import G6P_ROBUSTNESS
-from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner
+from quantcrucible.validation.sandbox import JobRunner, SandboxJob
 from quantcrucible.validation.statistical import portfolio_dsr
 
 COST_MULTIPLIER = 2.0
@@ -42,7 +42,7 @@ def rerun_member(
     source: str,
     bars: Mapping[str, Bars],
     options: Mapping[str, Any],
-    runner: SandboxRunner,
+    runner: JobRunner,
 ) -> pd.Series:
     """One member's per-bar returns on ``bars`` (its own universe), via the sandbox."""
     missing = [s for s in member.universe if s not in bars]
@@ -63,7 +63,7 @@ def rerun_portfolio(
     archive: StrategyArchive,
     bars: Mapping[str, Bars],
     options: Mapping[str, Any],
-    runner: SandboxRunner,
+    runner: JobRunner,
 ) -> pd.DataFrame:
     """Every member re-run; columns = member trial ids, inner-joined on common timestamps."""
     series = {
@@ -93,7 +93,7 @@ class RobustnessGate:
     cost = 4
 
     def check(self, portfolio: Portfolio, ctx: GateContext) -> GateResult:
-        runner: SandboxRunner = ctx.services["sandbox"]
+        runner: JobRunner = ctx.services["sandbox"]
         archive: StrategyArchive = ctx.services["archive"]
         dsr_min = float(ctx.lock["research"]["gates"]["dsr_min"])
         settings: Mapping[str, Any] = ctx.lock["derived"].get("robustness", {})

@@ -182,11 +182,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Kiến trúc:** §3.2 dòng ⑥′, §6.1 (dữ liệu hai tầng).
 - **Nghiệm thu khi:** chạy lại với phí × 2 và trượt giá × 2; Sharpe > 0 và DSR không giảm quá ngưỡng khóa theo campaign; chạy lại trên dữ liệu broker/nguồn thứ hai nằm trong quy tắc Sharpe giảm ≤ 30%. Xong: [ADR-0015](adr/0015-cong-6p-do-ben-chi-phi-va-nguon-thu-hai.md); nguồn thứ hai = Gate.io (`cli data-fetch-second`).
 
-### ☐ P1-10 Tiến trình đánh giá holdout + máy trạng thái campaign
+### ✅ P1-10 Tiến trình đánh giá holdout + máy trạng thái campaign
 - **Kiến trúc:** §4.2 (quy trình, 3 lớp), P6, D4.
 - **File:** `holdout/evaluator_proc.py` (điểm khởi chạy riêng), `holdout/campaign.py`.
 - **Chi tiết:** tiến trình riêng (CLI) chỉ nhận `portfolio_hash`; kiểm tra campaign đang `FROZEN`, `frozen_at < now`, hash `holdout.lock` khớp; từ chối nếu `holdout_pass` chưa đặt (D4); ghi `holdout_access`; in ra đúng `PASS` hoặc `FAIL`; chuyển campaign sang `BURNED`. Không module nào khác import `quantcrucible.holdout` (import-linter).
-- **Nghiệm thu khi:** test trên holdout **tổng hợp** trong thư mục tmp: mở lần hai báo lỗi; file holdout bị sửa ⇒ từ chối; đầu ra là một token; `sharpe_oos` được lưu nhưng không bao giờ in ra.
+- **Nghiệm thu khi:** test trên holdout **tổng hợp** trong thư mục tmp: mở lần hai báo lỗi; file holdout bị sửa ⇒ từ chối; đầu ra là một token; `sharpe_oos` được lưu nhưng không bao giờ in ra. Xong: [ADR-0016](adr/0016-bo-danh-gia-holdout-va-dong-bang-campaign.md); đóng băng nằm ở `validation/freeze.py` (CLI không được import package của bộ đánh giá); D4 vẫn mở — bộ đánh giá từ chối tới khi `holdout_pass` được đặt.
 - **Cần:** P0-02, P0-03, P0-09, P1-07.
 
 ### ☐ P1-11 Hiệu chỉnh (bước 5b)

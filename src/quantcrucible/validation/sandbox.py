@@ -22,7 +22,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.store import file_name, write_bars
@@ -75,6 +75,12 @@ class SandboxResult:
         if self.report and not self.ok:
             return str(self.report.get("error", "error"))
         return self.violation or ""
+
+
+class JobRunner(Protocol):
+    """What runs a :class:`SandboxJob` — :class:`SandboxRunner`, or a fake in tests."""
+
+    def run(self, job: SandboxJob) -> SandboxResult: ...
 
 
 def source_hash(root: Path) -> str:

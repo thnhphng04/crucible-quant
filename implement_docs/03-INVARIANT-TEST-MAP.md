@@ -15,8 +15,8 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-05 | Volatility enters size exactly once; stop is a `min` cap | P4, §3.4 | Code | `tests/core/sizing/test_position_sizer.py::test_half_size_when_vol_doubles`, `::test_stop_cap_is_min_not_multiplier`, `tests/execution/test_risk.py::test_half_size_through_the_risk_sizer` | P1-06 | ✅ |
 | INV-06 | Backtest ≡ live: execution depends on core only | P5, §3.5 | Lint | `lint-imports` ("execution depends on core only") | P0-01 | ✅ |
 | INV-07 | Holdout opened once per campaign | P6, §4.2 L1 | DB: `PRIMARY KEY (campaign_id)` | `tests/ledger/test_db.py::test_second_holdout_access_raises` | P0-02 | ✅ |
-| INV-08 | Holdout data tamper-evident and read-only | P6, §4.2 L2 | OS: read-only + `holdout.lock` hash | `tests/data/test_holdout_split.py::test_lock_hash_matches`, `tests/holdout/test_evaluator.py::test_tampered_holdout_refused` | P0-09, P1-10 | ◐ |
-| INV-09 | Holdout evaluated in its own process; returns PASS/FAIL only | P6, §4.2 L3 | OS (separate process) + Lint (nothing imports `holdout`) | `tests/holdout/test_evaluator.py::test_output_is_single_token`, `lint-imports` | P1-10 | ◐ |
+| INV-08 | Holdout data tamper-evident and read-only | P6, §4.2 L2 | OS: read-only + `holdout.lock` hash | `tests/data/test_holdout_split.py::test_lock_hash_matches`, `tests/holdout/test_evaluator.py::test_tampered_holdout_refused` | P0-09, P1-10 | ✅ |
+| INV-09 | Holdout evaluated in its own process; returns PASS/FAIL only | P6, §4.2 L3 | OS (separate process) + Lint (nothing imports `holdout`) | `tests/holdout/test_evaluator.py::test_output_is_single_token`, `lint-imports` | P1-10 | ✅ |
 | INV-10 | Research data loader never returns holdout-range bars | P6, §4.2 | Code | `tests/data/test_store.py::test_holdout_range_refused` | P0-09 | ✅ |
 | INV-11 | The coding agent cannot read holdout data or write the lock | P6, §10.1 | Claude Code hook | `tests/tooling/test_guard_paths.py` | P0-01 | ✅ |
 | INV-12 | No LLM at runtime: LLM SDKs only under `agent/` | A4 | Lint (AST test) | `tests/test_architecture_boundaries.py::test_llm_sdks_only_in_agent_layer` | P0-01 | ✅ |
@@ -29,7 +29,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-21 | Group B edited mid-campaign ⇒ refuse to run | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ✅ |
 | INV-22 | `evaluation.lock.yaml` is generated, read-only, hashed in `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ✅ |
 | INV-23 | Campaign status only `OPEN → FROZEN → BURNED` | §4.2 | DB trigger | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |
-| INV-24 | Holdout cannot be opened while `holdout_pass` (D4) is unset | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ☐ |
+| INV-24 | Holdout cannot be opened while `holdout_pass` (D4) is unset | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ✅ |
 
 ## Generated code & gates
 

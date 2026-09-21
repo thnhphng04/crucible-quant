@@ -30,6 +30,8 @@ class Event(StrEnum):
     GATE_ERROR = "GATE_ERROR"
     GATE_REJECT = "GATE_REJECT"
     CANDIDATE_SUBMITTED = "CANDIDATE_SUBMITTED"
+    CAMPAIGN_FROZEN = "CAMPAIGN_FROZEN"  # detail: portfolio_hash (ADR-0016)
+    HOLDOUT_OPENED = "HOLDOUT_OPENED"  # no numbers in detail — only in holdout_access
 
 
 @dataclass(frozen=True, slots=True)

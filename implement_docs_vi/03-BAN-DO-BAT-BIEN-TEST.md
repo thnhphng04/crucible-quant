@@ -15,8 +15,8 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-05 | Volatility đi vào size đúng một lần; stop là trần `min` | P4, §3.4 | Code | `tests/core/sizing/test_position_sizer.py::test_half_size_when_vol_doubles`, `::test_stop_cap_is_min_not_multiplier`, `tests/execution/test_risk.py::test_half_size_through_the_risk_sizer` | P1-06 | ✅ |
 | INV-06 | Backtest ≡ live: execution chỉ phụ thuộc core | P5, §3.5 | Lint | `lint-imports` ("execution depends on core only") | P0-01 | ✅ |
 | INV-07 | Holdout chỉ mở một lần mỗi campaign | P6, §4.2 L1 | DB: `PRIMARY KEY (campaign_id)` | `tests/ledger/test_db.py::test_second_holdout_access_raises` | P0-02 | ✅ |
-| INV-08 | Dữ liệu holdout phát hiện được việc sửa đổi và chỉ-đọc | P6, §4.2 L2 | OS: chỉ-đọc + hash `holdout.lock` | `tests/data/test_holdout_split.py::test_lock_hash_matches`, `tests/holdout/test_evaluator.py::test_tampered_holdout_refused` | P0-09, P1-10 | ◐ |
-| INV-09 | Holdout được đánh giá trong tiến trình riêng; chỉ trả PASS/FAIL | P6, §4.2 L3 | OS (tiến trình riêng) + Lint (không ai import `holdout`) | `tests/holdout/test_evaluator.py::test_output_is_single_token`, `lint-imports` | P1-10 | ◐ |
+| INV-08 | Dữ liệu holdout phát hiện được việc sửa đổi và chỉ-đọc | P6, §4.2 L2 | OS: chỉ-đọc + hash `holdout.lock` | `tests/data/test_holdout_split.py::test_lock_hash_matches`, `tests/holdout/test_evaluator.py::test_tampered_holdout_refused` | P0-09, P1-10 | ✅ |
+| INV-09 | Holdout được đánh giá trong tiến trình riêng; chỉ trả PASS/FAIL | P6, §4.2 L3 | OS (tiến trình riêng) + Lint (không ai import `holdout`) | `tests/holdout/test_evaluator.py::test_output_is_single_token`, `lint-imports` | P1-10 | ✅ |
 | INV-10 | Bộ nạp dữ liệu nghiên cứu không bao giờ trả bar trong khoảng holdout | P6, §4.2 | Code | `tests/data/test_store.py::test_holdout_range_refused` | P0-09 | ✅ |
 | INV-11 | Coding agent không thể đọc dữ liệu holdout hay ghi file lock | P6, §10.1 | Hook Claude Code | `tests/tooling/test_guard_paths.py` | P0-01 | ✅ |
 | INV-12 | Không có LLM lúc chạy: SDK LLM chỉ nằm dưới `agent/` | A4 | Lint (test AST) | `tests/test_architecture_boundaries.py::test_llm_sdks_only_in_agent_layer` | P0-01 | ✅ |
@@ -29,7 +29,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-21 | Sửa Nhóm B giữa campaign ⇒ từ chối chạy | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ✅ |
 | INV-22 | `evaluation.lock.yaml` được sinh tự động, chỉ-đọc, hash lưu trong `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ✅ |
 | INV-23 | Trạng thái campaign chỉ đi `OPEN → FROZEN → BURNED` | §4.2 | Trigger DB | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |
-| INV-24 | Không mở được holdout khi `holdout_pass` (D4) chưa đặt | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ☐ |
+| INV-24 | Không mở được holdout khi `holdout_pass` (D4) chưa đặt | §10.1, D4 | Code | `tests/holdout/test_evaluator.py::test_refuses_without_threshold` | P1-10 | ✅ |
 
 ## Code được sinh & các cổng
 

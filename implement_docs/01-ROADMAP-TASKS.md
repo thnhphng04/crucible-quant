@@ -182,11 +182,11 @@ No agent code in this phase (P1).
 - **Arch:** §3.2 row ⑥′, §6.1 (two-tier data).
 - **Accept when:** fees × 2 and slippage × 2 re-run; Sharpe > 0 and DSR within the campaign-locked drop; broker/second-source re-run within the 30% Sharpe-drop rule. Done: [ADR-0015](adr/0015-gate6p-robustness-costs-and-second-source.md); second source = Gate.io (`cli data-fetch-second`).
 
-### ☐ P1-10 Holdout evaluator process + campaign state machine
+### ✅ P1-10 Holdout evaluator process + campaign state machine
 - **Arch:** §4.2 (procedure, 3 layers), P6, D4.
 - **Files:** `holdout/evaluator_proc.py` (own entry point), `holdout/campaign.py`.
 - **Details:** separate process (CLI) that takes only `portfolio_hash`; checks campaign is `FROZEN`, `frozen_at < now`, `holdout.lock` hash matches; refuses if `holdout_pass` is unset (D4); writes `holdout_access`; prints exactly `PASS` or `FAIL`; moves the campaign to `BURNED`. Nothing else imports `quantcrucible.holdout` (import-linter).
-- **Accept when:** tests on a **synthetic** holdout in a tmp dir: second opening raises; tampered holdout file ⇒ refuse; output is one token; `sharpe_oos` is stored but never printed.
+- **Accept when:** tests on a **synthetic** holdout in a tmp dir: second opening raises; tampered holdout file ⇒ refuse; output is one token; `sharpe_oos` is stored but never printed. Done: [ADR-0016](adr/0016-holdout-evaluator-and-campaign-freeze.md); freeze lives in `validation/freeze.py` (the CLI may not import the evaluator package); D4 still open — the evaluator refuses until `holdout_pass` is set.
 - **Needs:** P0-02, P0-03, P0-09, P1-07.
 
 ### ☐ P1-11 Calibration (step 5b)

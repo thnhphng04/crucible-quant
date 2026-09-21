@@ -231,6 +231,9 @@ def record_variant(ledger: Ledger, portfolio: Portfolio, results_dir: Path) -> b
     p_hash = portfolio.portfolio_hash
     if any(v.portfolio_hash == p_hash for v in ledger.portfolio_variants()):
         return False
+    campaign = ledger.campaign(portfolio.campaign_id)
+    if campaign is None or campaign.status != "OPEN":
+        raise ValueError(f"campaign {portfolio.campaign_id} is not OPEN: no new portfolio variants")
     path = results_dir / "portfolios" / portfolio.campaign_id / f"{p_hash}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({"ts": portfolio.returns.index, "ret": portfolio.returns.to_numpy()}).to_parquet(

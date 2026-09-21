@@ -148,6 +148,9 @@ class GatePipeline:
     def run(self, candidate: StrategyCandidate, ctx: GateContext) -> PipelineOutcome:
         ledger = ctx.ledger
         c = candidate
+        campaign = ledger.campaign(c.campaign_id)
+        if campaign is not None and campaign.status != "OPEN":  # §4.2: nothing added once frozen
+            raise RuntimeError(f"campaign {c.campaign_id} is {campaign.status}: no new candidates")
         s_hash = c.strategy_hash
         archive = ctx.services.get("archive")  # StrategyArchive — later stages re-run members
         if archive is not None:
