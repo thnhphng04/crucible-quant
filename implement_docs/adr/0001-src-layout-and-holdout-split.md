@@ -16,7 +16,7 @@ Arch §5 puts `core/`, `agent/`, `validation/`, `holdout/` … at the repository
 
 1. **src layout:** all code lives under `src/quantcrucible/` with the same subtree as §5 (`core/`, `agent/`, `validation/`, `ledger/`, `execution/`, `holdout/`, plus `config/` for the loader and `data/` for `DataSource` implementations). Imports are `quantcrucible.core.strategy.base`, etc. The strategy template's fixed region imports from `quantcrucible.core…`.
 2. **Holdout split:**
-   - root `holdout/` + `holdout.lock` = **data only**; gitignored; never visible to research processes, the sandbox, or the coding agent (`.claude/hooks/guard_paths.py`);
+   - root `holdout/` = **data only**; gitignored; never visible to research processes, the sandbox, or the coding agent (`.claude/hooks/guard_paths.py`). Root `holdout.lock` holds only the range and SHA256 hashes (no prices) and **is committed to git** — a public, timestamped commitment that the holdout was not changed later (amended in P0-09);
    - `src/quantcrucible/holdout/` = **code** (`evaluator_proc.py`, `campaign.py`); nothing else imports it (import-linter).
 3. **Root data folders are anchored in `.gitignore`** (`/data/`, `/holdout/`, `/results/`) so the code packages `src/quantcrucible/data/` and `…/holdout/` are not ignored.
 4. **Read-only holdout on Windows:** set the read-only attribute and an `icacls` deny-write ACE for the current user; on POSIX, `chmod 0400`. Protection is best-effort at the OS level — the **SHA256 in `holdout.lock`** checked by the evaluator before every use is the actual tamper detection (§4.2 layer 2).

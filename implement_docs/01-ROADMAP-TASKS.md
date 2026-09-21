@@ -89,7 +89,7 @@ No agent code in this phase (P1).
 - **Accept when:** docker-marked tests prove: no network (socket connect fails), empty env, `holdout/`, `config/`, `ledger/` not visible, writes outside tmp fail, timeout kills, oversized output truncated.
 - **Needs:** P0-06. See [05](05-OPEN-ITEMS.md) O6 (Windows Docker specifics).
 
-### ☐ P0-09 Data layer + holdout carve-out
+### ✅ P0-09 Data layer + holdout carve-out
 - **Goal:** free crypto bars for research, with the holdout physically separated before any research touches the data.
 - **Arch:** §6.1 (`DataSource`), §4.2 (layer 2), A7.
 - **Files:** `data/source.py` (protocol), `data/ccxt_source.py`, `data/store.py` (parquet cache under root `data/`), `data/holdout_split.py`.

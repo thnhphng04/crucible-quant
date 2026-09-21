@@ -16,7 +16,7 @@
 
 1. **src layout:** toàn bộ code nằm dưới `src/quantcrucible/` với cây con giống §5 (`core/`, `agent/`, `validation/`, `ledger/`, `execution/`, `holdout/`, cộng `config/` cho bộ nạp cấu hình và `data/` cho các cài đặt `DataSource`). Import có dạng `quantcrucible.core.strategy.base`, v.v. Vùng cố định của template strategy import từ `quantcrucible.core…`.
 2. **Tách holdout:**
-   - `holdout/` + `holdout.lock` ở gốc = **chỉ dữ liệu**; gitignore; không bao giờ hiển thị với tiến trình nghiên cứu, sandbox hay coding agent (`.claude/hooks/guard_paths.py`);
+   - `holdout/` ở gốc = **chỉ dữ liệu**; gitignore; không bao giờ hiển thị với tiến trình nghiên cứu, sandbox hay coding agent (`.claude/hooks/guard_paths.py`). `holdout.lock` ở gốc chỉ chứa khoảng thời gian và hash SHA256 (không có giá) và **được commit vào git** — một cam kết công khai, có dấu thời gian, rằng holdout không bị sửa về sau (sửa đổi ở P0-09);
    - `src/quantcrucible/holdout/` = **code** (`evaluator_proc.py`, `campaign.py`); không module nào khác import nó (import-linter).
 3. **Các thư mục dữ liệu ở gốc được neo trong `.gitignore`** (`/data/`, `/holdout/`, `/results/`) để các package code `src/quantcrucible/data/` và `…/holdout/` không bị bỏ qua.
 4. **Holdout chỉ-đọc trên Windows:** đặt thuộc tính read-only và một ACE `icacls` cấm ghi cho user hiện tại; trên POSIX dùng `chmod 0400`. Bảo vệ ở mức OS chỉ là cố gắng tối đa — **SHA256 trong `holdout.lock`**, được tiến trình đánh giá kiểm tra trước mỗi lần dùng, mới là cơ chế phát hiện sửa đổi thực sự (§4.2 lớp 2).

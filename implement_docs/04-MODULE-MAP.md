@@ -16,6 +16,7 @@ TradingProject/
 ├── docker/                        sandbox image (planned, P0-08)
 ├── scripts/                       dev tooling (check_doc_mirror.py)
 ├── src/quantcrucible/
+│   ├── cli.py                     data-fetch (download + carve holdout), holdout-reharden  P0-09
 │   ├── config/                    loader, schema, campaign lock                        §10.1   P0-03
 │   ├── core/                      ── bottom layer ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
