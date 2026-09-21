@@ -81,11 +81,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test dạng bảng với ≥ 20 đoạn code độc hại/sai, mỗi đoạn bị loại với đúng lý do; EMA crossover đạt; leaky oracle cấp 1 (`shift(-1)`) bị loại **tại đây**.
 - **Cần:** P0-05, P0-06.
 
-### ☐ P0-08 Sandbox Docker
+### ✅ P0-08 Sandbox Docker
 - **Mục tiêu:** mọi code được sinh ra đều chạy cô lập.
 - **Kiến trúc:** §3.3.3.
 - **File:** `validation/sandbox.py`, `docker/sandbox.Dockerfile`, `tests/validation/test_sandbox.py` (marker `docker`).
-- **Chi tiết:** tương đương `docker run --rm --network none --read-only --tmpfs /tmp --memory … --cpus … --env-clear` (chỉ truyền `PYTHONPATH`); dữ liệu IS mount chỉ-đọc; đầu ra = một JSON `EvaluationReport`; stdout/stderr bị cắt ngắn; hết timeout thì container bị kill. Vi phạm → sự kiện `SANDBOX_VIOLATION`.
+- **Chi tiết:** tương đương `docker run --rm --network none --read-only --tmpfs /tmp --memory … --cpus … --env-clear` (`env -i`: môi trường rỗng — [ADR-0004](adr/0004-sandbox-docker.md)); dữ liệu IS mount chỉ-đọc; đầu ra = một JSON `EvaluationReport`; stdout/stderr bị cắt ngắn; hết timeout thì container bị kill. Vi phạm → sự kiện `SANDBOX_VIOLATION`.
 - **Nghiệm thu khi:** các test gắn marker docker chứng minh: không có mạng (kết nối socket thất bại), env rỗng, không thấy `holdout/`, `config/`, `ledger/`, ghi ra ngoài tmp thất bại, timeout thì bị kill, đầu ra quá lớn bị cắt.
 - **Cần:** P0-06. Xem [05](05-VAN-DE-MO.md) O6 (đặc thù Docker trên Windows).
 

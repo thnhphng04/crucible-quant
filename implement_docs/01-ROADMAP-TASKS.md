@@ -81,11 +81,11 @@ No agent code in this phase (P1).
 - **Accept when:** a table-driven test of ≥ 20 malicious/invalid snippets, each rejected with the right reason; the EMA crossover passes; leaky oracle level 1 (`shift(-1)`) is rejected **here**.
 - **Needs:** P0-05, P0-06.
 
-### ☐ P0-08 Docker sandbox
+### ✅ P0-08 Docker sandbox
 - **Goal:** all generated code runs isolated.
 - **Arch:** §3.3.3.
 - **Files:** `validation/sandbox.py`, `docker/sandbox.Dockerfile`, `tests/validation/test_sandbox.py` (marker `docker`).
-- **Details:** `docker run --rm --network none --read-only --tmpfs /tmp --memory … --cpus … --env-clear`-equivalent (pass only `PYTHONPATH`); IS data mounted read-only; output = one JSON `EvaluationReport`; stdout/stderr truncated; timeout kills the container. Violations → `SANDBOX_VIOLATION` event.
+- **Details:** `docker run --rm --network none --read-only --tmpfs /tmp --memory … --cpus … --env-clear`-equivalent (`env -i`: an empty environment — [ADR-0004](adr/0004-docker-sandbox.md)); IS data mounted read-only; output = one JSON `EvaluationReport`; stdout/stderr truncated; timeout kills the container. Violations → `SANDBOX_VIOLATION` event.
 - **Accept when:** docker-marked tests prove: no network (socket connect fails), empty env, `holdout/`, `config/`, `ledger/` not visible, writes outside tmp fail, timeout kills, oversized output truncated.
 - **Needs:** P0-06. See [05](05-OPEN-ITEMS.md) O6 (Windows Docker specifics).
 

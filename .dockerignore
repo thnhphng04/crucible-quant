@@ -1,0 +1,8 @@
+# Allow-list: the sandbox image sees the package sources and the lockfile, nothing else —
+# no data, results, ledger, config or lock files.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+**/__pycache__

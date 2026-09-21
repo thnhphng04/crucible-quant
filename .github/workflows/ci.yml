@@ -39,3 +39,21 @@ jobs:
 
       - name: Docs mirror (EN = VI 1:1, no broken links)
         run: uv run python scripts/check_doc_mirror.py
+
+  sandbox:
+    # Builds the sandbox image and proves its isolation with real containers (INV-36).
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Docker tests
+        run: uv run pytest -m docker -p no:cacheprovider
