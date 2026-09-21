@@ -1,16 +1,18 @@
-"""Gate ④ — CSCV + PBO over the candidate's pre-registered configuration set (Architecture §3.2,
-D13, ADR-0011).
+"""Gate ④ — CSCV + PBO, and CPCV, over the candidate's pre-registered configuration set
+(Architecture §3.2, D13, ADR-0011, ADR-0012).
 
 Configuration set = the candidate's own parameters + the parameter variants of the same strategy
 code already tried in this campaign (ledger) + the TUNABLE grid around the candidate's
-parameters, capped at ``pbo_grid.max_configs``. The grid configurations are *not* trials: they
-never replace the candidate's parameters, and their return matrix goes to ``results/pbo/`` and
-``gate_results`` only. PBO and the IS→OOS slope are private metrics (§3.3.2).
+parameters, capped at ``pbo_grid.max_configs``; the same return matrix feeds CPCV. The grid
+configurations are *not* trials: they never replace the candidate's parameters, and their
+matrix goes to ``results/pbo/`` and ``gate_results`` only. PBO, the IS→OOS slope and the
+CPCV-OOS Sharpe distribution are private metrics (§3.3.2).
 """
 
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -20,7 +22,9 @@ import pandas as pd
 
 from quantcrucible.core.strategy.template import parse
 from quantcrucible.core.strategy.tunable import pbo_grid
+from quantcrucible.data.source import timeframe_delta
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.validation.cpcv import cpcv
 from quantcrucible.validation.gates import G4_PBO, GateContext, GateResult, StrategyCandidate
 from quantcrucible.validation.is_gates import backtest_options, universe_bars
 from quantcrucible.validation.pbo import DEFAULT_SPLITS, pbo
@@ -30,6 +34,10 @@ from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_
 SECONDS_PER_CONFIG = 30.0  # sandbox budget for the grid job, per configuration (O14)
 
 Params = dict[str, float | int]
+
+
+def periods_per_year(timeframe: str) -> float:
+    return 365.0 * 86_400 / timeframe_delta(timeframe).total_seconds()  # crypto trades 24/7
 
 
 def _key(p: Mapping[str, float | int]) -> str:
@@ -108,11 +116,17 @@ class PboGate:
         frame.to_parquet(path, index=False)
         path.with_suffix(".configs.json").write_text(json.dumps(configs), encoding="utf-8")
         result = pbo(matrix, n_splits)
+        holding = list(out.get("avg_holding_bars", [])) or [1.0]
+        paths = cpcv(
+            matrix, pd.to_datetime(out["ts"]), periods_per_year(candidate.timeframe),
+            horizon_bars=max(1, math.ceil(float(holding[0]))),
+        )  # fmt: skip
         private = {
             "pbo": result.pbo,
             "pbo_slope": result.slope,
             "pbo_n_configs": float(result.n_configs),
             "pbo_n_combos": float(result.n_combos),
+            **paths.private_metrics(),
         }
         verdict = f"PBO {result.pbo:.3f} over {len(configs)} configurations (max {pbo_max:g})"
         return GateResult(
@@ -124,6 +138,8 @@ class PboGate:
                 "n_configs": len(configs), "n_variants": len(variants), "n_splits": n_splits,
                 "slope": result.slope, "matrix_path": str(path),
                 "n_trades": list(out.get("n_trades", [])),
+                "cpcv_path_sharpes": paths.path_sharpes.tolist(),
+                "cpcv_selected": list(paths.selected),
             },
             report=EvaluationReport.build(private=private),
         )  # fmt: skip

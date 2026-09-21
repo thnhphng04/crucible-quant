@@ -99,6 +99,7 @@ def _grid_backtest(
     costs = CostModel(**job.get("costs", {}))
     rows: list[list[float]] = []
     trades: list[int] = []
+    holding: list[float] = []
     ts: list[str] = []
     for params in job["grid"]:
         res = run_backtest(
@@ -113,8 +114,9 @@ def _grid_backtest(
         )
         rows.append(res.returns.tolist())
         trades.append(res.n_trades)
+        holding.append(res.avg_holding_bars)
         ts = [str(t) for t in res.ts[1:]]
-    return {"ts": ts, "returns": rows, "n_trades": trades}
+    return {"ts": ts, "returns": rows, "n_trades": trades, "avg_holding_bars": holding}
 
 
 JOBS: dict[str, Job] = {

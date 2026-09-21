@@ -32,6 +32,7 @@ TradingProject/
 │   │   ├── sandbox.py             bộ chạy Docker (host) + sandbox_runner.py (trong container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, PSR, DSR, portfolio_dsr                      §3.2    P0-12, P1-02
 │   │   ├── pbo.py, pbo_gate.py    CSCV/PBO (vector hoá) + tập cấu hình cổng ④           §3.2    P1-03
+│   │   ├── cpcv.py                CPCV (purge/embargo) + kiểm tra suy giảm IS→OOS       §3.2    P1-04
 │   │   ├── is_gates.py, run.py    cổng ② ③; pipeline GĐ 0 + `cli validate`             §3.2    P0-12
 │   │   ├── n_eff.py               phân cụm ONC → N_eff                                 §4.1    P1-05
 │   │   ├── portfolio.py           xây danh mục §3.2.1 + portfolio_hash                 §3.2.1  P1-07

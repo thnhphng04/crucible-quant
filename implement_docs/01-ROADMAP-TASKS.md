@@ -155,9 +155,9 @@ No agent code in this phase (P1).
 - **Accept when:** reproduces the Bailey et al. (2017) example; simulation tests — pure noise matrix ⇒ PBO ≈ 0.5 (not → 1), a planted-edge configuration ⇒ PBO → 0; the configuration set comes from the TUNABLE grid + ledger variants, capped at `M`; gate ④ rejects PBO ≥ `pbo_max`. Done: [ADR-0011](adr/0011-gate4-pbo-configuration-set-and-cscv.md).
 - **Needs:** P0-05, P1-01.
 
-### ☐ P1-04 CPCV with purging/embargo + IS→OOS curve
+### ✅ P1-04 CPCV with purging/embargo + IS→OOS curve
 - **Arch:** §3.2 (degradation curve), 07 §3.
-- **Accept when:** purging/embargo removes the overlapping observations on a hand-built fixture; CPCV-OOS median Sharpe goes into `EvaluationReport.private`, never `public`.
+- **Accept when:** purging/embargo removes the overlapping observations on a hand-built fixture; CPCV-OOS median Sharpe goes into `EvaluationReport.private`, never `public`. Done: [ADR-0012](adr/0012-cpcv-for-rule-based-strategies.md) — computed inside gate ④ from its matrix.
 
 ### ✅ P1-05 `N_eff` (ONC clustering)
 - **Arch:** §4.1 ("Estimating `N_eff`").

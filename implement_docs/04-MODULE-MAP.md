@@ -32,6 +32,7 @@ TradingProject/
 │   │   ├── sandbox.py             Docker runner (host) + sandbox_runner.py (in-container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, PSR, DSR, portfolio_dsr                      §3.2    P0-12, P1-02
 │   │   ├── pbo.py, pbo_gate.py    CSCV/PBO (vectorized) + gate ④ configuration set      §3.2    P1-03
+│   │   ├── cpcv.py                CPCV (purge/embargo) + IS→OOS degradation check       §3.2    P1-04
 │   │   ├── is_gates.py, run.py    gates ② ③; the phase-0 pipeline + `cli validate`     §3.2    P0-12
 │   │   ├── n_eff.py               ONC clustering → N_eff                               §4.1    P1-05
 │   │   ├── portfolio.py           §3.2.1 construction + portfolio_hash                 §3.2.1  P1-07

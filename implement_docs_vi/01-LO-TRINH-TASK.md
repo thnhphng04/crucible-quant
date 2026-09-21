@@ -155,9 +155,9 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** tái hiện ví dụ của Bailey et al. (2017); test mô phỏng — ma trận nhiễu thuần ⇒ PBO ≈ 0.5 (không → 1), một cấu hình được cài edge sẵn ⇒ PBO → 0; tập cấu hình lấy từ lưới TUNABLE + các biến thể trong ledger, giới hạn ở `M`; cổng ④ loại khi PBO ≥ `pbo_max`. Xong: [ADR-0011](adr/0011-cong-4-tap-cau-hinh-va-cscv.md).
 - **Cần:** P0-05, P1-01.
 
-### ☐ P1-04 CPCV có purging/embargo + đường cong IS→OOS
+### ✅ P1-04 CPCV có purging/embargo + đường cong IS→OOS
 - **Kiến trúc:** §3.2 (đường cong suy giảm), 07 §3.
-- **Nghiệm thu khi:** purging/embargo loại đúng các quan sát chồng lấn trên một fixture dựng tay; Sharpe trung vị CPCV-OOS đi vào `EvaluationReport.private`, không bao giờ vào `public`.
+- **Nghiệm thu khi:** purging/embargo loại đúng các quan sát chồng lấn trên một fixture dựng tay; Sharpe trung vị CPCV-OOS đi vào `EvaluationReport.private`, không bao giờ vào `public`. Xong: [ADR-0012](adr/0012-cpcv-cho-chien-luoc-theo-quy-tac.md) — tính trong gate ④ từ ma trận của nó.
 
 ### ✅ P1-05 `N_eff` (phân cụm ONC)
 - **Kiến trúc:** §4.1 ("Ước lượng `N_eff`").
