@@ -2,3 +2,5 @@
 *.pdf binary
 *.png binary
 *.parquet binary
+# The holdout lock is a hash commitment: keep its exact bytes so its SHA256 is stable
+holdout.lock -text
