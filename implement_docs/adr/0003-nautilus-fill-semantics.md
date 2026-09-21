@@ -37,3 +37,8 @@
 - **Post-process fills** (let Nautilus fill at the close, then re-price at the next open): rejected — the live path would differ from the backtest path (P5).
 - **Custom `FillModel` subclass with tick slippage:** rejected — it does not change when a bar-driven order reaches the book, and ticks mean little on crypto.
 - **Margin account to allow shorts now:** deferred — phase 0 only needs the harness to run one long-only reference strategy.
+
+## Amendment (2026-09-21, review of phase 0)
+
+- **Gaps in the data:** the open tick of bar t+1 is stamped 1 ns after that bar's own open time (`close − timeframe`), not 1 ns after bar t's close. With contiguous bars nothing changes; across a missing bar an order now waits for the next bar to open, instead of filling at bar t's close at a price printed later (look-ahead). Overlapping bars (spacing < timeframe) are refused. Test: `tests/execution/test_engine.py::test_gap_in_data_is_not_a_look_ahead`.
+- **Trades are counted from the fills,** in time order (flat → long → flat), not from positions at bar closes: an entry stopped out inside the same bar is a trade held 0 bars, which gate ③'s `min_trades` and `min_holding_bars` must see. Test: `::test_round_trips_inside_one_bar_are_counted`.

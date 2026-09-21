@@ -7,6 +7,7 @@ fall back to a default. Hard floors are enforced here, at load time.
 from __future__ import annotations
 
 import dataclasses
+import math
 import types
 from datetime import date
 from pathlib import Path
@@ -56,6 +57,8 @@ def _build(tp: Any, value: Any, where: str) -> Any:
     if tp is float:
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise ConfigError(f"{where}: expected a number, got {value!r}")
+        if not math.isfinite(value):  # NaN compares false with everything: it disables a gate
+            raise ConfigError(f"{where}: expected a finite number, got {value!r}")
         return float(value)
     if tp is str:
         if not isinstance(value, str):

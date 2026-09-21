@@ -199,3 +199,48 @@ def test_limit_touch_not_filled() -> None:
 
 def test_limit_traded_through_fills_at_limit() -> None:
     assert _limit_fills(116.0) == [116.0]
+
+
+def test_round_trips_inside_one_bar_are_counted() -> None:
+    """Entry at the open, stopped out in the same bar: the position is flat at every close, but
+    each round trip is still a trade — with 0 bars held (gate ③'s min_holding_bars)."""
+    bars = ladder([100.0] * 6, wick=5.0, up=0.0)  # every bar dips 5 below its open
+    res = run_backtest(LongFrom(0, stop_distance=3.0), {"TEST/USDT": bars})
+    buys = [f for f in res.fills if f.side == "BUY"]
+    assert len(buys) >= 4  # (a stop may fill in parts: Nautilus splits a bar's volume in 4)
+    assert res.n_trades == len(buys)
+    assert res.avg_holding_bars == 0.0
+
+
+def test_holding_counts_bars_between_entry_and_exit_fills() -> None:
+    bars = ladder(OPENS)
+    res = run_backtest(LongFrom(3, 6), {"TEST/USDT": bars}, lookback=len(bars))
+    # bought at bar 4's open, sold at bar 7's open: held through the closes of bars 4, 5, 6
+    assert res.n_trades == 1 and res.avg_holding_bars == 3
+
+
+def bars_closing_on(days: list[int], opens: list[float]) -> Bars:
+    """Daily bars closing at 00:00 on the given January 2020 days (gaps allowed)."""
+    o = np.asarray(opens, dtype=np.float64)
+    ts = np.array([np.datetime64(f"2020-01-{d:02d}", "ns") for d in days])
+    return Bars("TEST/USDT", "1d", ts, o, o + 5, o - 5, o + 2, np.full(len(o), 1_000.0))
+
+
+def test_gap_in_data_is_not_a_look_ahead() -> None:
+    """Bars close on Jan 2, 5, 6: the bar closing Jan 5 opened Jan 4. A signal at Jan 2's
+    close must wait for Jan 4's open — not fill on Jan 2 at a price printed two days later."""
+    bars = bars_closing_on([2, 5, 6], [100.0, 130.0, 140.0])
+    res = run_backtest(LongFrom(0), {"TEST/USDT": bars})
+    fill = res.fills[0]
+    jan4 = int(np.datetime64("2020-01-04", "ns").astype(np.int64))
+    jan5 = int(bars.ts[1].astype(np.int64))
+    assert fill.price == 130.0
+    assert jan4 < fill.ts < jan5
+
+
+def test_overlapping_bars_rejected() -> None:
+    bars = ladder(OPENS)
+    bad = Bars("TEST/USDT", "1d", bars.ts - np.arange(len(bars)) * np.timedelta64(1, "h"),
+               bars.open, bars.high, bars.low, bars.close, bars.volume)  # fmt: skip
+    with pytest.raises(ValueError, match="overlap"):
+        run_backtest(LongFrom(0), {"TEST/USDT": bad})

@@ -4,7 +4,8 @@ Execution rules (ADR-0003):
 
 * A signal computed on the CLOSED bar t executes at the OPEN of bar t+1. Nautilus fills an order
   submitted in ``on_bar`` at the bar's close, so every bar t+1 is preceded by a synthetic trade
-  tick at its open price, 1 ns after bar t closed, and orders carry 1 ns of latency.
+  tick at its open price, 1 ns after bar t+1 opened (= after bar t closed, unless the data has
+  a gap), and orders carry 1 ns of latency.
 * Limit orders fill only when price trades THROUGH the limit (``prob_fill_on_limit=0``).
 * Slippage is charged as extra taker fee (bps); crypto tick sizes make "1 tick" meaningless.
 * Spot venue, cash account: long or flat. A short signal means flat (counted, never traded).
@@ -36,6 +37,7 @@ from nautilus_trader.model.objects import Currency, Money, Price, Quantity
 from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
 
 from quantcrucible.core.strategy.base import Bars, Signal, Strategy, step
+from quantcrucible.data.source import timeframe_delta
 
 PRICE_PRECISION = 8
 SIZE_PRECISION = 8
@@ -125,9 +127,22 @@ def bar_type_for(instrument: CurrencyPair, timeframe: str) -> BarType:
 
 
 def to_nautilus_data(bars: Bars, instrument: CurrencyPair) -> tuple[list[Bar], list[TradeTick]]:
-    """Bars (stamped at close) + one synthetic open tick before every bar but the first."""
+    """Bars (stamped at close) + one synthetic open tick before every bar but the first.
+
+    The tick sits 1 ns after the bar's own OPEN time (close − timeframe). With contiguous data
+    that is 1 ns after the previous close; across a gap in the data, an order waits for the
+    next bar to actually open instead of filling early at a price printed later.
+    """
     bt = bar_type_for(instrument, bars.timeframe)
     ts = bars.ts.astype("datetime64[ns]").astype(np.int64)
+    period = int(timeframe_delta(bars.timeframe).total_seconds() * 1e9)
+    overlap = np.flatnonzero(np.diff(ts) < period)
+    if len(overlap):
+        i = int(overlap[0])
+        raise ValueError(
+            f"{bars.symbol}: bars closing at {bars.ts[i]} and {bars.ts[i + 1]} overlap"
+            f" (timeframe {bars.timeframe})"
+        )
     out_bars: list[Bar] = []
     ticks: list[TradeTick] = []
     volume_cap = 10.0**9
@@ -146,7 +161,7 @@ def to_nautilus_data(bars: Bars, instrument: CurrencyPair) -> tuple[list[Bar], l
             )
         )
         if i > 0:
-            t_open = int(ts[i - 1]) + OPEN_TICK_OFFSET_NS
+            t_open = int(ts[i]) - period + OPEN_TICK_OFFSET_NS
             ticks.append(
                 TradeTick(
                     instrument.id,

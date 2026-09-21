@@ -37,3 +37,8 @@
 - **Hậu xử lý lần khớp** (để Nautilus khớp ở giá đóng rồi định giá lại theo giá mở kế tiếp): bác bỏ — đường live sẽ khác đường backtest (P5).
 - **Lớp con `FillModel` tuỳ biến có trượt giá theo tick:** bác bỏ — không thay đổi thời điểm lệnh do bar kích hoạt đến sổ lệnh, và tick ít ý nghĩa với crypto.
 - **Tài khoản margin để cho phép short ngay:** hoãn — GĐ 0 chỉ cần harness chạy một strategy tham chiếu chỉ-long.
+
+## Sửa đổi (2026-09-21, review GĐ 0)
+
+- **Khoảng trống trong dữ liệu:** tick mở cửa của bar t+1 được gắn 1 ns sau thời điểm mở của chính bar đó (`close − timeframe`), không phải 1 ns sau khi bar t đóng. Với bar liên tục thì không gì thay đổi; khi thiếu bar, lệnh giờ chờ bar kế tiếp mở cửa, thay vì khớp lúc bar t đóng ở một giá được in ra sau đó (look-ahead). Bar chồng lấn (khoảng cách < timeframe) bị từ chối. Test: `tests/execution/test_engine.py::test_gap_in_data_is_not_a_look_ahead`.
+- **Trade được đếm từ các lần khớp,** theo thứ tự thời gian (flat → long → flat), không từ vị thế tại giá đóng các bar: một lệnh vào bị stop ngay trong cùng bar vẫn là một trade giữ 0 bar, điều mà `min_trades` và `min_holding_bars` của gate ③ phải thấy. Test: `::test_round_trips_inside_one_bar_are_counted`.

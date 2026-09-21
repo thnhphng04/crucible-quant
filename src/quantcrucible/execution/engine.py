@@ -23,6 +23,7 @@ from quantcrucible.execution.nautilus_bridge import (
     build_engine,
 )
 
+_FLAT = 1e-12  # a |position| at or below this is flat
 PLACEHOLDER_GROSS = 0.5  # share of cash the placeholder sizer commits; the rest pays for gaps
 
 
@@ -46,7 +47,7 @@ class BacktestResult:
     equity: npt.NDArray[np.float64]
     returns: npt.NDArray[np.float64]  # per bar, len(ts) - 1
     fills: tuple[FillRecord, ...]
-    n_trades: int  # entries from flat
+    n_trades: int  # round trips from flat, counted from the fills
     avg_holding_bars: float
     turnover: float  # traded notional / mean equity, annualized
     signals: Mapping[str, int]
@@ -144,12 +145,9 @@ def _summarize(
             cash[k:] -= signed * f.price + f.commission
             traded += f.qty * f.price
         equity += position * np.nan_to_num(closes)
-        in_pos = position > 1e-12
-        entries = np.flatnonzero(in_pos & ~np.concatenate(([False], in_pos[:-1])))
-        n_trades += len(entries)
-        for e in entries:
-            exits = np.flatnonzero(~in_pos[e:])
-            holding.append(int(exits[0]) if len(exits) else len(ts) - int(e))
+        trades = _round_trips(sym_fills, ts_ns)
+        n_trades += len(trades)
+        holding += trades
     equity += cash
     returns = equity[1:] / equity[:-1] - 1.0 if len(equity) > 1 else np.zeros(0)
     years = max(len(ts) / ppy, 1e-9)
@@ -166,6 +164,28 @@ def _summarize(
         denied_orders=log.denied_orders,
         periods_per_year=ppy,
     )
+
+
+def _round_trips(fills: list[FillRecord], ts_ns: npt.NDArray[np.int64]) -> list[int]:
+    """Bars held by each trade, walking the fills in time order (flat → long → flat).
+
+    Taken from the fills, not from positions at bar closes: an entry stopped out inside the
+    same bar is a trade too, held 0 bars. A fill belongs to the first bar closing at or after
+    it; a trade still open at the end is held until the last bar.
+    """
+    held: list[int] = []
+    position, entry = 0.0, -1
+    for f in fills:
+        k = int(np.searchsorted(ts_ns, f.ts, side="left"))
+        before = position
+        position += f.qty if f.side == "BUY" else -f.qty
+        if before <= _FLAT < position:
+            entry = k
+        elif before > _FLAT >= position:
+            held.append(k - entry)
+    if position > _FLAT:
+        held.append(len(ts_ns) - entry)
+    return held
 
 
 def _ffill(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:

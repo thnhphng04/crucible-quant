@@ -29,3 +29,7 @@ Khi xây ledger mới lộ ra các lỗ hổng trong DDL của kiến trúc. §1
 
 - **Trigger chỉ cho UPDATE `trials.cluster_id`** — người dùng loại: mất lịch sử gom cụm và làm yếu nguyên tắc "không bao giờ UPDATE".
 - **Chỉ ghi dòng `trials` sau gate cuối cùng của ứng viên** — loại: nếu crash giữa ③ và ④ sẽ mất một trial, làm `N` bị đếm thiếu.
+
+## Sửa đổi (2026-09-21, review GĐ 0)
+
+- **Schema ledger v2 — cấm REPLACE.** `INSERT OR REPLACE` / `REPLACE` xoá dòng cũ mà không kích hoạt trigger DELETE (SQLite chỉ chạy chúng trên lần xoá ngầm đó khi bật `recursive_triggers`, điều mà một raw connection tự quyết), nên `holdout_range` và `lock_hash` của campaign có thể bị ghi đè. Giờ mọi bảng có trigger `BEFORE INSERT` huỷ lệnh khi khoá đã tồn tại; nó cũng chặn upsert. `Ledger.open` áp dụng các script migration có đánh số theo thứ tự (`schema.sql`, `migration_002_no_replace.sql`) và bật `recursive_triggers` làm lớp thứ hai. Test: `tests/ledger/test_db.py::test_replace_rejected_by_sql`, `::test_upsert_cannot_rewrite_a_campaign`, `::test_v1_ledger_is_migrated`.

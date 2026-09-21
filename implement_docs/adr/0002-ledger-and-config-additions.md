@@ -29,3 +29,7 @@ Building the ledger exposed gaps in the arch DDL. §10.1 says the lock is hashed
 
 - **Trigger allowing UPDATE of `trials.cluster_id` only** — rejected by the user: loses clustering history and weakens "never UPDATE".
 - **Write the `trials` row only after the last per-candidate gate** — rejected: a crash between ③ and ④ would lose a trial, biasing `N` downward.
+
+## Amendment (2026-09-21, review of phase 0)
+
+- **Ledger schema v2 — no REPLACE.** `INSERT OR REPLACE` / `REPLACE` deleted the old row without firing the DELETE triggers (SQLite runs them on that implicit delete only with `recursive_triggers` on, which a raw connection controls), so a campaign's `holdout_range` and `lock_hash` could be overwritten. Every table now has a `BEFORE INSERT` trigger that aborts when the key already exists; it also stops upserts. `Ledger.open` applies versioned migration scripts in order (`schema.sql`, `migration_002_no_replace.sql`) and turns `recursive_triggers` on as a second layer. Tests: `tests/ledger/test_db.py::test_replace_rejected_by_sql`, `::test_upsert_cannot_rewrite_a_campaign`, `::test_v1_ledger_is_migrated`.

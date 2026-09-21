@@ -248,8 +248,9 @@ def test_docker_timeout_kills(image: str) -> None:
     res = run(image, "while True:\n    pass\n", SandboxLimits(timeout_s=5))
     assert res.timed_out and res.violation == TIMEOUT and not res.ok
     assert res.elapsed_s < 40
-    left = subprocess.run(
-        ["docker", "ps", "-aq", "--filter", f"ancestor={image}"],
+    assert res.container.startswith("qc-sandbox-")
+    left = subprocess.run(  # only this job's container: other runs may share the image
+        ["docker", "ps", "-aq", "--filter", f"name=^/{res.container}$"],
         capture_output=True, text=True, check=True,
     ).stdout.split()  # fmt: skip
     assert left == []
