@@ -169,10 +169,10 @@ No agent code in this phase (P1).
 - **Files:** `core/sizing/vol_target.py`, `core/sizing/position_sizer.py`; delete `PlaceholderSizer`.
 - **Accept when:** **the ½-size test** — double both `vol_estimate` and ATR ⇒ size exactly halves when the stop cap does not bind; the stop cap binds as `min`, never as a multiplier; `round_to_lot` respects step/min/max; FX conversion to base currency; portfolio-level scaling back to `target_vol` with a leverage cap and IDM re-estimation. Done: [ADR-0010](adr/0010-risk-sizing-in-the-execution-path.md); `PlaceholderSizer` deleted.
 
-### ☐ P1-07 Portfolio construction
+### ✅ P1-07 Portfolio construction
 - **Arch:** §3.2.1 steps 1–6, D9.
 - **Files:** `validation/portfolio.py`.
-- **Accept when:** each step unit-tested on a fixture (one per cell, `|ρ|` filter in DSR-rank order, cap K, naive risk parity, monthly rebalance); the `portfolio_hash` is deterministic and changes with any member/weight/rule change; each built portfolio is a `portfolio_variants` row.
+- **Accept when:** each step unit-tested on a fixture (one per cell, `|ρ|` filter in DSR-rank order, cap K, naive risk parity, monthly rebalance); the `portfolio_hash` is deterministic and changes with any member/weight/rule change; each built portfolio is a `portfolio_variants` row. Done: [ADR-0013](adr/0013-portfolio-construction-and-strategy-archive.md).
 
 ### ☐ P1-08 Gate ⑤ — portfolio DSR
 - **Arch:** §3.2 row ⑤, §3.1.6 DSR box, §4.1.

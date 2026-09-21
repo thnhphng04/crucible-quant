@@ -196,6 +196,31 @@ def test_trials_read_back(ledger: Ledger) -> None:
     assert [r.candidate_id for r in ledger.trials("c2")] == ["b"]
 
 
+def test_portfolio_variants_and_holdout_read_back(ledger: Ledger) -> None:
+    v = PortfolioVariant("p1", "c1", {"k": 20}, [{"h": "x", "w": 1.0}], 1.2, "r.parquet")
+    ledger.record_portfolio_variant(v)
+    (back,) = ledger.portfolio_variants("c1")
+    assert (back.portfolio_hash, back.rule_config, back.members) == ("p1", {"k": 20}, v.members)
+    assert ledger.portfolio_variants("nope") == []
+    assert ledger.holdout_access("c1") is None
+    ledger.transition("c1", "FROZEN")
+    now = datetime.now(UTC)
+    ledger.record_holdout_access(
+        HoldoutAccess("c1", "p1", now - timedelta(seconds=1), now, "2025/2026", "PASS", 0.9)
+    )
+    got = ledger.holdout_access("c1")
+    assert got is not None and got.verdict == "PASS" and got.sharpe_oos == 0.9
+
+
+def test_gate_result_details(ledger: Ledger) -> None:
+    ledger.record_gate_result(
+        GateResultRecord(campaign_id="c1", candidate_id="a", gate="g4_pbo", passed=True,
+                         reason="x", detail={"n": 1})
+    )  # fmt: skip
+    assert ledger.gate_result_details("a", "g4_pbo") == [{"n": 1}]
+    assert ledger.gate_result_details("a", "g3_is") == []
+
+
 def test_passed_gate_uses_latest_result(ledger: Ledger) -> None:
     def result(cand: str, passed: bool) -> None:
         ledger.record_gate_result(

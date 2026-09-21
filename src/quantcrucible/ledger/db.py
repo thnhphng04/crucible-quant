@@ -253,6 +253,44 @@ class Ledger:
             for r in rows
         ]  # fmt: skip
 
+    def portfolio_variants(self, campaign_id: str | None = None) -> list[PortfolioVariant]:
+        sql = (
+            "SELECT portfolio_hash, campaign_id, rule_config, members, sharpe_is, returns_path, ts"
+            " FROM portfolio_variants"
+        )
+        args: tuple[Any, ...] = ()
+        if campaign_id is not None:
+            sql += " WHERE campaign_id = ?"
+            args = (campaign_id,)
+        return [
+            PortfolioVariant(
+                r[0], r[1], json.loads(r[2]), json.loads(r[3]), r[4], r[5],
+                datetime.fromisoformat(r[6]),
+            )
+            for r in self._conn.execute(sql + " ORDER BY rowid", args)
+        ]  # fmt: skip
+
+    def holdout_access(self, campaign_id: str) -> HoldoutAccess | None:
+        row = self._conn.execute(
+            "SELECT campaign_id, portfolio_hash, frozen_at, accessed_at, timerange, verdict,"
+            " sharpe_oos FROM holdout_access WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return HoldoutAccess(
+            row[0], row[1], datetime.fromisoformat(row[2]), datetime.fromisoformat(row[3]),
+            row[4], row[5], row[6],
+        )  # fmt: skip
+
+    def gate_result_details(self, candidate_id: str, gate: str) -> list[dict[str, Any]]:
+        """``detail`` of every result at ``gate`` for one candidate (or portfolio), in order."""
+        rows = self._conn.execute(
+            "SELECT detail FROM gate_results WHERE candidate_id = ? AND gate = ? ORDER BY id",
+            (candidate_id, gate),
+        )
+        return [json.loads(r[0]) if r[0] else {} for r in rows]
+
     def passed_gate(self, campaign_id: str, gate: str) -> set[str]:
         """Candidate ids whose latest result at ``gate`` in ``campaign_id`` is a pass."""
         rows = self._conn.execute(

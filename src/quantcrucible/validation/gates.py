@@ -149,6 +149,9 @@ class GatePipeline:
         ledger = ctx.ledger
         c = candidate
         s_hash = c.strategy_hash
+        archive = ctx.services.get("archive")  # StrategyArchive — later stages re-run members
+        if archive is not None:
+            archive.put(c.source)
         ledger.log_event(self._event(c, Event.CANDIDATE_SUBMITTED, s_hash))
         results: list[GateResult] = []
         trial_id: int | None = None

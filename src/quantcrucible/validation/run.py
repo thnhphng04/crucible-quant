@@ -26,6 +26,7 @@ from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.data.holdout_split import read_holdout_lock
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import (
     GateContext,
     GatePipeline,
@@ -119,6 +120,11 @@ def run_candidate(
     results_dir: Path,
     pipeline: GatePipeline | None = None,
 ) -> PipelineOutcome:
-    services = {"sandbox": sandbox, "is_data": dict(is_data), "results_dir": results_dir}
+    services = {
+        "sandbox": sandbox,
+        "is_data": dict(is_data),
+        "results_dir": results_dir,
+        "archive": StrategyArchive(results_dir / "strategies"),
+    }
     gates = pipeline or phase0_pipeline()
     return gates.run(candidate, GateContext(ledger, lock, services))

@@ -36,6 +36,7 @@ TradingProject/
 │   │   ├── is_gates.py, run.py    gates ② ③; the phase-0 pipeline + `cli validate`     §3.2    P0-12
 │   │   ├── n_eff.py               ONC clustering → N_eff                               §4.1    P1-05
 │   │   ├── portfolio.py           §3.2.1 construction + portfolio_hash                 §3.2.1  P1-07
+│   │   ├── archive.py             source archive by strategy_hash (re-runs at ⑥′, ⑥)    §3.2.1  P1-07
 │   │   ├── portfolio_dsr.py       gate ⑤                                               §3.2    P1-08
 │   │   ├── temporal.py            decay monitoring                                     §5      later
 │   │   └── oracles/               leaky-oracle suite, levels 1–4                       07 §9   P0-11

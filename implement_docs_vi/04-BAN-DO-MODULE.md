@@ -36,6 +36,7 @@ TradingProject/
 │   │   ├── is_gates.py, run.py    cổng ② ③; pipeline GĐ 0 + `cli validate`             §3.2    P0-12
 │   │   ├── n_eff.py               phân cụm ONC → N_eff                                 §4.1    P1-05
 │   │   ├── portfolio.py           xây danh mục §3.2.1 + portfolio_hash                 §3.2.1  P1-07
+│   │   ├── archive.py             kho source theo strategy_hash (chạy lại ở ⑥′, ⑥)      §3.2.1  P1-07
 │   │   ├── portfolio_dsr.py       cổng ⑤                                               §3.2    P1-08
 │   │   ├── temporal.py            theo dõi suy giảm                                    §5      sau
 │   │   └── oracles/               bộ leaky oracle, cấp 1–4                             07 §9   P0-11

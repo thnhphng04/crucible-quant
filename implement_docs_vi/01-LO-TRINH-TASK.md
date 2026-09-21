@@ -169,10 +169,10 @@ Không có code agent trong giai đoạn này (P1).
 - **File:** `core/sizing/vol_target.py`, `core/sizing/position_sizer.py`; xóa `PlaceholderSizer`.
 - **Nghiệm thu khi:** **test ½ size** — nhân đôi cả `vol_estimate` và ATR ⇒ size giảm đúng một nửa khi trần stop không ràng buộc; trần stop tác động dưới dạng `min`, không bao giờ là hệ số nhân; `round_to_lot` tôn trọng bước/min/max; quy đổi FX về tiền tệ gốc; co giãn ở mức danh mục về lại `target_vol` với trần đòn bẩy và ước lượng lại IDM. Xong: [ADR-0010](adr/0010-risk-sizing-trong-duong-thuc-thi.md); đã xoá `PlaceholderSizer`.
 
-### ☐ P1-07 Xây danh mục
+### ✅ P1-07 Xây danh mục
 - **Kiến trúc:** §3.2.1 bước 1–6, D9.
 - **File:** `validation/portfolio.py`.
-- **Nghiệm thu khi:** mỗi bước có unit test trên fixture (một đại diện mỗi ô, lọc `|ρ|` theo thứ tự hạng DSR, giới hạn K, risk parity đơn giản, tái cân bằng hằng tháng); `portfolio_hash` tất định và đổi khi bất kỳ thành viên/trọng số/quy tắc nào đổi; mỗi danh mục dựng ra là một dòng `portfolio_variants`.
+- **Nghiệm thu khi:** mỗi bước có unit test trên fixture (một đại diện mỗi ô, lọc `|ρ|` theo thứ tự hạng DSR, giới hạn K, risk parity đơn giản, tái cân bằng hằng tháng); `portfolio_hash` tất định và đổi khi bất kỳ thành viên/trọng số/quy tắc nào đổi; mỗi danh mục dựng ra là một dòng `portfolio_variants`. Xong: [ADR-0013](adr/0013-xay-danh-muc-va-kho-source-chien-luoc.md).
 
 ### ☐ P1-08 Cổng ⑤ — DSR của danh mục
 - **Kiến trúc:** §3.2 dòng ⑤, hộp DSR ở §3.1.6, §4.1.
