@@ -117,7 +117,8 @@ def carve(
         "created_at": datetime.now(UTC).isoformat(),
         "files": dict(sorted(files.items())),
     }
-    lock_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    lock_path.write_text(text, encoding="utf-8", newline="\n")  # same bytes on every OS
     make_read_only(lock_path, harden)
     return CarveSummary(manifest["range"], in_sample_rows, len(files), sha256_file(lock_path))
 
