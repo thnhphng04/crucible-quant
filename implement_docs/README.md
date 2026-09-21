@@ -2,7 +2,7 @@
 
 How to **build** Crucible Quant. The design itself — what to build and why — lives in the architecture ([EN](../research_docs/Architecture_Design.md) · [VI, source of truth](../research_docs_vi/Architecture_Design.md)). These docs don't restate it; they point to its sections (`§3.4`) and add only what the architecture leaves open: task order, acceptance tests, code conventions, and implementation-level decisions.
 
-Written in English only (no Vietnamese mirror).
+English is the original; [implement_docs_vi/](../implement_docs_vi/README.md) is a 1:1 Vietnamese translation (same line count and headings, checked by `scripts/check_doc_mirror.py`).
 
 | File | Use it when |
 |---|---|
@@ -18,5 +18,6 @@ Agent instructions: [../CLAUDE.md](../CLAUDE.md). Claude Code helpers: `/phase-c
 ## Keeping these docs honest
 
 - When a task lands, tick it in `01`, fill its test names into `03`, and close any `05` item it resolved — in the same change.
+- Every edit goes into both languages in the same commit: English first, then `implement_docs_vi/` line for line.
 - A test named in `03` must exist and pass before the row is marked ✅.
 - If implementation shows the architecture is wrong, don't patch around it: open an item in `05` and raise it with the user.

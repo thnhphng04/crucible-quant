@@ -11,7 +11,7 @@ Mục tiêu dự án: xây hệ thống AI hỗ trợ phát triển chiến lư�
 | File | Nội dung |
 |---|---|
 | **[Architecture_Design.md](Architecture_Design.md)** | **Thiết kế hệ thống.** Giả định, 6 nguyên tắc, đặc tả từng tầng, data model, tech stack, lộ trình 7 giai đoạn, rủi ro. **Đọc mục 0 và mục 10 trước** — có giả định cần bạn xác nhận |
-| **[../implement_docs/](../implement_docs/README.md)** | **Cách xây dựng** (tiếng Anh): danh sách task kèm test nghiệm thu, quy ước code, bảng bất biến → test, sơ đồ module, ADR. Hướng dẫn cho coding agent: [../CLAUDE.md](../CLAUDE.md) |
+| **[../implement_docs_vi/](../implement_docs_vi/README.md)** | **Cách xây dựng** (bản dịch tiếng Việt; bản gốc tiếng Anh ở [../implement_docs/](../implement_docs/README.md)): danh sách task kèm test nghiệm thu, quy ước code, bảng bất biến → test, sơ đồ module, ADR. Hướng dẫn cho coding agent: [../CLAUDE.md](../CLAUDE.md) |
 
 ## Tài liệu tổng hợp & phân tích
 

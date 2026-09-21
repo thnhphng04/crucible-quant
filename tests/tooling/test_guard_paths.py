@@ -71,3 +71,9 @@ def test_reminds_after_architecture_edit() -> None:
     target = {"file_path": "research_docs_vi/Architecture_Design.md"}
     assert run_hook("Edit", target, event="PostToolUse") == 2
     assert run_hook("Edit", {"file_path": "README.md"}, event="PostToolUse") == 0
+
+
+def test_reminds_after_implement_docs_edit() -> None:
+    for path in ("implement_docs/01-ROADMAP-TASKS.md", "implement_docs_vi/adr/0000-mau.md"):
+        assert run_hook("Write", {"file_path": path}, event="PostToolUse") == 2
+    assert run_hook("Write", {"file_path": "src/quantcrucible/x.py"}, event="PostToolUse") == 0

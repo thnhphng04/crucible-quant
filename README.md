@@ -19,7 +19,7 @@ An LLM-driven research loop that generates **deterministic, rule-based trading s
 |---|---|---|
 | Start here | [research_docs/README.md](research_docs/README.md) | [research_docs_vi/README.md](research_docs_vi/README.md) |
 | Architecture | [research_docs/Architecture_Design.md](research_docs/Architecture_Design.md) | [research_docs_vi/Architecture_Design.md](research_docs_vi/Architecture_Design.md) |
-| Implementation | [implement_docs/README.md](implement_docs/README.md) | — (English only) |
+| Implementation | [implement_docs/README.md](implement_docs/README.md) (original) | [implement_docs_vi/README.md](implement_docs_vi/README.md) |
 
 The Vietnamese documents are the original; the English ones are a 1:1 translation. The four raw source reports (`90`–`93`) exist in Vietnamese only.
 

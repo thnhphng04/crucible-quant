@@ -109,6 +109,13 @@ def post_tool_use(tool: str, tool_input: dict[str, Any], root: Path) -> str | No
             "Apply the same change to the other language, then run "
             "`uv run python scripts/check_doc_mirror.py`."
         )
+    if rel and rel.endswith(".md") and rel.startswith(("implement_docs/", "implement_docs_vi/")):
+        return (
+            f"{rel} changed. implement_docs/ (English) is the original and implement_docs_vi/ "
+            "must stay a 1:1 Vietnamese mirror (same line count, same headings). "
+            "Apply the same change to the other language, then run "
+            "`uv run python scripts/check_doc_mirror.py`."
+        )
     return None
 
 

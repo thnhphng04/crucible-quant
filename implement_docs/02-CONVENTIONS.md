@@ -63,4 +63,5 @@ LLM SDKs may be imported only under `quantcrucible.agent` (A4; `tests/test_archi
 
 - One task per branch: `p0-02-ledger`, `p1-06-sizing`, `chore/…`, `docs/…`.
 - Commit messages: imperative subject ≤ 72 chars, reference the task id (`P0-02: add append-only triggers`).
+- No `Co-Authored-By` or other AI-attribution lines in commits or PR descriptions.
 - Commit/push only when the user asks.

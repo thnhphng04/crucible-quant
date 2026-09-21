@@ -2,13 +2,13 @@
 
 An AI quantitative research lab: an LLM loop **generates deterministic rule-based trading strategies**, and a validation harness tries to **reject** them before any capital is at risk. Package: `quantcrucible` (src layout). Status: **phase 0 — harness first**; the tree under `src/` is still a skeleton.
 
-**Talk to the user in Vietnamese.** Code, identifiers, commit messages, docstrings and `implement_docs/` are in English.
+**Talk to the user in Vietnamese.** Code, identifiers, commit messages, docstrings and `implement_docs/` are in English; `implement_docs_vi/` is its Vietnamese 1:1 mirror, for the user.
 
 ## Where the truth lives
 
 1. `research_docs_vi/Architecture_Design.md` — **source of truth** for the design (Vietnamese).
 2. `research_docs/Architecture_Design.md` — 1:1 English mirror. Read this one; cite sections as `§3.4`.
-3. `implement_docs/` — how to build it: task list, conventions, invariant→test map, module map, ADRs.
+3. `implement_docs/` — how to build it: task list, conventions, invariant→test map, module map, ADRs. Work from this English original; `implement_docs_vi/` mirrors it.
 
 If code and the architecture disagree, **stop and ask** — don't silently "fix" either side. An implementation-level deviation needs an ADR in `implement_docs/adr/`. An architecture-level change (principles, gates, thresholds, the decision register §10) is the user's call.
 
@@ -58,7 +58,7 @@ Windows: set `PYTHONUTF8=1` if a tool crashes on Unicode output (cp1252 console)
 
 - Pick the next task from [implement_docs/01-ROADMAP-TASKS.md](implement_docs/01-ROADMAP-TASKS.md); each has an arch reference and an acceptance test. `/phase-check` reports progress.
 - **Test first** for anything statistical (DSR, PBO, CPCV, N_eff), sizing, or safety-related (gates, holdout, sandbox). Numerical tests use published reference values, not values the code just produced.
-- Keep changes small, one task per branch. Commit or push only when the user asks.
+- Keep changes small, one task per branch. Commit or push only when the user asks. **No `Co-Authored-By` or other AI-attribution lines** in commits or PR descriptions.
 - Heavy dependencies are added by the task that first needs them, with a pinned version and a license check ([02-CONVENTIONS.md](implement_docs/02-CONVENTIONS.md)).
 - Create files with the Write/Edit tools, not shell heredocs — the guard hook scans shell commands for holdout paths.
 - Implementation decisions → `/new-adr`. Unresolved questions → [05-OPEN-ITEMS.md](implement_docs/05-OPEN-ITEMS.md).
@@ -66,3 +66,5 @@ Windows: set `PYTHONUTF8=1` if a tool crashes on Unicode output (cp1252 console)
 ## Editing the design docs
 
 Edit `research_docs_vi/` first, mirror the change into `research_docs/` line-for-line (same line count, same headings), then run `scripts/check_doc_mirror.py` (or `/sync-docs`). Source reports `90`–`93` are Vietnamese only and are never translated.
+
+`implement_docs/` runs the other way: **English is the original**. Edit it first, mirror the change into `implement_docs_vi/` line-for-line (files pair by number prefix, e.g. `03-INVARIANT-TEST-MAP.md` ↔ `03-BAN-DO-BAT-BIEN-TEST.md`, `adr/0001-…` ↔ `adr/0001-…`), then run the same check. A PostToolUse hook reminds you after every edit.
