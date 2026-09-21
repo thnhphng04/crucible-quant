@@ -35,9 +35,9 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 
 | ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-30 | Fixed region unchanged (hash) | §3.3.1 r1 | Code (gate ①a) | `tests/core/strategy/test_template.py::test_byte_flip_changes_hash`, `tests/validation/test_guardrail.py::test_template_tamper_rejected` | P0-05, P0-07 | ☐ |
-| INV-31 | ≤ 6 TUNABLE, finite bounds; undeclared constants rejected | §3.3.1 r2 | Code (gate ①a) | `tests/core/strategy/test_tunable.py`, `tests/validation/test_guardrail.py::test_undeclared_constant_rejected` | P0-05, P0-07 | ☐ |
-| INV-32 | Only whitelisted `ind.*`/DSL ops; no imports/exec/dunder | §3.3.1 r3, §3.1.6 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_malicious_snippets` | P0-07 | ☐ |
+| INV-30 | Fixed region unchanged (hash) | §3.3.1 r1 | Code (gate ①a) | `tests/core/strategy/test_template.py::test_byte_flip_changes_hash`, `tests/validation/test_guardrail.py::test_template_tamper_rejected` | P0-05, P0-07 | ✅ |
+| INV-31 | ≤ 6 TUNABLE, finite bounds; undeclared constants rejected | §3.3.1 r2 | Code (gate ①a) | `tests/core/strategy/test_tunable.py`, `tests/validation/test_guardrail.py::test_undeclared_constant_rejected` | P0-05, P0-07 | ✅ |
+| INV-32 | Only whitelisted `ind.*`/DSL ops; no imports/exec/dunder | §3.3.1 r3, §3.1.6 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_malicious_snippets` | P0-07 | ✅ |
 | INV-33 | Every indicator is causal | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ✅ |
 | INV-34 | All 4 leaky-oracle levels rejected | 07 §9, §7 phase 0 | Gates ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
 | INV-35 | Signal on bar *t* fills at *t+1*; limit fills only on trade-through | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution`, `::test_limit_touch_not_filled` | P0-10 | ☐ |

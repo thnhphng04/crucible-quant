@@ -73,7 +73,7 @@ No agent code in this phase (P1).
 - **Accept when:** ordering test; exception ⇒ reject + row; a test proves `feedback` cannot change when only `private` changes.
 - **Needs:** P0-02.
 
-### ☐ P0-07 Gate ①a — static guardrail
+### ✅ P0-07 Gate ①a — static guardrail
 - **Goal:** reject bad code before it ever executes.
 - **Arch:** §3.2 row ①a, §3.3.1 rules 1–3, §3.1.6 (DSL), 07-VALIDATION-LAYER §9.
 - **Files:** `validation/guardrail.py`, `tests/validation/test_guardrail.py`. The AST whitelist lives in `validation/`; the agent's `dsl.py` (phase 2) reuses it rather than defining its own.
