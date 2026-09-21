@@ -30,7 +30,7 @@ def _is_llm_sdk(module: str) -> bool:
 
 def test_purgedcv_only_in_wrapper_modules() -> None:
     """ADR-0007 / 02-CONVENTIONS: the rest of the code goes through the validation wrappers."""
-    wrappers = {"validation/statistical.py", "validation/pbo.py", "validation/cpcv.py"}
+    wrappers = {"validation/statistical.py", "validation/cpcv.py"}
     offenders = [
         f"{path.relative_to(SRC).as_posix()}: {module}"
         for path in SRC.rglob("*.py")

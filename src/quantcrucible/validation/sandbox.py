@@ -50,11 +50,12 @@ class SandboxLimits:
 
 @dataclass(frozen=True, slots=True)
 class SandboxJob:
-    kind: str  # signals | backtest | leak_check
+    kind: str  # signals | backtest | grid_backtest | leak_check
     source: str
     bars: Mapping[str, Bars]  # the job's IS slice — the only data the container will see
     params: Mapping[str, float | int] = field(default_factory=dict)
     options: Mapping[str, Any] = field(default_factory=dict)  # lookback, costs, seed, …
+    timeout_s: float | None = None  # overrides SandboxLimits.timeout_s (e.g. gate ④'s grid)
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,11 +199,11 @@ class SandboxRunner:
         name = f"qc-sandbox-{uuid.uuid4().hex[:12]}"
         try:
             self.prepare(job, job_dir)
-            return self._run_container(name, job_dir)
+            return self._run_container(name, job_dir, job.timeout_s or self.limits.timeout_s)
         finally:
             shutil.rmtree(job_dir, ignore_errors=True)
 
-    def _run_container(self, name: str, job_dir: Path) -> SandboxResult:
+    def _run_container(self, name: str, job_dir: Path, timeout_s: float) -> SandboxResult:
         lim = self.limits
         start = time.monotonic()
         proc = subprocess.Popen(
@@ -217,7 +218,7 @@ class SandboxRunner:
             r.start()
         timed_out = False
         try:
-            proc.wait(timeout=lim.timeout_s)
+            proc.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
             subprocess.run([self.docker, "kill", name], capture_output=True, check=False)

@@ -17,7 +17,7 @@ Kiến trúc gọi `purgedcv` là lõi của tầng validation nhưng đánh d�
    - `CombinatorialPurgedCV(n_splits, n_test_groups, *, prediction_times, evaluation_times, purge_horizon, embargo | embargo_observations | embargo_fraction).split(X)` sinh `(train_idx, test_idx)` đã purge + embargo; `reconstruct_paths(...)` dựng C(N−1,K−1) đường OOS. `backtest_paths` cần một estimator sklearn — không dùng.
 3. **Cách dùng từng phần:**
    - **DSR / PSR — tự cài đặt** trong `validation/statistical.py` từ các moment (`sr, sr_benchmark, n_obs, skew, kurt`), với benchmark `√V[SR] · expected_max_sharpe(N)` (hàm đã có). Lý do: ví dụ đã công bố (Bailey & López de Prado 2014) cho dưới dạng moment, thứ `purgedcv` không nhận được; và ⑤ phải báo DSR ở cả `N_raw` lẫn `N_eff`. `purgedcv.deflated_sharpe_ratio` được giữ làm **đối chiếu trong test** (probe: bằng nhau tới 1e-15 trên một chuỗi ngẫu nhiên).
-   - **PBO — bọc lại** `probability_of_backtest_overfitting` trong `validation/pbo.py` (P1-03), `S = 16`.
+   - **PBO — bọc lại** `probability_of_backtest_overfitting` trong `validation/pbo.py` (P1-03), `S = 16`. *Được điều chỉnh bởi [ADR-0011](0011-cong-4-tap-cau-hinh-va-cscv.md): tự viết CSCV vector hoá, giữ `purgedcv` làm oracle trong test (vì tốc độ).*
    - **CPCV — bọc lại** `CombinatorialPurgedCV.split` + `reconstruct_paths` trong `validation/cpcv.py` (P1-04); việc chọn cấu hình theo từng fold trên ma trận lưới là của ta.
    - **MinBTL — giữ bản của ta** (ADR-0006); một test ghim nó bằng `purgedcv.minimum_backtest_length`.
    - **Không dùng:** `effective_n_trials` (heuristic tự tương quan theo thứ tự trial) — `N_eff` là phân cụm ONC theo §4.1 (P1-05).

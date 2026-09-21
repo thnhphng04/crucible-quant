@@ -12,7 +12,12 @@ from quantcrucible.config.lock import LockMismatchError, read_lock
 from quantcrucible.config.schema import UserConfig
 from quantcrucible.core.strategy.template import template_hash
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.validation.run import current_campaign, make_candidate, phase0_pipeline
+from quantcrucible.validation.run import (
+    candidate_pipeline,
+    current_campaign,
+    make_candidate,
+    phase0_pipeline,
+)
 from tests.factories import make_bars
 
 
@@ -44,3 +49,4 @@ def test_candidate_defaults_to_tunable_values() -> None:
     assert [g.id for g in phase0_pipeline().gates] == [
         "g1a_static", "g1b_dynamic", "g2_minbtl", "g3_is",
     ]  # fmt: skip
+    assert [g.id for g in candidate_pipeline().gates][-1] == "g4_pbo"

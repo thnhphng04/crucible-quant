@@ -150,9 +150,9 @@ Không có code agent trong giai đoạn này (P1).
 - **File:** `validation/statistical.py`.
 - **Nghiệm thu khi:** khớp ví dụ số của Bailey & López de Prado (2014) đến độ chính xác đã nêu; test đơn điệu (nhiều trial hơn ⇒ DSR thấp hơn; `V[SR]` cao hơn ⇒ DSR thấp hơn); báo cáo ở cả `N_raw` và `N_eff`. Xong: [ADR-0008](adr/0008-dsr-don-vi-va-cach-dem-trial.md).
 
-### ☐ P1-03 PBO qua CSCV + cổng ④
+### ✅ P1-03 PBO qua CSCV + cổng ④
 - **Kiến trúc:** §3.2 ("PBO thực sự kiểm tra gì"), D13.
-- **Nghiệm thu khi:** tái hiện ví dụ của Bailey et al. (2017); test mô phỏng — ma trận nhiễu thuần ⇒ PBO ≈ 0.5 (không → 1), một cấu hình được cài edge sẵn ⇒ PBO → 0; tập cấu hình lấy từ lưới TUNABLE + các biến thể trong ledger, giới hạn ở `M`; cổng ④ loại khi PBO ≥ `pbo_max`.
+- **Nghiệm thu khi:** tái hiện ví dụ của Bailey et al. (2017); test mô phỏng — ma trận nhiễu thuần ⇒ PBO ≈ 0.5 (không → 1), một cấu hình được cài edge sẵn ⇒ PBO → 0; tập cấu hình lấy từ lưới TUNABLE + các biến thể trong ledger, giới hạn ở `M`; cổng ④ loại khi PBO ≥ `pbo_max`. Xong: [ADR-0011](adr/0011-cong-4-tap-cau-hinh-va-cscv.md).
 - **Cần:** P0-05, P1-01.
 
 ### ☐ P1-04 CPCV có purging/embargo + đường cong IS→OOS

@@ -215,6 +215,23 @@ def test_docker_runs_signals_and_backtest_like_the_host(image: str) -> None:
 
 
 @pytest.mark.docker
+def test_docker_grid_backtest_matches_host_runs(image: str) -> None:
+    """Gate ④'s job: one backtest per configuration, identical to running each on the host."""
+    grid = [PARAMS, {**PARAMS, "fast": 14}, {**PARAMS, "slow": 130}]
+    base = job(kind="grid_backtest", n=300)
+    res = SandboxRunner(image).run(
+        SandboxJob(base.kind, base.source, base.bars, PARAMS, {**base.options, "grid": grid})
+    )
+    assert res.ok, res
+    assert res.report is not None
+    out = res.report["result"]
+    assert len(out["returns"]) == 3 and len(out["ts"]) == 299
+    for params, row in zip(grid, out["returns"], strict=True):
+        host = run_backtest(load_strategy_class(ZOO)(params), {"BTC/USDT": make_bars(300)})
+        np.testing.assert_allclose(row, host.returns, rtol=1e-12)
+
+
+@pytest.mark.docker
 def test_docker_no_network(image: str) -> None:
     assert probe_error(image, NETWORK_PROBE).startswith("RuntimeError: NETWORK_BLOCKED")
 

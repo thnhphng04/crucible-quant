@@ -150,9 +150,9 @@ No agent code in this phase (P1).
 - **Files:** `validation/statistical.py`.
 - **Accept when:** matches the numerical example of Bailey & López de Prado (2014) to stated precision; monotonic tests (more trials ⇒ lower DSR; higher `V[SR]` ⇒ lower DSR); reports at both `N_raw` and `N_eff`. Done: [ADR-0008](adr/0008-dsr-units-and-trial-count.md).
 
-### ☐ P1-03 PBO via CSCV + gate ④
+### ✅ P1-03 PBO via CSCV + gate ④
 - **Arch:** §3.2 ("What PBO actually tests"), D13.
-- **Accept when:** reproduces the Bailey et al. (2017) example; simulation tests — pure noise matrix ⇒ PBO ≈ 0.5 (not → 1), a planted-edge configuration ⇒ PBO → 0; the configuration set comes from the TUNABLE grid + ledger variants, capped at `M`; gate ④ rejects PBO ≥ `pbo_max`.
+- **Accept when:** reproduces the Bailey et al. (2017) example; simulation tests — pure noise matrix ⇒ PBO ≈ 0.5 (not → 1), a planted-edge configuration ⇒ PBO → 0; the configuration set comes from the TUNABLE grid + ledger variants, capped at `M`; gate ④ rejects PBO ≥ `pbo_max`. Done: [ADR-0011](adr/0011-gate4-pbo-configuration-set-and-cscv.md).
 - **Needs:** P0-05, P1-01.
 
 ### ☐ P1-04 CPCV with purging/embargo + IS→OOS curve

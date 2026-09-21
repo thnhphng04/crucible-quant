@@ -17,7 +17,7 @@ The architecture names `purgedcv` as the core of the validation layer but flags 
    - `CombinatorialPurgedCV(n_splits, n_test_groups, *, prediction_times, evaluation_times, purge_horizon, embargo | embargo_observations | embargo_fraction).split(X)` yields purged + embargoed `(train_idx, test_idx)`; `reconstruct_paths(...)` builds the C(N−1,K−1) OOS paths. `backtest_paths` needs an sklearn estimator — not used.
 3. **What we do with each:**
    - **DSR / PSR — implement ourselves** in `validation/statistical.py` from moments (`sr, sr_benchmark, n_obs, skew, kurt`), with the benchmark `√V[SR] · expected_max_sharpe(N)` (existing function). Reason: the published example (Bailey & López de Prado 2014) is stated in moments, which `purgedcv` cannot take; and ⑤ must report DSR at both `N_raw` and `N_eff`. `purgedcv.deflated_sharpe_ratio` is kept as a **cross-check in tests** (probe: equal to 1e-15 on a random series).
-   - **PBO — wrap** `probability_of_backtest_overfitting` in `validation/pbo.py` (P1-03), `S = 16`.
+   - **PBO — wrap** `probability_of_backtest_overfitting` in `validation/pbo.py` (P1-03), `S = 16`. *Amended by [ADR-0011](0011-gate4-pbo-configuration-set-and-cscv.md): own vectorized CSCV, `purgedcv` kept as the test oracle (speed).*
    - **CPCV — wrap** `CombinatorialPurgedCV.split` + `reconstruct_paths` in `validation/cpcv.py` (P1-04); per-fold selection over the grid matrix is ours.
    - **MinBTL — keep ours** (ADR-0006); a test pins it equal to `purgedcv.minimum_backtest_length`.
    - **Not used:** `effective_n_trials` (an autocorrelation heuristic over trial order) — `N_eff` is ONC clustering per §4.1 (P1-05).

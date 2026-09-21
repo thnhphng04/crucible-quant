@@ -35,6 +35,8 @@ from quantcrucible.validation.gates import (
 )
 from quantcrucible.validation.guardrail import DynamicGuardrail, StaticGuardrail
 from quantcrucible.validation.is_gates import InSampleGate, MinBtlGate
+from quantcrucible.validation.pbo import DEFAULT_SPLITS
+from quantcrucible.validation.pbo_gate import PboGate
 from quantcrucible.validation.sandbox import SandboxRunner
 
 DEFAULT_LOOKBACK = 400
@@ -45,6 +47,13 @@ def phase0_pipeline() -> GatePipeline:
     return GatePipeline([StaticGuardrail(), DynamicGuardrail(), MinBtlGate(), InSampleGate()])
 
 
+def candidate_pipeline() -> GatePipeline:
+    """Every per-candidate gate: ①a → ①b → ② → ③ → ④ (§3.2). ⑤ onward test the portfolio."""
+    return GatePipeline(
+        [StaticGuardrail(), DynamicGuardrail(), MinBtlGate(), InSampleGate(), PboGate()]
+    )
+
+
 def derived_settings(evolve_scope: str) -> dict[str, Any]:
     """Values fixed when a campaign opens, besides Group B: template hash, costs, lookback and
     the sizing constants of the Risk layer (ADR-0010)."""
@@ -53,6 +62,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "costs": asdict(CostModel()),
         "lookback": DEFAULT_LOOKBACK,
         "sizing": {"vol_span": VOL_SPAN, "max_leverage": MAX_LEVERAGE, "idm_cap": IDM_CAP},
+        "pbo": {"n_splits": DEFAULT_SPLITS},
     }
 
 
@@ -107,6 +117,8 @@ def run_candidate(
     is_data: Mapping[str, Bars],
     sandbox: SandboxRunner,
     results_dir: Path,
+    pipeline: GatePipeline | None = None,
 ) -> PipelineOutcome:
     services = {"sandbox": sandbox, "is_data": dict(is_data), "results_dir": results_dir}
-    return phase0_pipeline().run(candidate, GateContext(ledger, lock, services))
+    gates = pipeline or phase0_pipeline()
+    return gates.run(candidate, GateContext(ledger, lock, services))

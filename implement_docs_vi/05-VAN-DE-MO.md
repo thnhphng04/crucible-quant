@@ -9,6 +9,8 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | O1 | **D4 — ngưỡng kinh tế** (`holdout_pass`) | Lần mở holdout đầu tiên, live | Trước khi P1-10 được *dùng* (không phải khi xây) | Kiến trúc §10. P1-10 từ chối mở holdout khi giá trị này chưa đặt, nên việc xây không phải chờ |
 | O9 | Khi nào chuyển ledger từ SQLite sang Postgres | — | GĐ 2 | Dấu hiệu: nhiều tiến trình ghi đồng thời từ pipeline bất đồng bộ (§3.1.10) gây tranh chấp khóa ở chế độ WAL |
 | O13 | Template theo module: các block có tên `entry` / `exit` / `regime` ánh xạ vào `indicators()` / `signal()` thế nào | Tiến hóa theo module (D16 ≠ `joint`) | GĐ 2 | Bộ phân tích và cách hash theo `evolve_scope` đã hỗ trợ block có tên (P0-05); template của GĐ 0 chỉ có một block `joint` |
+| O14 | Lưới gate ④ = M lần backtest NautilusTrader đầy đủ cho mỗi ứng viên (vài giây mỗi lần) — quá chậm cho vòng lặp GĐ 2 | Thông lượng GĐ 2 | GĐ 2 | Phương án: chạy song song nhiều container sandbox; một bộ backtest thô vector hoá chỉ cho lưới (phải khớp NautilusTrader trên một tập tham chiếu) |
+| O15 | "Các biến thể vòng tinh chỉnh đã thử" của gate ④ có code khác thì không chạy lại được: `trials` lưu `strategy_hash`, không lưu source | Tập cấu hình §3.2 đầy đủ trong vòng lặp | GĐ 2 | Cần kho source của mọi ứng viên đã đo (archive của agent); GĐ 1 chỉ dùng biến thể tham số cùng hash (ADR-0011) |
 
 ## Đã đóng
 

@@ -10,7 +10,8 @@ from __future__ import annotations
 import itertools
 import math
 import re
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -98,15 +99,20 @@ def pbo_grid(
     range_frac: float,
     max_configs: int,
     seed: int,
+    center: Mapping[str, float | int] | None = None,
 ) -> list[dict[str, float | int]]:
     """Pre-registered configuration set for gate ④ (§3.2, D13).
 
     Each parameter takes ``values_per_param`` values within ±``range_frac`` of its default
     (clipped to its bounds, default always included). If the cartesian product exceeds
     ``max_configs`` it is sampled with ``seed``; the default configuration is always kept.
+    ``center`` replaces the declared defaults — the grid is built around the candidate's actual
+    parameters (e.g. after calibration); each value must lie within its bounds.
     """
     if not tunables:
         return [{}]
+    if center:
+        tunables = [replace(t, default=float(center.get(t.name, t.default))) for t in tunables]
     axes = [_grid_values(t, values_per_param, range_frac) for t in tunables]
     names = [t.name for t in tunables]
     configs = [dict(zip(names, combo, strict=True)) for combo in itertools.product(*axes)]

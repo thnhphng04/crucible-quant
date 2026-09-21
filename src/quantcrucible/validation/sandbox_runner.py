@@ -87,7 +87,42 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
     }
 
 
-JOBS: dict[str, Job] = {"signals": _signals, "leak_check": _leak_check, "backtest": _backtest}
+def _grid_backtest(
+    cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]
+) -> dict[str, Any]:
+    """Gate ④: one backtest per configuration of the pre-registered set, same data and costs.
+    Returns the (n_configs × n_obs) return matrix on the shared bar-close axis."""
+    from quantcrucible.execution.engine import run_backtest
+    from quantcrucible.execution.nautilus_bridge import CostModel
+    from quantcrucible.execution.risk import RiskSettings
+
+    costs = CostModel(**job.get("costs", {}))
+    rows: list[list[float]] = []
+    trades: list[int] = []
+    ts: list[str] = []
+    for params in job["grid"]:
+        res = run_backtest(
+            cls(params),
+            bars,
+            exchange=job.get("exchange", "binance"),
+            costs=costs,
+            initial_cash=float(job.get("initial_cash", 100_000.0)),
+            lookback=int(job["lookback"]),
+            seed=int(job.get("seed", 0)),
+            risk=RiskSettings(**job["risk"]),
+        )
+        rows.append(res.returns.tolist())
+        trades.append(res.n_trades)
+        ts = [str(t) for t in res.ts[1:]]
+    return {"ts": ts, "returns": rows, "n_trades": trades}
+
+
+JOBS: dict[str, Job] = {
+    "signals": _signals,
+    "leak_check": _leak_check,
+    "backtest": _backtest,
+    "grid_backtest": _grid_backtest,
+}
 
 
 def load_inputs(inp: Path) -> tuple[dict[str, Any], str, dict[str, Bars]]:

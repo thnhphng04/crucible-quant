@@ -74,5 +74,15 @@ def test_pbo_grid_sampling_is_seeded_and_keeps_default() -> None:
     assert pbo_grid(ts, 5, 0.3, 200, seed=8) != g1
 
 
+def test_pbo_grid_centered_on_actual_params() -> None:
+    ts = [Tunable("fast", 20, 5, 60, True), Tunable("k", 2.0, 1.0, 4.0, False)]
+    grid = pbo_grid(ts, 5, 0.3, 200, seed=0, center={"fast": 30, "k": 3.0})
+    assert sorted({c["fast"] for c in grid}) == [21, 26, 30, 34, 39]
+    assert max(c["k"] for c in grid) == pytest.approx(3.9)
+    assert {"fast": 30, "k": 3.0} in grid
+    with pytest.raises(ValueError, match="outside bounds"):
+        pbo_grid(ts, 5, 0.3, 200, seed=0, center={"fast": 99})
+
+
 def test_no_tunables_single_config() -> None:
     assert pbo_grid([], 5, 0.3, 200, seed=0) == [{}]
