@@ -49,7 +49,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 
 | ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-40 | DSR matches Bailey & López de Prado (2014) example | §6, 07 §4 | Code | `tests/validation/test_statistical.py::test_dsr_reference_example` | P1-02 | ☐ |
+| INV-40 | DSR matches Bailey & López de Prado (2014) example | §6, 07 §4 | Code | `tests/validation/test_statistical.py::test_dsr_reference_example`, `::test_psr_and_dsr_match_purgedcv_on_a_series` | P1-02 | ✅ |
 | INV-41 | PBO ≈ 0.5 on noise, → 0 with a planted edge; matches Bailey et al. (2017) | §3.2 | Code | `tests/validation/test_statistical.py::test_pbo_noise`, `::test_pbo_planted_edge`, `::test_pbo_reference_example` | P1-03 | ☐ |
 | INV-42 | DSR only on the consolidated portfolio; inputs from `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (no per-cell API) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr` | P1-08 | ☐ |
 | INV-43 | Only configurations that reached ③ count as trials; audit events don't | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |

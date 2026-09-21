@@ -145,10 +145,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Chi tiết:** đọc source đã cài; ghim phiên bản; kiểm tra DSR có nhận `N` và `V[SR]` riêng không, và ma trận đầu vào cùng quy tắc chọn của PBO là gì.
 - **Nghiệm thu khi:** có ADR ghi quyết định kèm các chữ ký đã kiểm tra; đóng O2. Xong: [ADR-0007](adr/0007-purgedcv-boc-lai-hay-tu-cai-dat.md).
 
-### ☐ P1-02 DSR (+ PSR)
+### ✅ P1-02 DSR (+ PSR)
 - **Kiến trúc:** §3.1.6, §4.1, 07 §4.
 - **File:** `validation/statistical.py`.
-- **Nghiệm thu khi:** khớp ví dụ số của Bailey & López de Prado (2014) đến độ chính xác đã nêu; test đơn điệu (nhiều trial hơn ⇒ DSR thấp hơn; `V[SR]` cao hơn ⇒ DSR thấp hơn); báo cáo ở cả `N_raw` và `N_eff`.
+- **Nghiệm thu khi:** khớp ví dụ số của Bailey & López de Prado (2014) đến độ chính xác đã nêu; test đơn điệu (nhiều trial hơn ⇒ DSR thấp hơn; `V[SR]` cao hơn ⇒ DSR thấp hơn); báo cáo ở cả `N_raw` và `N_eff`. Xong: [ADR-0008](adr/0008-dsr-don-vi-va-cach-dem-trial.md).
 
 ### ☐ P1-03 PBO qua CSCV + cổng ④
 - **Kiến trúc:** §3.2 ("PBO thực sự kiểm tra gì"), D13.

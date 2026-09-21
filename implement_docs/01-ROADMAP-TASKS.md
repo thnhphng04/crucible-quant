@@ -145,10 +145,10 @@ No agent code in this phase (P1).
 - **Details:** read the installed source; pin the version; check whether DSR accepts `N` and `V[SR]` separately, and what PBO's input matrix and selection rule are.
 - **Accept when:** an ADR records the decision with the checked signatures; O2 closed. Done: [ADR-0007](adr/0007-purgedcv-wrap-vs-implement.md).
 
-### ☐ P1-02 DSR (+ PSR)
+### ✅ P1-02 DSR (+ PSR)
 - **Arch:** §3.1.6, §4.1, 07 §4.
 - **Files:** `validation/statistical.py`.
-- **Accept when:** matches the numerical example of Bailey & López de Prado (2014) to stated precision; monotonic tests (more trials ⇒ lower DSR; higher `V[SR]` ⇒ lower DSR); reports at both `N_raw` and `N_eff`.
+- **Accept when:** matches the numerical example of Bailey & López de Prado (2014) to stated precision; monotonic tests (more trials ⇒ lower DSR; higher `V[SR]` ⇒ lower DSR); reports at both `N_raw` and `N_eff`. Done: [ADR-0008](adr/0008-dsr-units-and-trial-count.md).
 
 ### ☐ P1-03 PBO via CSCV + gate ④
 - **Arch:** §3.2 ("What PBO actually tests"), D13.
