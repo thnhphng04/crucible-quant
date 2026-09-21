@@ -10,7 +10,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 |---|---|---|---|---|---|---|
 | INV-01 | Mọi backtest đều đi qua ledger; không có đường vòng | P2, §4.1 | Code: bộ chạy backtest bắt buộc có handle ledger và ghi trước khi trả kết quả | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ☐ |
 | INV-02 | Dòng ledger không bao giờ bị xóa hay sửa (chỉ `campaigns.status` được đi tiếp) | P2, §4.1, ADR-0002 | Trigger DB | `tests/ledger/test_db.py::test_every_table_rejects_delete_at_sql_level`, `::test_update_rejected_by_sql` | P0-02 | ✅ |
-| INV-03 | Strategy nói bằng `Signal`, không bao giờ bằng khối lượng | P3, §3.3 | Code (kiểm tra `Signal`) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ☐ |
+| INV-03 | Strategy nói bằng `Signal`, không bao giờ bằng khối lượng | P3, §3.3 | Code (kiểm tra `Signal`) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ✅ |
 | INV-04 | Strategy không bao giờ import tầng adapter/execution | §3.3 | Lint: import-linter "core is the bottom layer" | `lint-imports` | P0-01 | ✅ |
 | INV-05 | Volatility đi vào size đúng một lần; stop là trần `min` | P4, §3.4 | Code | `tests/core/sizing/test_position_sizer.py::test_half_size_when_vol_doubles`, `::test_stop_cap_is_min_not_multiplier` | P1-06 | ☐ |
 | INV-06 | Backtest ≡ live: execution chỉ phụ thuộc core | P5, §3.5 | Lint | `lint-imports` ("execution depends on core only") | P0-01 | ✅ |
@@ -38,7 +38,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-30 | Vùng cố định không đổi (hash) | §3.3.1 r1 | Code (cổng ①a) | `tests/core/strategy/test_template.py::test_byte_flip_changes_hash`, `tests/validation/test_guardrail.py::test_template_tamper_rejected` | P0-05, P0-07 | ☐ |
 | INV-31 | ≤ 6 TUNABLE, bounds hữu hạn; hằng số chưa khai báo bị loại | §3.3.1 r2 | Code (cổng ①a) | `tests/core/strategy/test_tunable.py`, `tests/validation/test_guardrail.py::test_undeclared_constant_rejected` | P0-05, P0-07 | ☐ |
 | INV-32 | Chỉ phép toán `ind.*`/DSL trong whitelist; không import/exec/dunder | §3.3.1 r3, §3.1.6 | Code (cổng ①a) | `tests/validation/test_guardrail.py::test_malicious_snippets` | P0-07 | ☐ |
-| INV-33 | Mọi indicator đều nhân quả | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ☐ |
+| INV-33 | Mọi indicator đều nhân quả | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ✅ |
 | INV-34 | Cả 4 cấp leaky oracle đều bị loại | 07 §9, §7 GĐ 0 | Cổng ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
 | INV-35 | Tín hiệu ở bar *t* khớp ở *t+1*; lệnh limit chỉ khớp khi giá đi xuyên qua | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution`, `::test_limit_touch_not_filled` | P0-10 | ☐ |
 | INV-36 | Code được sinh chạy trong sandbox: không mạng, env rỗng, không thấy `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ☐ |

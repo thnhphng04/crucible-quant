@@ -43,7 +43,7 @@ No agent code in this phase (P1).
 - **Accept when:** tests for each hard floor, unknown key, defaults, lock read-only, mid-campaign Group-B edit refused, Group-A edit allowed.
 - **Needs:** P0-02.
 
-### ☐ P0-04 Strategy contract + indicator whitelist
+### ✅ P0-04 Strategy contract + indicator whitelist
 - **Goal:** the core contract every strategy speaks (P3).
 - **Arch:** §3.3, §3.1.6 (DSL), §3.3.1.
 - **Files:** `core/strategy/base.py` (`Signal`, `Strategy`, `Bars`, `Features`), `core/strategy/registry.py` (`ind`), `tests/core/strategy/`.

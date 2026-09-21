@@ -10,7 +10,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 |---|---|---|---|---|---|---|
 | INV-01 | Every backtest goes through the ledger; no bypass path | P2, §4.1 | Code: the backtest runner requires a ledger handle and writes before returning | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ☐ |
 | INV-02 | Ledger rows are never deleted or updated (only `campaigns.status` moves forward) | P2, §4.1, ADR-0002 | DB triggers | `tests/ledger/test_db.py::test_every_table_rejects_delete_at_sql_level`, `::test_update_rejected_by_sql` | P0-02 | ✅ |
-| INV-03 | Strategies speak `Signal`, never quantities | P3, §3.3 | Code (`Signal` validation) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ☐ |
+| INV-03 | Strategies speak `Signal`, never quantities | P3, §3.3 | Code (`Signal` validation) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ✅ |
 | INV-04 | Strategies never import the adapter/execution layer | §3.3 | Lint: import-linter "core is the bottom layer" | `lint-imports` | P0-01 | ✅ |
 | INV-05 | Volatility enters size exactly once; stop is a `min` cap | P4, §3.4 | Code | `tests/core/sizing/test_position_sizer.py::test_half_size_when_vol_doubles`, `::test_stop_cap_is_min_not_multiplier` | P1-06 | ☐ |
 | INV-06 | Backtest ≡ live: execution depends on core only | P5, §3.5 | Lint | `lint-imports` ("execution depends on core only") | P0-01 | ✅ |
@@ -38,7 +38,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-30 | Fixed region unchanged (hash) | §3.3.1 r1 | Code (gate ①a) | `tests/core/strategy/test_template.py::test_byte_flip_changes_hash`, `tests/validation/test_guardrail.py::test_template_tamper_rejected` | P0-05, P0-07 | ☐ |
 | INV-31 | ≤ 6 TUNABLE, finite bounds; undeclared constants rejected | §3.3.1 r2 | Code (gate ①a) | `tests/core/strategy/test_tunable.py`, `tests/validation/test_guardrail.py::test_undeclared_constant_rejected` | P0-05, P0-07 | ☐ |
 | INV-32 | Only whitelisted `ind.*`/DSL ops; no imports/exec/dunder | §3.3.1 r3, §3.1.6 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_malicious_snippets` | P0-07 | ☐ |
-| INV-33 | Every indicator is causal | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ☐ |
+| INV-33 | Every indicator is causal | §3.1.6, 07 §9 | Code | `tests/core/strategy/test_registry.py::test_all_indicators_causal` | P0-04 | ✅ |
 | INV-34 | All 4 leaky-oracle levels rejected | 07 §9, §7 phase 0 | Gates ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
 | INV-35 | Signal on bar *t* fills at *t+1*; limit fills only on trade-through | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution`, `::test_limit_touch_not_filled` | P0-10 | ☐ |
 | INV-36 | Generated code runs sandboxed: no network, empty env, no view of `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ☐ |
