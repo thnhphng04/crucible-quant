@@ -61,7 +61,7 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test khứ hồi trên ví dụ §3.3.1; sửa một byte ở vùng cố định làm đổi hash; 7 dòng TUNABLE bị từ chối; vi phạm bounds bị từ chối; phát hiện được việc thay cả file (thiếu/trùng marker).
 - **Cần:** P0-04.
 
-### ☐ P0-06 Khung cổng + EvaluationReport
+### ✅ P0-06 Khung cổng + EvaluationReport
 - **Mục tiêu:** bộ khung pipeline để mọi cổng cắm vào.
 - **Kiến trúc:** §3.2 (hợp đồng, bảng thứ tự), §3.3.2.
 - **File:** `validation/gates.py`, `validation/report.py`, `tests/validation/`.

@@ -61,7 +61,7 @@ No agent code in this phase (P1).
 - **Accept when:** round-trip tests on the §3.3.1 example; tampering one byte of the fixed region changes the hash; 7 TUNABLE lines rejected; bounds violations rejected; whole-file replacement is detectable (markers missing/duplicated).
 - **Needs:** P0-04.
 
-### ☐ P0-06 Gate framework + EvaluationReport
+### ✅ P0-06 Gate framework + EvaluationReport
 - **Goal:** the pipeline skeleton every gate plugs into.
 - **Arch:** §3.2 (contract, ordering table), §3.3.2.
 - **Files:** `validation/gates.py`, `validation/report.py`, `tests/validation/`.

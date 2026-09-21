@@ -42,7 +42,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-34 | All 4 leaky-oracle levels rejected | 07 §9, §7 phase 0 | Gates ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
 | INV-35 | Signal on bar *t* fills at *t+1*; limit fills only on trade-through | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution`, `::test_limit_touch_not_filled` | P0-10 | ☐ |
 | INV-36 | Generated code runs sandboxed: no network, empty env, no view of `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ☐ |
-| INV-37 | Gates fail closed; every `GateResult` reaches the ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ☐ |
+| INV-37 | Gates fail closed; every `GateResult` reaches the ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ✅ |
 | INV-38 | Gate ③ rejects `< min_trades`, `< min_holding_bars`, indicator abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_gates.py::test_g3_constraints` | P0-12 | ☐ |
 
 ## Statistics & portfolio
@@ -55,7 +55,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-43 | Only configurations that reached ③ count as trials; audit events don't | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
 | INV-44 | Calibration evaluations are trials (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
 | INV-45 | Any portfolio-rule change ⇒ a new `portfolio_variants` row, counted in `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ☐ |
-| INV-46 | `private` metrics never reach prompts; `feedback` depends on `public` only | §3.3.2 | Code (+ prompt-log scan in phase 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ☐ |
+| INV-46 | `private` metrics never reach prompts; `feedback` depends on `public` only | §3.3.2 | Code (+ prompt-log scan in phase 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ✅ |
 | INV-47 | IS→OOS curve uses CPCV paths, never the holdout | §3.2 | Code + Lint | `tests/validation/test_cpcv.py::test_oos_curve_is_private` | P1-04 | ☐ |
 
 ## Phase 2+ (fill in when the phase is broken into tasks)
