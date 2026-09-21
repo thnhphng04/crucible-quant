@@ -1,5 +1,6 @@
 """MinBTL against the published examples (Bailey, Borwein, López de Prado & Zhu 2014)."""
 
+import purgedcv
 import pytest
 
 from quantcrucible.validation.statistical import expected_max_sharpe, min_btl_years
@@ -23,6 +24,14 @@ def test_min_btl_edges_and_monotonicity() -> None:
     assert min_btl_years(45, 1.0) > min_btl_years(45, 1.5)  # a lower target is stricter
     with pytest.raises(ValueError):
         min_btl_years(10, 0.0)
+
+
+@pytest.mark.parametrize("n_trials", [1, 2, 7, 45, 100, 10_000])
+def test_min_btl_matches_purgedcv(n_trials: int) -> None:
+    """Cross-check against the pinned library (ADR-0007): a silent formula change fails here."""
+    assert min_btl_years(n_trials, 1.0) == pytest.approx(
+        purgedcv.minimum_backtest_length(n_trials, 1.0), abs=1e-12
+    )
 
 
 def test_expected_max_sharpe_grows_like_sqrt_2_log_n() -> None:

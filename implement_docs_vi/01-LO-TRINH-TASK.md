@@ -139,11 +139,11 @@ Không có code agent trong giai đoạn này (P1).
 
 > **Cổng giai đoạn (kiến trúc §7):** chiến lược viết tay vượt mọi cổng; ledger tách đúng audit/trials; tính được `N_eff` + `V[SR]`; DSR/PBO khớp ví dụ số trong các paper gốc; test ½ size đạt.
 
-### ☐ P1-01 Kiểm chứng `purgedcv` (task đầu tiên của GĐ 1)
+### ✅ P1-01 Kiểm chứng `purgedcv` (task đầu tiên của GĐ 1)
 - **Kiến trúc:** ghi chú §6, 07-VALIDATION-LAYER §7.
 - **Mục tiêu:** quyết định *bọc lại* hay *tự cài đặt* DSR/PBO; giữ `purgedcv` cho CPCV/purging nếu đúng.
 - **Chi tiết:** đọc source đã cài; ghim phiên bản; kiểm tra DSR có nhận `N` và `V[SR]` riêng không, và ma trận đầu vào cùng quy tắc chọn của PBO là gì.
-- **Nghiệm thu khi:** có ADR ghi quyết định kèm các chữ ký đã kiểm tra; đóng O2.
+- **Nghiệm thu khi:** có ADR ghi quyết định kèm các chữ ký đã kiểm tra; đóng O2. Xong: [ADR-0007](adr/0007-purgedcv-boc-lai-hay-tu-cai-dat.md).
 
 ### ☐ P1-02 DSR (+ PSR)
 - **Kiến trúc:** §3.1.6, §4.1, 07 §4.

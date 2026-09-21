@@ -268,9 +268,9 @@ CREATE TABLE trials (
 
 ## 7. Implementation with `purgedcv`
 
-The API below is taken from the package's official documentation.
+The API below is taken from the package's official documentation, 🆕 checked against the `purgedcv` 0.1.6 source.
 
-> ⚠️ **Not verified against the source code** *(21 Sep 2026)*. The signatures below are copied from the docs, not checked against the actual code, and no version is pinned. Treat them as **illustrative**. Verification plan and fallback: [Architecture_Design.md](Architecture_Design.md) §6.
+> ✅ **Verified against the source code** *(21 Sep 2026, P1-01)*. Pinned `purgedcv>=0.1.6,<0.2` (MIT). The signatures below match the actual code. What we use and what we write ourselves: [ADR-0007](../implement_docs/adr/0007-purgedcv-wrap-vs-implement.md) — DSR/PSR implemented ourselves (from moments), PBO and CPCV wrapped.
 
 ```python
 from purgedcv import (
@@ -324,7 +324,7 @@ cv = CombinatorialPurgedCV(
     evaluation_times=evalu,
 )
 # C(6,2) = 15 folds → 5 backtest paths
-paths = cv.backtest_paths(model, X, y)
+splits = list(cv.split(X))      # + reconstruct_paths(...); backtest_paths needs an sklearn estimator — not used
 ```
 
 ### 7.4. PSR and MinTRL
@@ -341,7 +341,7 @@ n_min = min_track_record_length(
 )
 ```
 
-⚠️ **I have not yet verified the exact signatures of `deflated_sharpe_ratio` and `probability_of_backtest_overfitting`** — read the package docstrings before using them. Those two functions exist and are included in the exports; only their parameters are uncertain.
+🆕 **Verified signatures (0.1.6):** `deflated_sharpe_ratio(returns, n_trials, var_sharpe, *, bars_per_year=None)` — takes `N` and `V[SR]` **separately**, but only a returns series (no moments); `probability_of_backtest_overfitting(returns, n_splits=16, *, metric=sharpe, …)` — matrix `(n_configs, n_obs)`, selection rule = IS argmax Sharpe, returns `PBOResult`.
 
 ---
 

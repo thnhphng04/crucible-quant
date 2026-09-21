@@ -139,11 +139,11 @@ No agent code in this phase (P1).
 
 > **Phase gate (arch §7):** the hand-written strategy clears every gate; the ledger separates audit/trials correctly; `N_eff` + `V[SR]` are computable; DSR/PBO match the numerical examples in the original papers; the ½-size test passes.
 
-### ☐ P1-01 Verify `purgedcv` (first task of phase 1)
+### ✅ P1-01 Verify `purgedcv` (first task of phase 1)
 - **Arch:** §6 note, 07-VALIDATION-LAYER §7.
 - **Goal:** decide *wrap* vs *implement ourselves* for DSR/PBO; keep `purgedcv` for CPCV/purging if sound.
 - **Details:** read the installed source; pin the version; check whether DSR accepts `N` and `V[SR]` separately, and what PBO's input matrix and selection rule are.
-- **Accept when:** an ADR records the decision with the checked signatures; O2 closed.
+- **Accept when:** an ADR records the decision with the checked signatures; O2 closed. Done: [ADR-0007](adr/0007-purgedcv-wrap-vs-implement.md).
 
 ### ☐ P1-02 DSR (+ PSR)
 - **Arch:** §3.1.6, §4.1, 07 §4.

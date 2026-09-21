@@ -268,9 +268,9 @@ CREATE TABLE trials (
 
 ## 7. Triển khai với `purgedcv`
 
-API dưới đây lấy từ tài liệu chính thức của package.
+API dưới đây lấy từ tài liệu chính thức của package, 🆕 đã đối chiếu với mã nguồn `purgedcv` 0.1.6.
 
-> ⚠️ **Chưa kiểm chứng với mã nguồn** *(21/9/2026)*. Chữ ký bên dưới chép từ tài liệu, chưa đối chiếu code thật, chưa pin phiên bản. Coi là **minh họa**. Kế hoạch kiểm chứng và phương án dự phòng: [Architecture_Design.md](Architecture_Design.md) §6.
+> ✅ **Đã kiểm chứng với mã nguồn** *(21/9/2026, P1-01)*. Pin `purgedcv>=0.1.6,<0.2` (MIT). Các chữ ký bên dưới khớp code thật. Dùng phần nào, tự viết phần nào: [ADR-0007](../implement_docs_vi/adr/0007-purgedcv-boc-lai-hay-tu-cai-dat.md) — DSR/PSR tự cài đặt (từ moment), PBO và CPCV bọc lại.
 
 ```python
 from purgedcv import (
@@ -324,7 +324,7 @@ cv = CombinatorialPurgedCV(
     evaluation_times=evalu,
 )
 # C(6,2) = 15 fold → 5 backtest path
-paths = cv.backtest_paths(model, X, y)
+splits = list(cv.split(X))      # + reconstruct_paths(...); backtest_paths cần estimator sklearn — không dùng
 ```
 
 ### 7.4. PSR và MinTRL
@@ -341,7 +341,7 @@ n_min = min_track_record_length(
 )
 ```
 
-⚠️ **Chữ ký chính xác của `deflated_sharpe_ratio` và `probability_of_backtest_overfitting` mình chưa xác minh được** — đọc docstring trong package trước khi dùng. Hai hàm đó tồn tại và có trong danh sách export; chỉ tham số là chưa chắc.
+🆕 **Chữ ký đã xác minh (0.1.6):** `deflated_sharpe_ratio(returns, n_trials, var_sharpe, *, bars_per_year=None)` — nhận `N` và `V[SR]` **riêng**, nhưng chỉ nhận chuỗi lợi nhuận (không nhận moment); `probability_of_backtest_overfitting(returns, n_splits=16, *, metric=sharpe, …)` — ma trận `(n_configs, n_obs)`, quy tắc chọn = argmax Sharpe trên IS, trả về `PBOResult`.
 
 ---
 

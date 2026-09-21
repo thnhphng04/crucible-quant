@@ -28,6 +28,19 @@ def _is_llm_sdk(module: str) -> bool:
     return any(module == sdk or module.startswith(sdk + ".") for sdk in LLM_SDKS)
 
 
+def test_purgedcv_only_in_wrapper_modules() -> None:
+    """ADR-0007 / 02-CONVENTIONS: the rest of the code goes through the validation wrappers."""
+    wrappers = {"validation/statistical.py", "validation/pbo.py", "validation/cpcv.py"}
+    offenders = [
+        f"{path.relative_to(SRC).as_posix()}: {module}"
+        for path in SRC.rglob("*.py")
+        if path.relative_to(SRC).as_posix() not in wrappers
+        for module in _imported_modules(path)
+        if module == "purgedcv" or module.startswith("purgedcv.")
+    ]
+    assert not offenders, f"purgedcv imported outside its wrappers (ADR-0007): {offenders}"
+
+
 def test_llm_sdks_only_in_agent_layer() -> None:
     offenders = [
         f"{path.relative_to(SRC)}: {module}"
