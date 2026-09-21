@@ -43,7 +43,7 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test cho từng sàn cứng, key lạ, giá trị mặc định, lock chỉ-đọc, sửa Nhóm B giữa campaign bị từ chối, sửa Nhóm A được phép.
 - **Cần:** P0-02.
 
-### ☐ P0-04 Hợp đồng strategy + whitelist indicator
+### ✅ P0-04 Hợp đồng strategy + whitelist indicator
 - **Mục tiêu:** hợp đồng lõi mà mọi strategy dùng (P3).
 - **Kiến trúc:** §3.3, §3.1.6 (DSL), §3.3.1.
 - **File:** `core/strategy/base.py` (`Signal`, `Strategy`, `Bars`, `Features`), `core/strategy/registry.py` (`ind`), `tests/core/strategy/`.
