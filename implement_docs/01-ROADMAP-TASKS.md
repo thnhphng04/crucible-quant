@@ -30,7 +30,7 @@ No agent code in this phase (P1).
   - Python API exposes `log_event(...)`, `record_trial(...)`, `record_portfolio_variant(...)`, `trial_stats()`, `starved_cells()`. No generic `execute()`.
 - **Accept when:** tests show DELETE/UPDATE rejected at the SQL level (raw `sqlite3` connection, bypassing the API); a second `holdout_access` insert for the same campaign raises; illegal status transitions raise; `trial_stats` returns `n_raw`, `n_eff` (falls back to `n_raw` when `cluster_id` is NULL), `var_sr` on a fixture.
 
-### ☐ P0-03 Config loader + campaign lock
+### ✅ P0-03 Config loader + campaign lock
 - **Goal:** `config/user.yaml` → validated settings; opening a campaign generates `evaluation.lock.yaml`.
 - **Arch:** §10, §10.1, §4.2.
 - **Files:** `config/schema.py` (frozen dataclasses), `config/loader.py`, `config/lock.py`, `tests/config/`.

@@ -25,7 +25,7 @@ If code and the architecture disagree, **stop and ask** — don't silently "fix"
 | **A4** No LLM at runtime — LLM SDKs are imported only under `quantcrucible.agent` | §0 | `tests/test_architecture_boundaries.py` |
 | **A7** Free data only | §6.1 | review |
 | DSR runs on the **consolidated portfolio** with `N_eff` + `V[SR]` from `trials` (+ `portfolio_variants`) — never per cell | §3.1.6, §4.1 | gate ⑤ tests |
-| Gate thresholds can only be **tightened**: `dsr_min ≥ 0.95`, `pbo_max ≤ 0.5` | §10.1 | config loader |
+| Gate thresholds can only be **tightened**: `dsr_min ≥ 0.95`, `pbo_max ≤ 0.5`, `minbtl_target_sharpe ≤ 1.5` | §10.1 | config loader |
 | `private` metrics never reach a prompt; prompts see `public` + `feedback` only | §3.3.2 | prompt-log test |
 | Generated code runs only in the Docker sandbox (no network, empty env, no view of `holdout/`, `config/`, `ledger/`) | §3.3.3 | sandbox tests |
 | No parameter optimizer inside the evolution loop; Optuna runs once, pre-freeze, and every evaluation is a `trials` row (`source='param_opt'`) | §3.3.1, §3.2.1 | ledger tests |

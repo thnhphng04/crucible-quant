@@ -30,7 +30,7 @@ Không có code agent trong giai đoạn này (P1).
   - API Python cung cấp `log_event(...)`, `record_trial(...)`, `record_portfolio_variant(...)`, `trial_stats()`, `starved_cells()`. Không có `execute()` tổng quát.
 - **Nghiệm thu khi:** test cho thấy DELETE/UPDATE bị từ chối ở mức SQL (kết nối `sqlite3` thô, bỏ qua API); lần insert `holdout_access` thứ hai cho cùng campaign báo lỗi; chuyển trạng thái sai báo lỗi; `trial_stats` trả về `n_raw`, `n_eff` (quay về `n_raw` khi `cluster_id` là NULL), `var_sr` trên một fixture.
 
-### ☐ P0-03 Nạp config + khóa campaign
+### ✅ P0-03 Nạp config + khóa campaign
 - **Mục tiêu:** `config/user.yaml` → cấu hình đã kiểm tra; mở campaign sẽ sinh `evaluation.lock.yaml`.
 - **Kiến trúc:** §10, §10.1, §4.2.
 - **File:** `config/schema.py` (frozen dataclass), `config/loader.py`, `config/lock.py`, `tests/config/`.

@@ -26,6 +26,13 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
+  minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
+  data:                         # D18 — research data; holdout = last `holdout_months`
+    exchange: binance
+    symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT]
+    timeframe: 1d
+    start: 2018-01-01
+    holdout_months: 12
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened
     dsr_min: 0.95               # hard floor: ≥ 0.95
