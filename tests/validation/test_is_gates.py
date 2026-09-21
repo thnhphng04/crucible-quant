@@ -20,7 +20,7 @@ from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
 from quantcrucible.validation.statistical import min_btl_years
 from tests.factories import make_bars
 
-LOCK = {
+LOCK: dict[str, Any] = {
     "research": {
         "minbtl_target_sharpe": 1.5,
         "constraints": {"min_trades": 30, "min_holding_bars": 1, "max_indicator_corr": 0.9},
@@ -146,3 +146,15 @@ def test_change_correlation_ignores_shared_trend() -> None:
     assert level > 0.9 > rho and pair == ("f", "s")
     assert max_abs_change_corr({"a": fast, "b": fast * 2 + 1})[0] == pytest.approx(1.0)
     assert max_abs_change_corr({"a": fast, "flat": np.ones(1_000)}) == (0.0, None)
+
+
+@pytest.mark.parametrize("key", ["min_trades", "min_holding_bars", "max_indicator_corr"])
+def test_g3_nan_threshold_fails_closed(ledger: Ledger, tmp_path: Path, key: str) -> None:
+    c = ctx(ledger, tmp_path, corr=1.0 if key == "max_indicator_corr" else 0.5)
+    constraints = {**LOCK["research"]["constraints"], key: float("nan")}
+    c.lock = {**LOCK, "research": {**LOCK["research"], "constraints": constraints}}
+    assert not InSampleGate().check(cand(), c).passed
+
+
+def test_g3_nan_measurement_fails_closed(ledger: Ledger, tmp_path: Path) -> None:
+    assert not InSampleGate().check(cand(), ctx(ledger, tmp_path, corr=float("nan"))).passed

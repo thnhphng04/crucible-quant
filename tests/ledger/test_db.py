@@ -94,6 +94,51 @@ def test_update_rejected_by_sql(ledger: Ledger, ledger_path: Path) -> None:
             raw.execute(f"UPDATE {table} SET rowid = rowid")
 
 
+def test_replace_rejected_by_sql(ledger: Ledger, ledger_path: Path) -> None:
+    """REPLACE deletes the old row silently (no DELETE trigger fires unless recursive_triggers
+    is on), so every existing key must be refused at INSERT time — on a raw connection too."""
+    _populate_every_table(ledger)
+    raw = sqlite3.connect(ledger_path)
+    for table in TABLES:
+        for verb in ("INSERT OR REPLACE", "REPLACE"):
+            with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+                raw.execute(f"{verb} INTO {table} SELECT * FROM {table}")
+    with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+        raw.execute(
+            "INSERT OR REPLACE INTO campaigns (campaign_id, started_at, holdout_range, lock_hash,"
+            " holdout_lock_hash, status) VALUES ('c1', '2000-01-01', 'evil', 'evil', NULL, 'OPEN')"
+        )
+    row = raw.execute("SELECT holdout_range, lock_hash, status FROM campaigns").fetchone()
+    assert row == ("2025-09-21/2026-09-21", "abc", "FROZEN")
+
+
+def test_upsert_cannot_rewrite_a_campaign(ledger: Ledger, ledger_path: Path) -> None:
+    raw = sqlite3.connect(ledger_path)
+    with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+        raw.execute(
+            "INSERT INTO campaigns (campaign_id, started_at, holdout_range, lock_hash, status)"
+            " VALUES ('c1', 'x', 'evil', 'evil', 'OPEN')"
+            " ON CONFLICT (campaign_id) DO UPDATE SET status = 'FROZEN'"
+        )
+
+
+def test_v1_ledger_is_migrated(ledger: Ledger, ledger_path: Path) -> None:
+    ledger.close()
+    raw = sqlite3.connect(ledger_path, isolation_level=None)
+    names = [r[0] for r in raw.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_no_replace'"
+    )]  # fmt: skip
+    assert len(names) == len(TABLES)
+    for name in names:  # what a v1 ledger looked like
+        raw.execute(f"DROP TRIGGER {name}")
+    raw.execute("PRAGMA user_version = 1")
+    raw.close()
+    Ledger.open(ledger_path).close()
+    raw = sqlite3.connect(ledger_path)
+    with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+        raw.execute("INSERT OR REPLACE INTO campaigns SELECT * FROM campaigns")
+
+
 def test_second_holdout_access_raises(ledger: Ledger) -> None:
     _populate_every_table(ledger)
     now = datetime.now(UTC)

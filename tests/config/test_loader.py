@@ -74,3 +74,33 @@ def test_invalid_values_rejected(data: dict[str, Any], message: str) -> None:
 def test_holdout_pass_optional_until_used() -> None:
     assert parse_user_config({}).research.holdout_pass is None
     assert parse_user_config({"research": {"holdout_pass": 0.5}}).research.holdout_pass == 0.5
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("constraints", "max_indicator_corr"),
+        ("gates", "dsr_min"),
+        ("gates", "pbo_max"),
+        ("minbtl_target_sharpe",),
+        ("holdout_pass",),
+        ("target_vol",),
+    ],
+)
+def test_non_finite_numbers_rejected(bad: float, path: tuple[str, ...]) -> None:
+    """NaN compares false with everything, so `corr > NaN` would silently pass a gate."""
+    research: dict[str, Any] = {}
+    node = research
+    for key in path[:-1]:
+        node = node.setdefault(key, {})
+    node[path[-1]] = bad
+    with pytest.raises(ConfigError, match="finite"):
+        parse_user_config({"research": research})
+
+
+def test_yaml_nan_literal_rejected(tmp_path: Path) -> None:
+    cfg = tmp_path / "user.yaml"
+    cfg.write_text("research:\n  constraints: {max_indicator_corr: .nan}\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="finite"):
+        load_user_config(cfg)

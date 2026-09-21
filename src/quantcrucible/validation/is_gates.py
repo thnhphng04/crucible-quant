@@ -94,15 +94,16 @@ class InSampleGate:
             {"ts": pd.to_datetime(out["ts"][1:]), "ret": np.asarray(out["returns"], dtype=float)}
         ).to_parquet(path, index=False)
         problems: list[str] = []
-        if public["n_trades"] < limits["min_trades"]:
+        # written as `not (ok)` so a NaN on either side fails closed instead of passing
+        if not public["n_trades"] >= limits["min_trades"]:
             problems.append(f"{public['n_trades']:.0f} trades < min_trades {limits['min_trades']}")
-        if public["avg_holding_bars"] < limits["min_holding_bars"]:
+        if not public["avg_holding_bars"] >= limits["min_holding_bars"]:
             problems.append(
                 f"average holding {public['avg_holding_bars']:.2f} bars"
                 f" < min_holding_bars {limits['min_holding_bars']}"
             )
         corr = float(out["indicator_corr"])
-        if corr > limits["max_indicator_corr"]:
+        if not corr <= limits["max_indicator_corr"]:
             pair = " / ".join(out["indicator_pair"] or [])
             problems.append(
                 f"indicators {pair} |ρ| {corr:.3f} > max_indicator_corr"

@@ -67,6 +67,7 @@ class SandboxResult:
     timed_out: bool
     violation: str | None  # timeout | resource_limit | no_report | os_access
     elapsed_s: float
+    container: str = ""  # docker name, unique per job
 
     @property
     def error(self) -> str:
@@ -249,6 +250,7 @@ class SandboxRunner:
             timed_out=timed_out,
             violation=violation,
             elapsed_s=elapsed,
+            container=name,
         )
 
     @staticmethod

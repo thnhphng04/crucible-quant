@@ -28,7 +28,9 @@ from quantcrucible.ledger.records import (
     utc_now,
 )
 
-SCHEMA_VERSION = 1
+# Scripts taking a ledger from version i to i + 1, applied in order; never edit a shipped one.
+MIGRATIONS = ("schema.sql", "migration_002_no_replace.sql")
+SCHEMA_VERSION = len(MIGRATIONS)
 
 
 class LedgerError(Exception):
@@ -54,15 +56,14 @@ class Ledger:
         """Open (and on first use create) the ledger at ``path``; ``":memory:"`` for tests."""
         conn = sqlite3.connect(str(path), isolation_level=None)
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA recursive_triggers = ON")  # defence in depth; v2 triggers suffice
         if str(path) != ":memory:":
             conn.execute("PRAGMA journal_mode = WAL")
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version == 0:
-            schema = files("quantcrucible.ledger").joinpath("schema.sql").read_text("utf-8")
-            conn.executescript(
-                f"BEGIN;\n{schema}\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"
-            )
-        elif version != SCHEMA_VERSION:
+        for step in range(version, SCHEMA_VERSION):
+            script = files("quantcrucible.ledger").joinpath(MIGRATIONS[step]).read_text("utf-8")
+            conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {step + 1};\nCOMMIT;")
+        if version > SCHEMA_VERSION:
             conn.close()
             raise LedgerError(f"ledger schema v{version}, code expects v{SCHEMA_VERSION}")
         return cls(conn)
