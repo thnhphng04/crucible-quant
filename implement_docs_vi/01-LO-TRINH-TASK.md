@@ -174,9 +174,9 @@ Không có code agent trong giai đoạn này (P1).
 - **File:** `validation/portfolio.py`.
 - **Nghiệm thu khi:** mỗi bước có unit test trên fixture (một đại diện mỗi ô, lọc `|ρ|` theo thứ tự hạng DSR, giới hạn K, risk parity đơn giản, tái cân bằng hằng tháng); `portfolio_hash` tất định và đổi khi bất kỳ thành viên/trọng số/quy tắc nào đổi; mỗi danh mục dựng ra là một dòng `portfolio_variants`. Xong: [ADR-0013](adr/0013-xay-danh-muc-va-kho-source-chien-luoc.md).
 
-### ☐ P1-08 Cổng ⑤ — DSR của danh mục
+### ✅ P1-08 Cổng ⑤ — DSR của danh mục
 - **Kiến trúc:** §3.2 dòng ⑤, hộp DSR ở §3.1.6, §4.1.
-- **Nghiệm thu khi:** đầu vào chỉ lấy từ `trial_stats` + `total_portfolio_variants`; một test chứng minh thêm trial (bất kỳ engine, bất kỳ phán quyết) làm kết quả giảm; DSR không bao giờ tính theo từng ô (không có API cho việc đó).
+- **Nghiệm thu khi:** đầu vào chỉ lấy từ `trial_stats` + `total_portfolio_variants`; một test chứng minh thêm trial (bất kỳ engine, bất kỳ phán quyết) làm kết quả giảm; DSR không bao giờ tính theo từng ô (không có API cho việc đó). Xong: [ADR-0014](adr/0014-cong-5-dsr-danh-muc-va-pipeline-danh-muc.md).
 
 ### ☐ P1-09 Cổng ⑥′ — độ bền theo nguồn dữ liệu + độ nhạy chi phí
 - **Kiến trúc:** §3.2 dòng ⑥′, §6.1 (dữ liệu hai tầng).

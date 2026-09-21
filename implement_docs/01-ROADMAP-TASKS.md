@@ -174,9 +174,9 @@ No agent code in this phase (P1).
 - **Files:** `validation/portfolio.py`.
 - **Accept when:** each step unit-tested on a fixture (one per cell, `|ρ|` filter in DSR-rank order, cap K, naive risk parity, monthly rebalance); the `portfolio_hash` is deterministic and changes with any member/weight/rule change; each built portfolio is a `portfolio_variants` row. Done: [ADR-0013](adr/0013-portfolio-construction-and-strategy-archive.md).
 
-### ☐ P1-08 Gate ⑤ — portfolio DSR
+### ✅ P1-08 Gate ⑤ — portfolio DSR
 - **Arch:** §3.2 row ⑤, §3.1.6 DSR box, §4.1.
-- **Accept when:** inputs come only from `trial_stats` + `total_portfolio_variants`; a test proves adding trials (any engine, any verdict) lowers the result; DSR is never computed per cell (no API for it).
+- **Accept when:** inputs come only from `trial_stats` + `total_portfolio_variants`; a test proves adding trials (any engine, any verdict) lowers the result; DSR is never computed per cell (no API for it). Done: [ADR-0014](adr/0014-gate5-portfolio-dsr-and-portfolio-pipeline.md).
 
 ### ☐ P1-09 Gate ⑥′ — data-source robustness + cost sensitivity
 - **Arch:** §3.2 row ⑥′, §6.1 (two-tier data).

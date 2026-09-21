@@ -10,7 +10,7 @@
 
 ## Decision
 
-1. **Own implementation** in `validation/n_eff.py` (no library ships ONC): `clusterKMeansBase` (k = 2…n−1, `n_init = 10`, quality = mean/std of silhouettes) + `clusterKMeansTop` (re-cluster the clusters whose silhouette t-stat is below the mean; keep the split only if it improves them), after López de Prado & Lewis (2019). scikit-learn (`KMeans`, `silhouette_samples`, BSD-3, already pulled in by `purgedcv`) does the k-means. Seeded ⇒ deterministic.
+1. **Own implementation** in `validation/n_eff.py` (no library ships ONC): `clusterKMeansBase` (k = 2…min(n−1, 50), `n_init = 3` — bounded for speed in P1-08; the guard can only split further, quality = mean/std of silhouettes) + `clusterKMeansTop` (re-cluster the clusters whose silhouette t-stat is below the mean; keep the split only if it improves them), after López de Prado & Lewis (2019). scikit-learn (`KMeans`, `silhouette_samples`, BSD-3, already pulled in by `purgedcv`) does the k-means. Seeded ⇒ deterministic.
 2. **Significance guard** after ONC: a trial stays in its cluster only while its mean correlation with the other members exceeds `3/√T` (T = mean common observations; independent series have ρ ~ N(0, 1/T)). Weakest member first, until stable; a removed trial is its own cluster.
 3. **Conservative edges:** fewer than 3 trials ⇒ each its own cluster (ONC needs k ≥ 2 and a silhouette); identical series ⇒ one cluster. Correlations use common timestamps; fewer than 30 common observations, or a flat series, ⇒ ρ = 0.
 4. `update_n_eff(ledger)` clusters **every** trial (all campaigns) and appends one `clustering_runs` row (`method = 'onc-v1'`). It is re-run on every portfolio evaluation (P1-07/P1-08). New `Ledger.trials()` read feeds it.
@@ -18,7 +18,7 @@
 ## Consequences
 
 - Tests: k ∈ {2, 4, 7} planted sources recovered exactly; 12 noise series ⇒ 12 clusters; an unrelated new trial stays separate after re-clustering.
-- Cost: O(n_init · n²) k-means fits — fine for hundreds of trials. For thousands (phase 2), cap `max_clusters` or cluster incrementally; revisit then.
+- Cost: ≤ n_init · 50 k-means fits per ONC level — ~8 s for 200 trials. For thousands (phase 2), cluster incrementally; revisit then.
 - The guard is an addition to the published ONC; it can only raise `N_eff`, never lower it.
 
 ## Alternatives considered

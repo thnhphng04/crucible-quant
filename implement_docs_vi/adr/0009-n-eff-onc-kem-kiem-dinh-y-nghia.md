@@ -10,7 +10,7 @@
 
 ## Quyết định
 
-1. **Tự cài đặt** trong `validation/n_eff.py` (không thư viện nào có ONC): `clusterKMeansBase` (k = 2…n−1, `n_init = 10`, chất lượng = mean/std của silhouette) + `clusterKMeansTop` (phân cụm lại các cụm có t-stat silhouette dưới trung bình; chỉ giữ cách tách nếu nó cải thiện chúng), theo López de Prado & Lewis (2019). scikit-learn (`KMeans`, `silhouette_samples`, BSD-3, đã được `purgedcv` kéo theo) chạy k-means. Có seed ⇒ tất định.
+1. **Tự cài đặt** trong `validation/n_eff.py` (không thư viện nào có ONC): `clusterKMeansBase` (k = 2…min(n−1, 50), `n_init = 3` — giới hạn cho nhanh ở P1-08; bước bảo vệ chỉ có thể tách thêm, chất lượng = mean/std của silhouette) + `clusterKMeansTop` (phân cụm lại các cụm có t-stat silhouette dưới trung bình; chỉ giữ cách tách nếu nó cải thiện chúng), theo López de Prado & Lewis (2019). scikit-learn (`KMeans`, `silhouette_samples`, BSD-3, đã được `purgedcv` kéo theo) chạy k-means. Có seed ⇒ tất định.
 2. **Bước bảo vệ ý nghĩa** sau ONC: một trial chỉ ở lại cụm khi tương quan trung bình của nó với các thành viên khác vượt `3/√T` (T = số quan sát chung trung bình; chuỗi độc lập có ρ ~ N(0, 1/T)). Loại thành viên yếu nhất trước, lặp tới khi ổn định; trial bị loại thành một cụm riêng.
 3. **Biên bảo thủ:** ít hơn 3 trial ⇒ mỗi trial một cụm (ONC cần k ≥ 2 và silhouette); các chuỗi giống hệt ⇒ một cụm. Tương quan tính trên các mốc thời gian chung; dưới 30 quan sát chung, hoặc chuỗi phẳng, ⇒ ρ = 0.
 4. `update_n_eff(ledger)` phân cụm **mọi** trial (mọi campaign) và thêm một dòng `clustering_runs` (`method = 'onc-v1'`). Chạy lại ở mỗi lần đánh giá danh mục (P1-07/P1-08). Hàm đọc mới `Ledger.trials()` cấp dữ liệu cho nó.
@@ -18,7 +18,7 @@
 ## Hệ quả
 
 - Test: k ∈ {2, 4, 7} nguồn được cài sẵn được tìm lại chính xác; 12 chuỗi nhiễu ⇒ 12 cụm; một trial mới không liên quan vẫn tách riêng sau khi phân cụm lại.
-- Chi phí: O(n_init · n²) lần fit k-means — ổn với vài trăm trial. Với hàng nghìn (GĐ 2), giới hạn `max_clusters` hoặc phân cụm tăng dần; xem lại lúc đó.
+- Chi phí: ≤ n_init · 50 lần fit k-means mỗi tầng ONC — ~8 giây cho 200 trial. Với hàng nghìn (GĐ 2), phân cụm tăng dần; xem lại lúc đó.
 - Bước bảo vệ là phần bổ sung vào ONC đã công bố; nó chỉ có thể tăng `N_eff`, không bao giờ giảm.
 
 ## Phương án đã cân nhắc

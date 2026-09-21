@@ -32,6 +32,8 @@ from quantcrucible.ledger.db import Ledger
 ONC_METHOD = "onc-v1"
 MIN_OVERLAP = 30  # fewer common observations than this ⇒ correlation treated as 0
 SIGNIFICANCE_Z = 3.0  # cluster membership needs mean ρ > z/√T (ADR-0009)
+MAX_CLUSTERS = 50  # k-means search bound per ONC level; the guard can only split further
+N_INIT = 3
 
 Labels = npt.NDArray[np.int64]
 FloatMatrix = npt.NDArray[np.float64]
@@ -155,8 +157,8 @@ def _top(corr: FloatMatrix, max_k: int, n_init: int, seed: int) -> Labels:
 def onc_clusters(
     corr: npt.ArrayLike,
     n_obs: float | npt.ArrayLike,
-    max_clusters: int | None = None,
-    n_init: int = 10,
+    max_clusters: int | None = MAX_CLUSTERS,
+    n_init: int = N_INIT,
     seed: int = 0,
 ) -> Labels:
     """Cluster labels (0..k-1) for a correlation matrix: ONC, then the significance guard.
@@ -183,7 +185,7 @@ def _load_returns(path: str) -> pd.Series:
     return pd.Series(df["ret"].to_numpy(dtype=np.float64), index=pd.to_datetime(df["ts"]))
 
 
-def update_n_eff(ledger: Ledger, seed: int = 0, n_init: int = 10) -> ClusteringResult:
+def update_n_eff(ledger: Ledger, seed: int = 0, n_init: int = N_INIT) -> ClusteringResult:
     """Cluster every trial in the ledger (all campaigns) and append the run (§4.1)."""
     trials = ledger.trials()
     if not trials:

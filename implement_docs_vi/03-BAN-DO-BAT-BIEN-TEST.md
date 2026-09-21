@@ -51,7 +51,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 |---|---|---|---|---|---|---|
 | INV-40 | DSR khớp ví dụ của Bailey & López de Prado (2014) | §6, 07 §4 | Code | `tests/validation/test_statistical.py::test_dsr_reference_example`, `::test_psr_and_dsr_match_purgedcv_on_a_series` | P1-02 | ✅ |
 | INV-41 | PBO ≈ 0.5 trên nhiễu, → 0 khi có edge cài sẵn; khớp định nghĩa của bài báo và `purgedcv` | §3.2 | Code | `tests/validation/test_pbo.py::test_pbo_noise`, `::test_pbo_planted_edge`, `::test_pbo_reference_example`, `::test_matches_purgedcv`; cổng: `tests/validation/test_pbo_gate.py` | P1-03 | ✅ |
-| INV-42 | DSR chỉ tính trên danh mục hợp nhất; đầu vào từ `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (không có API theo ô) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr` | P1-08 | ☐ |
+| INV-42 | DSR chỉ trên danh mục hợp nhất; đầu vào từ `trial_stats` + `portfolio_variants` | §3.1.6, §4.1 | Code (không có API theo ô) | `tests/validation/test_portfolio_dsr.py::test_more_trials_lower_dsr`, `::test_inputs_are_trial_stats_plus_variants`, `::test_no_per_cell_dsr_api` | P1-08 | ✅ |
 | INV-43 | Chỉ cấu hình đã tới ③ mới tính là trial; sự kiện audit thì không | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
 | INV-44 | Các lần đánh giá khi hiệu chỉnh là trial (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
 | INV-45 | Mọi thay đổi quy tắc danh mục ⇒ một dòng `portfolio_variants` mới, được tính vào `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ✅ |
