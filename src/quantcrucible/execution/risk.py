@@ -10,7 +10,7 @@ live (P5): it sees only closed bars and the account's equity.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -62,13 +62,15 @@ class RiskSizer:
         symbols: Sequence[str],
         settings: RiskSettings,
         periods_per_year: float,
-        lot_step: float = 0.0,
+        lot_step: float | Mapping[str, float] = 0.0,
     ) -> None:
         self.settings = settings
         self._sizer = PositionSizer(settings.target_vol, settings.max_risk_pct)
         self._symbols = list(symbols)
         self._ppy = periods_per_year
-        self._lot_step = lot_step
+        self._lot_step = (
+            dict(lot_step) if isinstance(lot_step, Mapping) else dict.fromkeys(symbols, lot_step)
+        )  # per symbol: each base currency has its own precision
         self._closes: dict[str, pd.Series] = {}
         self._notional: dict[str, float] = dict.fromkeys(self._symbols, 0.0)
         self._period: tuple[int, int] | None = None
@@ -88,7 +90,7 @@ class RiskSizer:
             self._notional[symbol] = 0.0
             return 0.0
         vol = ewma_vol(window.close, self.settings.vol_span, self._ppy)
-        spec = InstrumentSpec(price=price, lot_step=self._lot_step)
+        spec = InstrumentSpec(price=price, lot_step=self._lot_step.get(symbol, 0.0))
         qty = self._sizer.size(
             signal, spec, Account(equity), vol if vol is not None else float("nan"),
             n_active=len(self._symbols), idm=self.idm, portfolio_scale=self.scale,

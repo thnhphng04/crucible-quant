@@ -17,13 +17,13 @@ import numpy.typing as npt
 from quantcrucible.core.strategy.base import Bars, Strategy
 from quantcrucible.data.source import timeframe_delta
 from quantcrucible.execution.nautilus_bridge import (
-    SIZE_PRECISION,
     BridgeLog,
     BridgeStrategy,
     CostModel,
     FillRecord,
     TargetSizer,
     build_engine,
+    lot_step,
 )
 from quantcrucible.execution.risk import RiskSettings, RiskSizer
 
@@ -102,7 +102,8 @@ def run_backtest(
     log = BridgeLog()
     ppy = _periods_per_year(timeframe)
     if sizer is None:
-        sizer = RiskSizer(list(bars_by_symbol), risk or RiskSettings(), ppy, 10.0**-SIZE_PRECISION)
+        steps = {s: lot_step(s) for s in bars_by_symbol}
+        sizer = RiskSizer(list(bars_by_symbol), risk or RiskSettings(), ppy, steps)
     engine.add_strategy(
         BridgeStrategy(strategy, instruments, bar_types, timeframe, sizer, lookback, log)
     )

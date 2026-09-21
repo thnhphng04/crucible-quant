@@ -264,3 +264,18 @@ def test_overlapping_bars_rejected() -> None:
                bars.open, bars.high, bars.low, bars.close, bars.volume)  # fmt: skip
     with pytest.raises(ValueError, match="overlap"):
         bt(LongFrom(0), {"TEST/USDT": bad})
+
+
+def test_base_currency_precision_below_the_size_precision() -> None:
+    """Nautilus defines XRP with 6 decimals: quantities at 8 decimals left the XRP balance
+    -0.000001 after selling the whole position, and the engine stopped (found on the first
+    real-data run). Order sizes must use the base currency's precision."""
+    opens = [0.5234 + 0.01 * i for i in range(12)]
+    bars = ladder(opens, wick=0.004, up=0.002)
+    xrp = Bars("XRP/USDT", "1d", bars.ts, bars.open, bars.high, bars.low, bars.close, bars.volume)
+    res = run_backtest(LongFrom(1, stop=6), {"XRP/USDT": xrp}, sizer=FixedNotional(12_345.678))
+    assert len(res.equity) == 12  # ran to the last bar
+    buys = [f.qty for f in res.fills if f.side == "BUY"]
+    sells = [f.qty for f in res.fills if f.side == "SELL"]
+    assert buys and sum(buys) == pytest.approx(sum(sells), abs=1e-12)  # flat again
+    assert all(round(q, 6) == q for q in buys + sells)  # XRP's own 6 decimals

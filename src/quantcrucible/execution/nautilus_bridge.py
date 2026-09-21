@@ -40,7 +40,7 @@ from quantcrucible.core.strategy.base import Bars, Signal, Strategy, step
 from quantcrucible.data.source import timeframe_delta
 
 PRICE_PRECISION = 8
-SIZE_PRECISION = 8
+SIZE_PRECISION = 8  # at most; an instrument never trades finer than its base currency
 OPEN_TICK_OFFSET_NS = 1
 REBALANCE_BAND = 0.25  # an open position is resized only if the target moves by more than 25%
 
@@ -93,18 +93,31 @@ def _currency(code: str) -> Currency:
         return Currency(code, SIZE_PRECISION, 0, code, CurrencyType.CRYPTO)
 
 
+def size_precision(symbol: str) -> int:
+    """Decimals an order quantity may carry: the base currency's own precision, capped at
+    ``SIZE_PRECISION``. Nautilus keeps balances at the currency's precision (XRP: 6); orders
+    finer than that leave a residue, and selling a whole position drove the XRP balance to
+    −0.000001, which stops the backtest (ADR-0003 amendment)."""
+    return min(SIZE_PRECISION, int(_currency(symbol.split("/")[0]).precision))
+
+
+def lot_step(symbol: str) -> float:
+    return 10.0 ** -size_precision(symbol)
+
+
 def make_instrument(symbol: str, venue: Venue, costs: CostModel) -> CurrencyPair:
     base, quote = symbol.split("/")
     raw = Symbol(nautilus_symbol(symbol))
+    size = size_precision(symbol)
     return CurrencyPair(
         instrument_id=InstrumentId(raw, venue),
         raw_symbol=raw,
         base_currency=_currency(base),
         quote_currency=_currency(quote),
         price_precision=PRICE_PRECISION,
-        size_precision=SIZE_PRECISION,
+        size_precision=size,
         price_increment=Price(10**-PRICE_PRECISION, PRICE_PRECISION),
-        size_increment=Quantity(10**-SIZE_PRECISION, SIZE_PRECISION),
+        size_increment=Quantity(10**-size, size),
         lot_size=None,
         max_quantity=None,
         min_quantity=None,
@@ -155,7 +168,7 @@ def to_nautilus_data(bars: Bars, instrument: CurrencyPair) -> tuple[list[Bar], l
                 Price(float(bars.high[i]), PRICE_PRECISION),
                 Price(float(bars.low[i]), PRICE_PRECISION),
                 Price(float(bars.close[i]), PRICE_PRECISION),
-                Quantity(min(float(bars.volume[i]), volume_cap), SIZE_PRECISION),
+                Quantity(min(float(bars.volume[i]), volume_cap), instrument.size_precision),
                 t,
                 t,
             )
@@ -166,7 +179,7 @@ def to_nautilus_data(bars: Bars, instrument: CurrencyPair) -> tuple[list[Bar], l
                 TradeTick(
                     instrument.id,
                     Price(float(bars.open[i]), PRICE_PRECISION),
-                    Quantity(volume_cap, SIZE_PRECISION),
+                    Quantity(volume_cap, instrument.size_precision),
                     AggressorSide.NO_AGGRESSOR,
                     TradeId(f"open-{i}"),
                     t_open,
@@ -257,7 +270,7 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
         inst = self._instruments[symbol]
         current = float(self.portfolio.net_position(inst.id))
         self.cancel_all_orders(inst.id)  # the protective stop is re-issued every bar
-        min_step = 10.0**-SIZE_PRECISION
+        min_step = 10.0**-inst.size_precision
         # already in: resize only when the target moved by more than the band
         if (
             current >= min_step
