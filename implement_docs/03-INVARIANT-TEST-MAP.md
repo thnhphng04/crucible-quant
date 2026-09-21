@@ -8,7 +8,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 
 | ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-01 | Every backtest goes through the ledger; no bypass path | P2, §4.1 | Code: the backtest runner requires a ledger handle and writes before returning | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ☐ |
+| INV-01 | Every backtest goes through the ledger; no bypass path | P2, §4.1 | Code: backtests are reached only through `GatePipeline`, which writes the ledger; import contract for `agent` ([ADR-0006](adr/0006-minbtl-and-in-sample-gates.md)) | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ✅ |
 | INV-02 | Ledger rows are never deleted or updated (only `campaigns.status` moves forward) | P2, §4.1, ADR-0002 | DB triggers | `tests/ledger/test_db.py::test_every_table_rejects_delete_at_sql_level`, `::test_update_rejected_by_sql` | P0-02 | ✅ |
 | INV-03 | Strategies speak `Signal`, never quantities | P3, §3.3 | Code (`Signal` validation) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ✅ |
 | INV-04 | Strategies never import the adapter/execution layer | §3.3 | Lint: import-linter "core is the bottom layer" | `lint-imports` | P0-01 | ✅ |
@@ -43,7 +43,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-35 | Signal on bar *t* fills at *t+1*; limit fills only on trade-through | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution_entry_and_exit`, `::test_signal_on_close_fills_at_next_open`, `::test_limit_touch_not_filled` | P0-10 | ✅ |
 | INV-36 | Generated code runs sandboxed: no network, empty env, no view of `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ✅ |
 | INV-37 | Gates fail closed; every `GateResult` reaches the ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ✅ |
-| INV-38 | Gate ③ rejects `< min_trades`, `< min_holding_bars`, indicator abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_gates.py::test_g3_constraints` | P0-12 | ☐ |
+| INV-38 | Gate ③ rejects `< min_trades`, `< min_holding_bars`, indicator abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_is_gates.py::test_g3_constraints` | P0-12 | ✅ |
 
 ## Statistics & portfolio
 

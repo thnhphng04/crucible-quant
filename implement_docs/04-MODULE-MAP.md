@@ -31,6 +31,7 @@ TradingProject/
 │   │   ├── guardrail.py           gate ①a static + ①b dynamic (leak_check.py)          §3.2    P0-07/11
 │   │   ├── sandbox.py             Docker runner (host) + sandbox_runner.py (in-container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, DSR, PBO, CPCV (wraps purgedcv)              §3.2    P0-12, P1-0x
+│   │   ├── is_gates.py, run.py    gates ② ③; the phase-0 pipeline + `cli validate`     §3.2    P0-12
 │   │   ├── n_eff.py               ONC clustering → N_eff                               §4.1    P1-05
 │   │   ├── portfolio.py           §3.2.1 construction + portfolio_hash                 §3.2.1  P1-07
 │   │   ├── portfolio_dsr.py       gate ⑤                                               §3.2    P1-08
@@ -70,6 +71,7 @@ The forbidden directions are enforced by import-linter contracts in `pyproject.t
 | `execution` never imports `agent`, `validation`, `holdout` | The live path must be the backtest path, with no research machinery (P5) |
 | Nothing imports `holdout` | The evaluator is reached only by launching its process (§4.2 layer 3) |
 | `data` imports nothing from `agent`, `validation`, `execution` | Data sources are swappable (§6.1 `DataSource`) |
+| `agent` imports no `execution`, sandbox or leak-check code | It reaches backtests only through `GatePipeline`, which writes the ledger (P2) |
 | `validation.sandbox_runner` imports no `ledger`, `config`, `agent`, `holdout`, gate or host-sandbox code | It runs inside the container with generated code; it can only return a report (§3.3.3) |
 | `ledger` imports no other `quantcrucible` package; `config` imports only `ledger` | The ledger is the single source of truth (P2) and must not depend on what it records |
 

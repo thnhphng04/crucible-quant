@@ -1,6 +1,7 @@
 """Command line entry points.
 
     uv run python -m quantcrucible.cli data-fetch     download research data + carve the holdout
+    uv run python -m quantcrucible.cli validate FILE  run one strategy through gates ①a → ③
 
 Never prints holdout prices — only row counts and hashes.
 """
@@ -8,6 +9,7 @@ Never prints holdout prices — only row counts and hashes.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -66,6 +68,41 @@ def holdout_reharden(root: Path) -> int:
     return 0
 
 
+def validate(strategy: Path, params: str | None, config: Path, root: Path) -> int:
+    from quantcrucible.config.lock import read_lock
+    from quantcrucible.data.store import ResearchStore, parse_range
+    from quantcrucible.ledger.db import Ledger
+    from quantcrucible.validation.run import current_campaign, make_candidate, run_candidate
+    from quantcrucible.validation.sandbox import SandboxRunner, ensure_image
+
+    cfg = load_user_config(config)
+    (root / "ledger").mkdir(exist_ok=True)
+    ledger = Ledger.open(root / "ledger" / "crucible.db")
+    lock_path = root / "config" / "evaluation.lock.yaml"
+    campaign_id = current_campaign(cfg, ledger, lock_path, root)
+    lock = read_lock(lock_path)
+    data = cfg.research.data
+    store = ResearchStore(root / "data" / "is", [parse_range(lock["holdout_range"])])
+    is_data = {s: store.bars(s, data.timeframe) for s in data.symbols}
+    candidate = make_candidate(
+        strategy.read_text(encoding="utf-8"), campaign_id, is_data,
+        json.loads(params) if params else None, evolve_scope=cfg.research.evolve_scope,
+    )  # fmt: skip
+    sandbox = SandboxRunner(ensure_image(root))
+    outcome = run_candidate(candidate, ledger, lock, is_data, sandbox, root / "results")
+    out = sys.stdout
+    out.write(f"campaign {campaign_id} · candidate {candidate.candidate_id}\n")
+    for r in outcome.results:
+        out.write(f"  {r.gate:<12} {'PASS' if r.passed else 'REJECT':<6} {r.reason}\n")
+        if r.report is not None:
+            for line in r.report.feedback.splitlines():
+                out.write(f"  {'':<12} {'':<6} {line}\n")
+    verdict = "PASS" if outcome.passed else f"REJECTED at {outcome.failed_gate}"
+    trial = f" · trial #{outcome.trial_id}" if outcome.trial_id is not None else ""
+    out.write(f"verdict: {verdict}{trial}\n")
+    return 0 if outcome.passed else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="quantcrucible")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -74,11 +111,18 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("--root", type=Path, default=Path("."))
     harden = sub.add_parser("holdout-reharden", help="verify holdout hashes and re-lock the files")
     harden.add_argument("--root", type=Path, default=Path("."))
+    val = sub.add_parser("validate", help="run one strategy file through gates ①a → ③")
+    val.add_argument("strategy", type=Path)
+    val.add_argument("--params", help="JSON object; default: the TUNABLE defaults")
+    val.add_argument("--config", type=Path, default=Path("config/user.yaml"))
+    val.add_argument("--root", type=Path, default=Path("."))
     args = parser.parse_args(argv)
     if args.command == "data-fetch":
         return data_fetch(args.config, args.root)
     if args.command == "holdout-reharden":
         return holdout_reharden(args.root)
+    if args.command == "validate":
+        return validate(args.strategy, args.params, args.config, args.root)
     return 2
 
 

@@ -8,7 +8,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 
 | ID | Bất biến | Kiến trúc | Cơ chế | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-01 | Mọi backtest đều đi qua ledger; không có đường vòng | P2, §4.1 | Code: bộ chạy backtest bắt buộc có handle ledger và ghi trước khi trả kết quả | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ☐ |
+| INV-01 | Mọi backtest đều đi qua ledger; không có đường vòng | P2, §4.1 | Code: chỉ tới được backtest qua `GatePipeline`, nơi ghi ledger; contract import cho `agent` ([ADR-0006](adr/0006-cong-minbtl-va-backtest-in-sample.md)) | `tests/e2e/test_phase0.py::test_every_candidate_has_ledger_rows` | P0-12 | ✅ |
 | INV-02 | Dòng ledger không bao giờ bị xóa hay sửa (chỉ `campaigns.status` được đi tiếp) | P2, §4.1, ADR-0002 | Trigger DB | `tests/ledger/test_db.py::test_every_table_rejects_delete_at_sql_level`, `::test_update_rejected_by_sql` | P0-02 | ✅ |
 | INV-03 | Strategy nói bằng `Signal`, không bao giờ bằng khối lượng | P3, §3.3 | Code (kiểm tra `Signal`) + Lint | `tests/core/strategy/test_base.py::test_signal_validation` | P0-04 | ✅ |
 | INV-04 | Strategy không bao giờ import tầng adapter/execution | §3.3 | Lint: import-linter "core is the bottom layer" | `lint-imports` | P0-01 | ✅ |
@@ -43,7 +43,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-35 | Tín hiệu ở bar *t* khớp ở *t+1*; lệnh limit chỉ khớp khi giá đi xuyên qua | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution_entry_and_exit`, `::test_signal_on_close_fills_at_next_open`, `::test_limit_touch_not_filled` | P0-10 | ✅ |
 | INV-36 | Code được sinh chạy trong sandbox: không mạng, env rỗng, không thấy `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ✅ |
 | INV-37 | Cổng fail closed; mọi `GateResult` đều vào ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ✅ |
-| INV-38 | Cổng ③ loại khi `< min_trades`, `< min_holding_bars`, indicator có abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_gates.py::test_g3_constraints` | P0-12 | ☐ |
+| INV-38 | Cổng ③ loại khi `< min_trades`, `< min_holding_bars`, indicator có abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_is_gates.py::test_g3_constraints` | P0-12 | ✅ |
 
 ## Thống kê & danh mục
 

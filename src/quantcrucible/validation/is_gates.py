@@ -1,0 +1,121 @@
+"""Gates ② MinBTL and ③ in-sample backtest (Architecture §3.2, 07-VALIDATION-LAYER §4.4, D15).
+
+Both read their settings from the campaign lock (never ``user.yaml``) and their data from
+``ctx.services['is_data']`` — in-sample bars by symbol, already checked against the holdout by
+``ResearchStore``. ③ is where a candidate becomes a statistical trial: its result carries a
+:class:`TrialMeasurement`, so the pipeline writes a ``trials`` row whatever the verdict.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from quantcrucible.core.strategy.base import Bars
+from quantcrucible.validation.gates import (
+    G2_MINBTL,
+    G3_IS,
+    GateContext,
+    GateResult,
+    StrategyCandidate,
+    TrialMeasurement,
+)
+from quantcrucible.validation.report import EvaluationReport
+from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
+from quantcrucible.validation.statistical import min_btl_years
+
+DAYS_PER_YEAR = 365.25
+
+
+def universe_bars(candidate: StrategyCandidate, ctx: GateContext) -> dict[str, Bars]:
+    data: Mapping[str, Bars] = ctx.services["is_data"]
+    missing = [s for s in candidate.universe if s not in data or not len(data[s])]
+    if missing or not candidate.universe:
+        raise ValueError(f"no IS data for {missing or 'an empty universe'}")
+    return {s: data[s] for s in candidate.universe}
+
+
+def span_years(bars: Bars) -> float:
+    span = (bars.ts[-1] - bars.ts[0]) / np.timedelta64(1, "D")
+    return float(span) / DAYS_PER_YEAR
+
+
+class MinBtlGate:
+    """Gate ②: reject when the IS history is shorter than MinBTL for the trials run so far.
+
+    ``N`` is the campaign-independent ``trial_stats.n_eff`` (N_eff; N_raw until clustering runs)
+    plus this candidate. The shortest series in the universe sets the available length.
+    """
+
+    id = G2_MINBTL
+    cost = 1
+
+    def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
+        target = float(ctx.lock["research"]["minbtl_target_sharpe"])
+        years = min(span_years(b) for b in universe_bars(candidate, ctx).values())
+        n = ctx.ledger.trial_stats().n_eff + 1
+        need = min_btl_years(n, target)
+        verdict = f"IS {years:.2f} y vs MinBTL {need:.2f} y (N={n}, target Sharpe {target:g})"
+        detail = {"is_years": years, "min_btl_years": need, "n_trials": n}
+        return GateResult(years >= need, self.id, years, verdict, detail=detail)
+
+
+class InSampleGate:
+    """Gate ③: IS backtest in the sandbox + the D15 constraints (trades, holding, indicator ρ)."""
+
+    id = G3_IS
+    cost = 3
+
+    def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
+        runner: SandboxRunner = ctx.services["sandbox"]
+        results_dir = Path(ctx.services["results_dir"])
+        derived: Mapping[str, Any] = ctx.lock["derived"]
+        limits: Mapping[str, Any] = ctx.lock["research"]["constraints"]
+        options = {
+            "costs": dict(derived["costs"]),
+            "lookback": int(derived.get("lookback", 400)),
+            "seed": candidate.seed,
+        }
+        job = SandboxJob(
+            "backtest", candidate.source, universe_bars(candidate, ctx), candidate.params, options
+        )
+        res = runner.run(job)
+        if not res.ok or res.report is None:
+            return sandbox_failure(self.id, res)
+        out: dict[str, Any] = res.report["result"]
+        public = {k: float(v) for k, v in out["public"].items()}
+        path = results_dir / "returns" / candidate.campaign_id / f"{candidate.candidate_id}.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            {"ts": pd.to_datetime(out["ts"][1:]), "ret": np.asarray(out["returns"], dtype=float)}
+        ).to_parquet(path, index=False)
+        problems: list[str] = []
+        if public["n_trades"] < limits["min_trades"]:
+            problems.append(f"{public['n_trades']:.0f} trades < min_trades {limits['min_trades']}")
+        if public["avg_holding_bars"] < limits["min_holding_bars"]:
+            problems.append(
+                f"average holding {public['avg_holding_bars']:.2f} bars"
+                f" < min_holding_bars {limits['min_holding_bars']}"
+            )
+        corr = float(out["indicator_corr"])
+        if corr > limits["max_indicator_corr"]:
+            pair = " / ".join(out["indicator_pair"] or [])
+            problems.append(
+                f"indicators {pair} |ρ| {corr:.3f} > max_indicator_corr"
+                f" {limits['max_indicator_corr']}"
+            )
+        sharpe = public["sharpe_is"]
+        summary = f"IS Sharpe {sharpe:.2f}, {public['n_trades']:.0f} trades"
+        return GateResult(
+            passed=not problems,
+            gate=self.id,
+            value=sharpe,
+            reason="; ".join(problems) or summary,
+            detail={"indicator_corr": corr, "denied_orders": out["denied_orders"]},
+            report=EvaluationReport.build(public=public),
+            measurement=TrialMeasurement(sharpe, str(path)),
+        )

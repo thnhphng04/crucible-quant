@@ -18,6 +18,7 @@ from typing import Any
 from quantcrucible.core.strategy.base import Bars, Strategy, generate_signals
 from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.data.store import read_bars
+from quantcrucible.validation.feature_stats import max_abs_change_corr
 from quantcrucible.validation.leak_check import leak_check
 
 ERROR_CHARS = 4_000
@@ -64,8 +65,16 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
         lookback=int(job["lookback"]),
         seed=int(job.get("seed", 0)),
     )
+    strategy = cls(job.get("params") or {})
+    corr, pair = 0.0, None
+    for symbol_bars in bars.values():
+        rho, names = max_abs_change_corr(strategy.indicators(symbol_bars))
+        if rho > corr:
+            corr, pair = rho, names
     return {
         "public": res.public_metrics(),
+        "indicator_corr": corr,
+        "indicator_pair": list(pair) if pair else None,
         "ts": [str(t) for t in res.ts],
         "equity": res.equity.tolist(),
         "returns": res.returns.tolist(),
