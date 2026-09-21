@@ -125,10 +125,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** cả 4 oracle đều bị loại ở đúng cổng dự kiến và có dòng ledger, còn EMA crossover đạt ①b. Khi xây thực tế, cả bốn chết ở ①a và riêng ①b cũng bác bỏ cả bốn — [ADR-0005](adr/0005-leaky-oracle-va-guardrail-dong.md).
 - **Cần:** P0-07, P0-08, P0-10.
 
-### ☐ P0-12 Cổng ② MinBTL + ③ backtest IS; chạy đầu-cuối
+### ✅ P0-12 Cổng ② MinBTL + ③ backtest IS; chạy đầu-cuối
 - **Mục tiêu:** khép lại GĐ 0.
 - **Kiến trúc:** §3.2 dòng ②, ③; 07-VALIDATION-LAYER §4.4; D15.
-- **File:** `validation/statistical.py` (tạm thời chỉ MinBTL), `validation/gates.py`, `tests/e2e/test_phase0.py`.
+- **File:** `validation/statistical.py` (tạm thời chỉ MinBTL), `validation/is_gates.py`, `validation/run.py` + `cli validate`, `tests/e2e/test_phase0.py` — [ADR-0006](adr/0006-cong-minbtl-va-backtest-in-sample.md).
 - **Chi tiết:** MinBTL tính từ `N` hiện tại; cổng ③ loại khi `trades < min_trades`, thời gian giữ trung bình `< min_holding_bars`, cặp indicator có `|ρ| > max_indicator_corr` trên IS; từ ③ trở đi mỗi ứng viên là một dòng `trials`.
 - **Nghiệm thu khi:** `tests/e2e/test_phase0.py` đưa EMA crossover + cả 4 oracle qua ①a → ①b → ② → ③; các oracle bị loại, EMA được ghi là một trial; `ledger` có đúng các dòng `generation_log` + `trials` như dự kiến. **Đạt cổng GĐ 0.**
 - **Cần:** P0-11.

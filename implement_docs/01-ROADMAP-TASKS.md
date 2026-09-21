@@ -125,10 +125,10 @@ No agent code in this phase (P1).
 - **Accept when:** each of the 4 oracles is rejected at the expected gate with a ledger row, and the EMA crossover passes ①b. As built, all four die at ①a and ①b alone rejects all four too — [ADR-0005](adr/0005-leaky-oracles-and-dynamic-guardrail.md).
 - **Needs:** P0-07, P0-08, P0-10.
 
-### ☐ P0-12 Gates ② MinBTL + ③ IS backtest; end-to-end run
+### ✅ P0-12 Gates ② MinBTL + ③ IS backtest; end-to-end run
 - **Goal:** close phase 0.
 - **Arch:** §3.2 rows ②, ③; 07-VALIDATION-LAYER §4.4; D15.
-- **Files:** `validation/statistical.py` (MinBTL only for now), `validation/gates.py`, `tests/e2e/test_phase0.py`.
+- **Files:** `validation/statistical.py` (MinBTL only for now), `validation/is_gates.py`, `validation/run.py` + `cli validate`, `tests/e2e/test_phase0.py` — [ADR-0006](adr/0006-minbtl-and-in-sample-gates.md).
 - **Details:** MinBTL from the running `N`; gate ③ rejects `trades < min_trades`, average holding `< min_holding_bars`, indicator pairs with IS `|ρ| > max_indicator_corr`; from ③ on each candidate is a `trials` row.
 - **Accept when:** `tests/e2e/test_phase0.py` runs the EMA crossover + all 4 oracles through ①a → ①b → ② → ③; oracles rejected, EMA recorded as a trial; the `ledger` shows the expected `generation_log` + `trials` rows. **Phase-0 gate met.**
 - **Needs:** P0-11.

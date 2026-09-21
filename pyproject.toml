@@ -108,6 +108,18 @@ source_modules = ["quantcrucible.validation"]
 forbidden_modules = ["quantcrucible.agent"]
 
 [[tool.importlinter.contracts]]
+name = "the agent reaches backtests only through the gate pipeline, which writes the ledger (P2)"
+type = "forbidden"
+source_modules = ["quantcrucible.agent"]
+forbidden_modules = [
+    "quantcrucible.execution",
+    "quantcrucible.validation.sandbox",
+    "quantcrucible.validation.sandbox_runner",
+    "quantcrucible.validation.leak_check",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
 name = "execution depends on core only (backtest == live, P5)"
 type = "forbidden"
 source_modules = ["quantcrucible.execution"]
