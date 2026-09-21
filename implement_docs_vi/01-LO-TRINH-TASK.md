@@ -113,7 +113,7 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** một test golden tất định (bar cố định → lệnh/PnL chính xác); test tín hiệu ở bar *t* được khớp ở bar *t+1*; lệnh limit chỉ chạm giá thì không khớp.
 - **Cần:** P0-04, P0-09.
 
-### ☐ P0-11 Bộ leaky oracle + cổng ①b
+### ✅ P0-11 Bộ leaky oracle + cổng ①b
 - **Mục tiêu:** chứng minh harness bắt được gian lận — cổng của GĐ 0.
 - **Kiến trúc:** 07-VALIDATION-LAYER §9, §3.2 dòng ①b.
 - **File:** `validation/oracles/level{1..4}_*.py` (strategy ở dạng template), `validation/guardrail.py` (phần động), `tests/validation/test_oracles.py`.
@@ -122,7 +122,7 @@ Không có code agent trong giai đoạn này (P1).
   2. Dùng giá đóng cửa của bar đang hình thành — kiểm tra động: chạy lại với giá đóng cửa của bar cuối bị nhiễu; tín hiệu của bar đó không được đổi.
   3. Indicator vẽ lại (repainting, ví dụ cửa sổ trung tâm / pivot tương lai) — test cắt cụt động: chạy trên dữ liệu cắt tại *t* so với dữ liệu đầy đủ; mọi tín hiệu `≤ t` phải giống hệt nhau.
   4. Thông tin công bố trễ (lỗi PIT) — một feature tổng hợp có độ trễ *d* nhưng được ghép tại thời điểm sự kiện; bị bắt bởi test cắt cụt trên feature đã ghép. Xem O8.
-- **Nghiệm thu khi:** cả 4 oracle đều bị loại ở đúng cổng dự kiến và có dòng ledger, còn EMA crossover đạt ①b.
+- **Nghiệm thu khi:** cả 4 oracle đều bị loại ở đúng cổng dự kiến và có dòng ledger, còn EMA crossover đạt ①b. Khi xây thực tế, cả bốn chết ở ①a và riêng ①b cũng bác bỏ cả bốn — [ADR-0005](adr/0005-leaky-oracle-va-guardrail-dong.md).
 - **Cần:** P0-07, P0-08, P0-10.
 
 ### ☐ P0-12 Cổng ② MinBTL + ③ backtest IS; chạy đầu-cuối

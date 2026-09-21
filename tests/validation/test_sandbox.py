@@ -7,7 +7,6 @@ module level (the first thing the runner executes) and read what it saw from the
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -30,7 +29,6 @@ from quantcrucible.validation.sandbox import (
     SandboxLimits,
     SandboxResult,
     SandboxRunner,
-    ensure_image,
     sandbox_failure,
     source_hash,
     truncate,
@@ -144,14 +142,9 @@ def test_strategy_errors_keep_the_gate_event() -> None:
 # ── docker: real containers ───────────────────────────────────────────────
 
 
-@pytest.fixture(scope="module")
-def image() -> str:
-    probe = subprocess.run(["docker", "info"], capture_output=True, check=False)
-    if probe.returncode != 0:
-        if os.environ.get("CI"):
-            pytest.fail("Docker is required for the docker-marked tests in CI")
-        pytest.skip("Docker daemon not running")
-    return ensure_image(ROOT)
+@pytest.fixture
+def image(sandbox_image: str) -> str:
+    return sandbox_image
 
 
 def run(image: str, source: str, limits: SandboxLimits | None = None) -> SandboxResult:

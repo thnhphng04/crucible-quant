@@ -3,7 +3,7 @@ generated code.
 
 Reads ``<root>/in/{strategy.py, job.json, data/*.parquet}``, executes one job and writes
 ``<root>/out/report.json``. The report is the only channel back to the host; stdout and stderr
-are truncated there. Job kinds: ``signals`` and ``backtest`` (``leak_check`` arrives with ①b).
+are truncated there. Job kinds: ``signals``, ``leak_check`` (gate ①b) and ``backtest``.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 from quantcrucible.core.strategy.base import Bars, Strategy, generate_signals
 from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.data.store import read_bars
+from quantcrucible.validation.leak_check import leak_check
 
 ERROR_CHARS = 4_000
 Job = Callable[[type[Strategy], dict[str, Bars], dict[str, Any]], dict[str, Any]]
@@ -30,6 +31,22 @@ def _signals(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) ->
         sigs = generate_signals(strategy, b, int(job["lookback"]))
         out[symbol] = [[s.direction, s.strength, s.stop_distance, s.take_profit] for s in sigs]
     return {"signals": out}
+
+
+def _leak_check(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -> dict[str, Any]:
+    strategy = cls(job.get("params") or {})
+    per_symbol = {
+        symbol: leak_check(
+            strategy, b, int(job.get("cut_points", 20)), int(job.get("seed", 0)),
+            int(job.get("window", 20)),
+        )
+        for symbol, b in bars.items()
+    }  # fmt: skip
+    return {
+        "checked": sum(r["checked"] for r in per_symbol.values()),
+        "n_leaks": sum(r["n_leaks"] for r in per_symbol.values()),
+        "leaks": [leak for r in per_symbol.values() for leak in r["leaks"]][:10],
+    }
 
 
 def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -> dict[str, Any]:
@@ -59,7 +76,7 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
     }
 
 
-JOBS: dict[str, Job] = {"signals": _signals, "backtest": _backtest}
+JOBS: dict[str, Job] = {"signals": _signals, "leak_check": _leak_check, "backtest": _backtest}
 
 
 def load_inputs(inp: Path) -> tuple[dict[str, Any], str, dict[str, Bars]]:
