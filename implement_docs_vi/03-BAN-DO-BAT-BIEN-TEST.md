@@ -42,7 +42,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-34 | Cả 4 cấp leaky oracle đều bị loại | 07 §9, §7 GĐ 0 | Cổng ①a/①b | `tests/validation/test_oracles.py::test_oracle_level_{1,2,3,4}_rejected` | P0-11 | ☐ |
 | INV-35 | Tín hiệu ở bar *t* khớp ở *t+1*; lệnh limit chỉ khớp khi giá đi xuyên qua | §3.5 | Code | `tests/execution/test_engine.py::test_next_bar_execution`, `::test_limit_touch_not_filled` | P0-10 | ☐ |
 | INV-36 | Code được sinh chạy trong sandbox: không mạng, env rỗng, không thấy `holdout/` `config/` `ledger/` | §3.3.3 | OS (Docker) | `tests/validation/test_sandbox.py` (marker `docker`) | P0-08 | ☐ |
-| INV-37 | Cổng fail closed; mọi `GateResult` đều vào ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ☐ |
+| INV-37 | Cổng fail closed; mọi `GateResult` đều vào ledger | §3.2 | Code | `tests/validation/test_gates.py::test_exception_rejects_and_logs`, `::test_passes_are_logged` | P0-06 | ✅ |
 | INV-38 | Cổng ③ loại khi `< min_trades`, `< min_holding_bars`, indicator có abs(ρ) > max | §3.2 ③, D15 | Code | `tests/validation/test_gates.py::test_g3_constraints` | P0-12 | ☐ |
 
 ## Thống kê & danh mục
@@ -55,7 +55,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-43 | Chỉ cấu hình đã tới ③ mới tính là trial; sự kiện audit thì không | §4.1 | Code | `tests/ledger/test_db.py::test_trial_stats_ignores_audit_log` | P0-02 | ✅ |
 | INV-44 | Các lần đánh giá khi hiệu chỉnh là trial (`source='param_opt'`) | §3.2.1 5b, §4.1 | Code | `tests/validation/test_calibration.py::test_every_eval_is_a_trial` | P1-11 | ☐ |
 | INV-45 | Mọi thay đổi quy tắc danh mục ⇒ một dòng `portfolio_variants` mới, được tính vào `N` | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_rule_change_is_new_variant` | P1-07 | ☐ |
-| INV-46 | Metric `private` không bao giờ vào prompt; `feedback` chỉ phụ thuộc `public` | §3.3.2 | Code (+ quét log prompt ở GĐ 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ☐ |
+| INV-46 | Metric `private` không bao giờ vào prompt; `feedback` chỉ phụ thuộc `public` | §3.3.2 | Code (+ quét log prompt ở GĐ 2) | `tests/validation/test_report.py::test_feedback_ignores_private` | P0-06 | ✅ |
 | INV-47 | Đường cong IS→OOS dùng các path CPCV, không bao giờ dùng holdout | §3.2 | Code + Lint | `tests/validation/test_cpcv.py::test_oos_curve_is_private` | P1-04 | ☐ |
 
 ## GĐ 2+ (điền khi giai đoạn được chia thành task)
