@@ -11,6 +11,7 @@ Những điều chưa biết ở mức triển khai. Mỗi mục ghi rõ task ph
 | O13 | Template theo module: các block có tên `entry` / `exit` / `regime` ánh xạ vào `indicators()` / `signal()` thế nào | Tiến hóa theo module (D16 ≠ `joint`) | GĐ 2 | Bộ phân tích và cách hash theo `evolve_scope` đã hỗ trợ block có tên (P0-05); template của GĐ 0 chỉ có một block `joint` |
 | O14 | Lưới gate ④ = M lần backtest NautilusTrader đầy đủ cho mỗi ứng viên (vài giây mỗi lần) — quá chậm cho vòng lặp GĐ 2 | Thông lượng GĐ 2 | GĐ 2 | Phương án: chạy song song nhiều container sandbox; một bộ backtest thô vector hoá chỉ cho lưới (phải khớp NautilusTrader trên một tập tham chiếu) |
 | O15 | "Các biến thể vòng tinh chỉnh đã thử" của gate ④ có code khác thì không chạy lại được: `trials` lưu `strategy_hash`, không lưu source | Tập cấu hình §3.2 đầy đủ trong vòng lặp | GĐ 2 | Cần kho source của mọi ứng viên đã đo (archive của agent); GĐ 1 chỉ dùng biến thể tham số cùng hash (ADR-0011) |
+| O16 | Campaign dữ liệu thật mở ở GĐ 0 có trước `derived.sizing`: gate ③ từ chối lock của nó, nó đang OPEN, và không thể đóng nó mà không mở holdout | Mọi lần chạy GĐ 1 trên dữ liệu thật | Người dùng quyết | Phương án: một trạng thái `ABANDONED` đốt campaign mà không mở (sự kiện audit; holdout vẫn chưa bị nhìn nhưng đã tiêu cho campaign này), hoặc cắt lại một holdout mới. Kiến trúc §4.2 không có trạng thái này — người dùng quyết (ADR-0018) |
 
 ## Đã đóng
 

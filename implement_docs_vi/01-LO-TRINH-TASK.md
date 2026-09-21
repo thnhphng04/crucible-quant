@@ -194,8 +194,8 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** Optuna trên bounds của TUNABLE với ngân sách cố định; **mọi** lần đánh giá là một dòng `trials` với `source='param_opt'`; PBO và DSR được tính lại sau đó. Xong: [ADR-0017](adr/0017-calibration-moi-lan-danh-gia-la-mot-trial.md).
 - **Cần:** P1-03, P1-08.
 
-### ☐ P1-12 Chạy đầu-cuối GĐ 1
-- **Nghiệm thu khi:** `tests/e2e/test_phase1.py` đưa EMA crossover (và vài biến thể viết tay) qua ⓪–⑥′, dựng danh mục và đóng băng nó; cổng giai đoạn ở trên được thỏa.
+### ✅ P1-12 Chạy đầu-cuối GĐ 1
+- **Nghiệm thu khi:** `tests/e2e/test_phase1.py` đưa EMA crossover (và vài biến thể viết tay) qua ⓪–⑥′, dựng danh mục và đóng băng nó; cổng giai đoạn ở trên được thỏa. Xong: [ADR-0018](adr/0018-quy-trinh-phase1-va-e2e.md) — quy trình ở `validation/research_run.py`, CLI `validate` (①a → ④) / `portfolio [--calibrate]` / `freeze`; chỉ dữ liệu tổng hợp; lần chạy trên dữ liệu thật chờ O16.
 
 ---
 

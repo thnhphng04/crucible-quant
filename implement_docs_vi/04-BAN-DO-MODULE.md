@@ -16,13 +16,15 @@ TradingProject/
 ├── docker/                        image sandbox (dự kiến, P0-08)
 ├── scripts/                       công cụ dev (check_doc_mirror.py)
 ├── src/quantcrucible/
-│   ├── cli.py                     data-fetch (tải + cắt holdout), holdout-reharden        P0-09
+│   ├── cli.py                     data-fetch(-second), holdout-reharden, validate,     §7      P0-09,
+│   │                              portfolio, freeze (không bao giờ holdout)                    P1-12
 │   ├── config/                    loader, schema, khóa campaign                        §10.1   P0-03
 │   ├── core/                      ── tầng đáy ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
 │   │   │                          tunable
 │   │   ├── sizing/                vol_target, position_sizer                           §3.4    P1-06
-│   │   └── zoo/                   chiến lược kinh điển để so độ giống AST              §3.1.6  GĐ 2
+│   │   └── zoo/                   chiến lược viết tay (ema, sma, rsi); tập so độ       §3.1.6  P1-12
+│   │                              giống AST                                                    GĐ 2
 │   ├── data/                      protocol DataSource, nguồn ccxt/Stooq, store,        §6.1    P0-09
 │   │                              holdout_split
 │   ├── ledger/                    schema.sql, db.py                                    §4      P0-02
@@ -41,6 +43,7 @@ TradingProject/
 │   │   ├── robustness.py          cổng ⑥′: chi phí × 2 + nguồn thứ hai; chạy lại thành viên §3.2 P1-09
 │   │   ├── freeze.py              OPEN → FROZEN trên danh mục đã qua gate (phía research) §4.2  P1-10
 │   │   ├── calibration.py         bước 5b: Optuna, mỗi lần đánh giá là trial param_opt  §3.2.1  P1-11
+│   │   ├── research_run.py        quy trình trước đóng băng: nộp → xây → ⑤⑥′ → 5b       §3.2.1  P1-12
 │   │   ├── temporal.py            theo dõi suy giảm                                    §5      sau
 │   │   └── oracles/               bộ leaky oracle, cấp 1–4                             07 §9   P0-11
 │   ├── agent/                     ── NƠI DUY NHẤT gọi LLM (A4) ──                      §3.1    GĐ 2

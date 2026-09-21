@@ -2,7 +2,11 @@
 
     uv run python -m quantcrucible.cli data-fetch     download research data + carve the holdout
     uv run python -m quantcrucible.cli data-fetch-second   in-sample bars of the second source (⑥′)
-    uv run python -m quantcrucible.cli validate FILE  run one strategy through gates ①a → ③
+    uv run python -m quantcrucible.cli validate FILE  run one strategy through gates ①a → ④
+    uv run python -m quantcrucible.cli portfolio [--calibrate]   build + gates ⑤ → ⑥′ (5b)
+    uv run python -m quantcrucible.cli freeze HASH    freeze the campaign on that portfolio
+
+The holdout is opened only by its own process (quantcrucible.holdout.evaluator_proc).
 
 Never prints holdout prices — only row counts and hashes.
 """
@@ -12,10 +16,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from quantcrucible.config.loader import load_user_config
+
+if TYPE_CHECKING:
+    from quantcrucible.core.strategy.base import Bars
+    from quantcrucible.validation.gates import GateResult
+    from quantcrucible.validation.research_run import ResearchSession
 
 
 def add_months(d: date, months: int) -> date:
@@ -94,11 +105,13 @@ def holdout_reharden(root: Path) -> int:
     return 0
 
 
-def validate(strategy: Path, params: str | None, config: Path, root: Path) -> int:
+def _session(config: Path, root: Path) -> ResearchSession:
+    """The open campaign (verified against config/user.yaml, or a new one) and its IS data."""
     from quantcrucible.config.lock import read_lock
     from quantcrucible.data.store import ResearchStore, parse_range
     from quantcrucible.ledger.db import Ledger
-    from quantcrucible.validation.run import current_campaign, make_candidate, run_candidate
+    from quantcrucible.validation.research_run import ResearchSession
+    from quantcrucible.validation.run import current_campaign
     from quantcrucible.validation.sandbox import SandboxRunner, ensure_image
 
     cfg = load_user_config(config)
@@ -108,25 +121,94 @@ def validate(strategy: Path, params: str | None, config: Path, root: Path) -> in
     campaign_id = current_campaign(cfg, ledger, lock_path, root)
     lock = read_lock(lock_path)
     data = cfg.research.data
-    store = ResearchStore(root / "data" / "is", [parse_range(lock["holdout_range"])])
-    is_data = {s: store.bars(s, data.timeframe) for s in data.symbols}
-    candidate = make_candidate(
-        strategy.read_text(encoding="utf-8"), campaign_id, is_data,
-        json.loads(params) if params else None, evolve_scope=cfg.research.evolve_scope,
+    holdout = [parse_range(lock["holdout_range"])]
+    store = ResearchStore(root / "data" / "is", holdout)
+    second: dict[str, Bars] = {}
+    if data.second_exchange is not None:
+        second_dir = second_source_dir(root, data.second_exchange)
+        if second_dir.exists():
+            second_store = ResearchStore(second_dir, holdout)
+            second = {s: second_store.bars(s, data.timeframe) for s in data.symbols}
+    return ResearchSession(
+        ledger=ledger, lock=lock, campaign_id=campaign_id,
+        is_data={s: store.bars(s, data.timeframe) for s in data.symbols},
+        sandbox=SandboxRunner(ensure_image(root)), results_dir=root / "results",
+        second_is_data=second,
     )  # fmt: skip
-    sandbox = SandboxRunner(ensure_image(root))
-    outcome = run_candidate(candidate, ledger, lock, is_data, sandbox, root / "results")
+
+
+def _write_results(results: Sequence[GateResult]) -> None:
     out = sys.stdout
-    out.write(f"campaign {campaign_id} · candidate {candidate.candidate_id}\n")
-    for r in outcome.results:
+    for r in results:
         out.write(f"  {r.gate:<12} {'PASS' if r.passed else 'REJECT':<6} {r.reason}\n")
         if r.report is not None:
             for line in r.report.feedback.splitlines():
                 out.write(f"  {'':<12} {'':<6} {line}\n")
+
+
+def validate(strategy: Path, params: str | None, config: Path, root: Path) -> int:
+    """One strategy file through every per-candidate gate, ①a → ④."""
+    from quantcrucible.validation.run import candidate_pipeline, make_candidate
+
+    session = _session(config, root)
+    candidate = make_candidate(
+        strategy.read_text(encoding="utf-8"), session.campaign_id, session.is_data,
+        json.loads(params) if params else None,
+        evolve_scope=str(session.lock["research"].get("evolve_scope", "joint")),
+    )  # fmt: skip
+    outcome = candidate_pipeline().run(candidate, session.context())
+    sys.stdout.write(f"campaign {session.campaign_id} · candidate {candidate.candidate_id}\n")
+    _write_results(outcome.results)
     verdict = "PASS" if outcome.passed else f"REJECTED at {outcome.failed_gate}"
     trial = f" · trial #{outcome.trial_id}" if outcome.trial_id is not None else ""
-    out.write(f"verdict: {verdict}{trial}\n")
+    sys.stdout.write(f"verdict: {verdict}{trial}\n")
     return 0 if outcome.passed else 1
+
+
+def portfolio(config: Path, root: Path, calibrate: bool) -> int:
+    """Build the portfolio by the locked rule, then ⑤ → ⑥′; with ``--calibrate``, step 5b for
+    each member first and a rebuild after (a new variant)."""
+    from quantcrucible.validation.research_run import calibrate_members, evaluate_portfolio
+
+    session = _session(config, root)
+    if not session.second_is_data:
+        sys.stderr.write("no second-source data: run data-fetch-second first (gate ⑥′)\n")
+        return 2
+    built, outcome = evaluate_portfolio(session)
+    if calibrate:
+        results = calibrate_members(session, built)
+        for c in results:
+            sys.stdout.write(f"calibrated {c.candidate_id}: {c.evaluations} evaluations\n")
+        if results:
+            built, outcome = evaluate_portfolio(session)
+    sys.stdout.write(f"campaign {session.campaign_id} · portfolio {built.portfolio_hash}\n")
+    for m in built.members:
+        sys.stdout.write(f"  member {m.candidate_id} (trial #{m.trial_id}) weight {m.weight:.3f}\n")
+    _write_results(outcome.results)
+    sys.stdout.write(f"verdict: {'PASS' if outcome.passed else 'REJECTED'}\n")
+    return 0 if outcome.passed else 1
+
+
+def freeze(portfolio_hash: str, root: Path) -> int:
+    """OPEN → FROZEN on one portfolio that passed ⑤ and ⑥′. The holdout is opened by the
+    separate evaluator process, never from here."""
+    from quantcrucible.config.lock import read_lock
+    from quantcrucible.ledger.db import Ledger
+    from quantcrucible.validation.freeze import FreezeError, freeze_campaign
+
+    lock = read_lock(root / "config" / "evaluation.lock.yaml")
+    ledger = Ledger.open(root / "ledger" / "crucible.db")
+    try:
+        done = freeze_campaign(ledger, str(lock["campaign_id"]), portfolio_hash)
+    except FreezeError as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+    sys.stdout.write(
+        f"campaign {done.campaign_id} FROZEN on {done.portfolio_hash} at {done.frozen_at}\n"
+        f"holdout: uv run python -m quantcrucible.holdout.evaluator_proc "
+        f"--portfolio {done.portfolio_hash}\n"
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -142,11 +224,18 @@ def main(argv: list[str] | None = None) -> int:
     second.add_argument("--root", type=Path, default=Path("."))
     harden = sub.add_parser("holdout-reharden", help="verify holdout hashes and re-lock the files")
     harden.add_argument("--root", type=Path, default=Path("."))
-    val = sub.add_parser("validate", help="run one strategy file through gates ①a → ③")
+    val = sub.add_parser("validate", help="run one strategy file through gates ①a → ④")
     val.add_argument("strategy", type=Path)
     val.add_argument("--params", help="JSON object; default: the TUNABLE defaults")
     val.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     val.add_argument("--root", type=Path, default=Path("."))
+    port = sub.add_parser("portfolio", help="build the portfolio, then gates ⑤ → ⑥′")
+    port.add_argument("--calibrate", action="store_true", help="step 5b, then rebuild")
+    port.add_argument("--config", type=Path, default=Path("config/user.yaml"))
+    port.add_argument("--root", type=Path, default=Path("."))
+    frz = sub.add_parser("freeze", help="freeze the campaign on one validated portfolio")
+    frz.add_argument("portfolio_hash")
+    frz.add_argument("--root", type=Path, default=Path("."))
     args = parser.parse_args(argv)
     if args.command == "data-fetch":
         return data_fetch(args.config, args.root)
@@ -156,6 +245,10 @@ def main(argv: list[str] | None = None) -> int:
         return holdout_reharden(args.root)
     if args.command == "validate":
         return validate(args.strategy, args.params, args.config, args.root)
+    if args.command == "portfolio":
+        return portfolio(args.config, args.root, args.calibrate)
+    if args.command == "freeze":
+        return freeze(args.portfolio_hash, args.root)
     return 2
 
 

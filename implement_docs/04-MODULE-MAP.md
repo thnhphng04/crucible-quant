@@ -16,13 +16,15 @@ TradingProject/
 ├── docker/                        sandbox image (planned, P0-08)
 ├── scripts/                       dev tooling (check_doc_mirror.py)
 ├── src/quantcrucible/
-│   ├── cli.py                     data-fetch (download + carve holdout), holdout-reharden  P0-09
+│   ├── cli.py                     data-fetch(-second), holdout-reharden, validate,     §7      P0-09,
+│   │                              portfolio, freeze (never the holdout)                        P1-12
 │   ├── config/                    loader, schema, campaign lock                        §10.1   P0-03
 │   ├── core/                      ── bottom layer ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
 │   │   │                          tunable
 │   │   ├── sizing/                vol_target, position_sizer                           §3.4    P1-06
-│   │   └── zoo/                   classic strategies for AST similarity                §3.1.6  phase 2
+│   │   └── zoo/                   hand-written strategies (ema, sma, rsi); AST         §3.1.6  P1-12
+│   │                              similarity set                                               phase 2
 │   ├── data/                      DataSource protocol, ccxt/Stooq sources, store,      §6.1    P0-09
 │   │                              holdout_split
 │   ├── ledger/                    schema.sql, db.py                                    §4      P0-02
@@ -41,6 +43,7 @@ TradingProject/
 │   │   ├── robustness.py          gate ⑥′: costs × 2 + second source; member re-runs    §3.2    P1-09
 │   │   ├── freeze.py              OPEN → FROZEN on a validated portfolio (research side) §4.2    P1-10
 │   │   ├── calibration.py         step 5b: Optuna, every evaluation a param_opt trial   §3.2.1  P1-11
+│   │   ├── research_run.py        pre-freeze workflow: submit → build → ⑤⑥′ → 5b        §3.2.1  P1-12
 │   │   ├── temporal.py            decay monitoring                                     §5      later
 │   │   └── oracles/               leaky-oracle suite, levels 1–4                       07 §9   P0-11
 │   ├── agent/                     ── the ONLY place an LLM is called (A4) ──           §3.1    phase 2

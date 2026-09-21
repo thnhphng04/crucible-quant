@@ -194,8 +194,8 @@ No agent code in this phase (P1).
 - **Accept when:** Optuna over TUNABLE bounds with a fixed budget; **every** evaluation is a `trials` row with `source='param_opt'`; PBO and DSR are recomputed afterwards. Done: [ADR-0017](adr/0017-calibration-every-evaluation-a-trial.md).
 - **Needs:** P1-03, P1-08.
 
-### ☐ P1-12 End-to-end phase-1 run
-- **Accept when:** `tests/e2e/test_phase1.py` takes the EMA crossover (and a few hand-written variants) through ⓪–⑥′, builds a portfolio, and freezes it; the phase gate above holds.
+### ✅ P1-12 End-to-end phase-1 run
+- **Accept when:** `tests/e2e/test_phase1.py` takes the EMA crossover (and a few hand-written variants) through ⓪–⑥′, builds a portfolio, and freezes it; the phase gate above holds. Done: [ADR-0018](adr/0018-phase1-workflow-and-e2e.md) — workflow in `validation/research_run.py`, CLI `validate` (①a → ④) / `portfolio [--calibrate]` / `freeze`; synthetic data only; a real-data run waits on O16.
 
 ---
 

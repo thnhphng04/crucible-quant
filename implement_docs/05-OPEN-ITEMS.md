@@ -11,6 +11,7 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | O13 | Module-wise template: how named blocks `entry` / `exit` / `regime` map onto `indicators()` / `signal()` | Module-wise evolution (D16 ≠ `joint`) | Phase 2 | The parser and `evolve_scope` hashing already support named blocks (P0-05); the phase-0 template has one `joint` block |
 | O14 | Gate ④ grid = M full NautilusTrader backtests per candidate (seconds each) — too slow for the phase-2 loop | Phase-2 throughput | Phase 2 | Options: parallel sandbox containers; a vectorized coarse backtester for the grid only (must match NautilusTrader on a reference set) |
 | O15 | Gate ④ "variants the refinement loop tried" with different code cannot be re-run: `trials` stores `strategy_hash`, not source | Full §3.2 configuration set in the loop | Phase 2 | Needs the source archive of every measured candidate (agent archive); phase 1 uses same-hash parameter variants only (ADR-0011) |
+| O16 | The real-data campaign opened in phase 0 predates `derived.sizing`: gate ③ refuses its lock, it is OPEN, and it cannot be closed without opening the holdout | Any real-data phase-1 run | User decision | Options: an `ABANDONED` state that burns the campaign without an opening (audit event; the holdout stays unseen but is spent for this campaign), or re-carving a fresh holdout. Architecture §4.2 has no such state — the user's call (ADR-0018) |
 
 ## Closed
 
