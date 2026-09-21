@@ -1,0 +1,29 @@
+# Paper PDFs — kept locally, linked from the docs instead (licensing + size)
+*.pdf
+
+# Local tool state
+.omx/
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Data, results, holdout — never committed
+data/
+results/
+holdout/**/*.parquet
+holdout/**/*.csv
+holdout/holdout.lock
+ledger/*.db
+*.sqlite
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

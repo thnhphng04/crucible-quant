@@ -1,0 +1,97 @@
+> ### ⚠️ ĐÍNH CHÍNH (20/9/2026) — nội dung gốc giữ nguyên bên dưới
+>
+> **Ngưỡng DSR ghi sai.** Mục "Ngưỡng thay đổi quyết định" viết *"DSR>0 sau khi trừ số trial"*. **DSR là một XÁC SUẤT (0–1)** — ngưỡng đúng là **DSR > 0.95**. Xem [07-VALIDATION-LAYER.md](07-VALIDATION-LAYER.md) mục 0.
+>
+> **Bổ sung quan trọng về RD-Agent(Q) và AlphaAgent** (đã đọc trực tiếp hai paper):
+> - **AlphaAgent có vệ sinh thời gian tốt nhất** trong các hệ đã khảo sát: LLM chính là **GPT-3.5-turbo (cutoff 9/2021)**, test period **2021-01 → 2024-12** → ~97% giai đoạn test nằm **sau** cutoff. Ngược lại RD-Agent(Q) test 2017–2020 với o3-mini — **toàn bộ nằm trong** pretraining window.
+> - **AlphaAgent là paper duy nhất có kiểm định thống kê** (p = 0.011–0.038).
+> - **Cả hai đều KHÔNG có DSR/PBO** — xác nhận luận điểm trung tâm của báo cáo này.
+>
+> Chi tiết: [08-LLM-QUANT-RESEARCHER.md](08-LLM-QUANT-RESEARCHER.md) — khảo sát 22 hệ, bao gồm RD-Agent(Q) và AlphaAgent
+
+---
+
+# AI Agents cho Backtesting trong Trading: Toàn cảnh 09/2025 – 09/2026
+
+## TL;DR
+- Trong 12 tháng qua, trọng tâm của lĩnh vực đã dịch chuyển từ "khoe" backtest có Sharpe cao sang **hoài nghi có phương pháp**: một loạt audit (FINSABER, Profit Mirage, "Agentic Trading" của Xia và cộng sự) cho thấy phần lớn "alpha" của LLM agent biến mất khi kiểm soát look-ahead bias, survivorship bias và cường độ tìm kiếm (search intensity) — nên với một kỹ sư, giá trị lớn nhất hiện nay nằm ở tầng đánh giá (evaluation harness), không phải ở kiến trúc agent.
+- Vấn đề đặc trưng và nguy hiểm nhất là **parametric look-ahead bias** (LLM "nhớ" giá quá khứ trong trọng số): giải pháp thực dụng nhất là dùng **live/forward testing sau knowledge cutoff** (DeepFund, StockBench, Alpha Arena) và **structural guardrails** (point-in-time data, tool surface hạn chế), vì các hiệu chỉnh thống kê thuần (Deflated Sharpe) không bắt được rò rỉ nằm trong trọng số mô hình.
+- Bằng chứng thực tế còn khiêm tốn: trên các benchmark sạch, đa số LLM agent chỉ **vượt buy-and-hold ở biên rất mỏng và phụ thuộc regime**; trong cuộc thi tiền thật Alpha Arena Season 1, 4/6 mô hình lỗ. TradingAgents/RD-Agent-Quant vẫn là điểm khởi đầu tốt về kiến trúc, nhưng nên coi mọi con số backtest là chưa đáng tin cho tới khi qua được forward test.
+
+## Key Findings
+
+**1. Nghiên cứu mới nối tiếp TradingAgents đi theo 3 nhánh.** (i) Reasoning/RL hóa quyết định trade: **Trading-R1** (Tauric Research, arXiv 2509.11420, 09/2025) dùng SFT + RL curriculum 3 giai đoạn trên corpus Tauric-TR1-DB (100k mẫu, 18 tháng, 14 mã, 01/2024–05/2025). (ii) Multi-agent chuyên biệt hóa: **QuantAgent** (arXiv 2509.09995) cho HFT với 4 agent Indicator/Pattern/Trend/Risk trên LangGraph; **TradingGroup** (arXiv 2508.17565) thêm self-reflection + data-synthesis pipeline; **ContestTrade** (arXiv 2508.00554) dùng cơ chế "internal contest". (iii) Alpha/factor mining tự động: **RD-Agent(Q)** của Microsoft (NeurIPS 2025) và **AlphaAgent** (KDD 2025).
+
+**2. Alpha-mining agents là mảng trưởng thành nhất về kỹ thuật.** RD-Agent(Q) (Li, Yang, Yang, Wang, Liu, Bian — NeurIPS 2025 Datasets & Benchmarks Track) đạt "approximately 2x higher annualized returns than classical factor libraries like Alpha158 and Alpha360, while using over 70% fewer factors, at a cost of under $10 per optimization cycle" trên CSI300; là open-source (github.com/microsoft/RD-Agent). AlphaAgent chống "alpha decay" bằng 3 regularizer (originality qua AST similarity, complexity control, hypothesis alignment); theo Table 2 (2021–2024): CSI 500 đạt AR 11.00%, IR 1.488, MDD −9.36%; S&P 500 đạt AR 8.74%, IR 1.0545, MDD −9.10%.
+
+**3. Look-ahead bias từ pretraining là vấn đề trung tâm được định nghĩa lại.** Lopez-Lira, Tang & Zhu ("The Memorization Problem: Can We Trust LLMs' Economic Forecasts?", arXiv 2504.14765) cho thấy "GPT-4o can recall specific S&P 500 index values with perfect precision on certain dates" với mean absolute percent error chỉ ~0.01% cho ngày trước cutoff, còn sai số "explode" cho ngày sau cutoff (10/2023 trở đi). "Parametric look-ahead bias" (bias nằm trong trọng số) không thể phát hiện bằng audit pipeline code, khác hoàn toàn look-ahead bias cổ điển.
+
+**4. Benchmark chuyển sang "live/contamination-free".** StockBench, DeepFund ("Time travel is cheating"), Agent Market Arena và Alpha Arena (tiền thật) đều tránh nhiễm bằng cách chạy trên dữ liệu sau cutoff. Kết luận nhất quán: vượt buy-and-hold một cách bền vững rất khó.
+
+**5. Frameworks tích hợp backtesting đang chú trọng point-in-time.** ai-hedge-fund (virattt, 62k+ sao) đang tái cấu trúc thành "point-in-time by construction"; TradingAgents v0.3.x thêm "Alpha Vantage look-ahead filtering"; RD-Agent chạy backtest thật qua Qlib.
+
+## Details
+
+### 5.1. Bối cảnh và động lực
+Điểm xuất phát là **TradingAgents** (Xiao và cộng sự, arXiv 2412.20138), mô phỏng một hãng trading với các vai analyst (fundamental/sentiment/technical), researcher (bull/bear debate), trader, risk manager, và reflective agent. Bản gốc báo cáo vượt baseline về cumulative return, Sharpe ratio và max drawdown. Trong năm qua repo (github.com/TauricResearch/TradingAgents) phát triển mạnh: v0.2.0 (02/2026) hỗ trợ đa nhà cung cấp LLM (GPT-5.x, Gemini 3.x, Claude 4.x, Grok 4.x); v0.3.0 (06/2026) thêm "verified data-access contract" và CI gate; v0.3.1 (07/2026) thêm "Alpha Vantage look-ahead filtering" — cho thấy chính cộng đồng đang vá lỗ hổng temporal.
+
+Nhóm Tauric sau đó ra **Trading-R1** (09/2025): thay vì multi-agent, họ fine-tune một reasoning LLM chuyên biệt, cast quyết định trade thành bài toán RL trên thang 5 mức (Strong Buy…Strong Sell) với reward điều chỉnh theo volatility, distill reasoning trace từ mô hình API mạnh. Đây là hướng đáng chú ý cho một kỹ sư: thay vì orchestrate nhiều agent (đắt, khó reproduce), họ cô đọng "kỷ luật reasoning" vào một mô hình.
+
+### 5.2. Alpha-mining / factor R&D agents
+**RD-Agent(Q)** (NeurIPS 2025; Microsoft Research + HKUST) là "data-centric multi-agent framework" đầu tiên tự động hóa toàn bộ vòng R&D quant: giai đoạn Research (đặt hypothesis, map thành task) + Development (agent sinh code Co-STEER, chạy backtest thật trong Qlib) nối bằng feedback stage, có multi-armed bandit scheduler chọn hướng. Đây là ví dụ rõ nhất về "backtest feedback loop" tự động ở cấp production.
+
+**AlphaAgent** (Tang và cộng sự, KDD 2025, arXiv 2502.16789): tập trung chống alpha decay bằng regularization. Backtest trên Qlib, CSI 500 và S&P 500, 2021–2024, chỉ dùng OHLCV. Đáng chú ý: đạt hit ratio (effective factor ratio) cao hơn 81% trong khi tốn 30% ít token hơn so với baseline LLM-driven.
+
+Các follow-up 2026: **AlphaMemo** (structured search-process memory), **AlphaPROBE** (retrieval + on-graph evolution), **EFS** (evolutionary factor searching, arXiv 2507.17211). Có cả **AgentAlphaAudit** (github) — harness audit chuyên để kiểm tra output của RD-Agent(Q) v0.8.0 có sống sót qua point-in-time rules, holdout isolation, và deflation theo search intensity không; nguyên tắc thiết kế: "selection correction is impossible if the system only saves its winner" — mọi hypothesis phải là first-class audit evidence.
+
+### 5.3. Các vấn đề phương pháp luận đặc trưng của LLM trong backtesting
+
+**(a) Parametric look-ahead bias / data leakage từ pretraining.** Đây là điểm mới so với backtesting cổ điển. Một LLM cutoff 2025 "đã thấy" NVIDIA/Microsoft/Netflix biến động 2010–2020, nên bất kỳ backtest nào chồng lấn training window đều thừa hưởng bias nằm trong trọng số, vô hình với audit pipeline code. **Profit Mirage** (arXiv 2510.07920) định lượng: so sánh giai đoạn 2021 (in-sample) vs 2024 (out-of-sample) với điều kiện thị trường tương đương, Sharpe decay 51.48% (QuantAgent) đến 62.23% (FinCON); Total Return decay 50.18% (TradingAgents) đến 71.85% (FinMem) — bằng chứng agent không thật sự forecast mà nhận diện pattern đã memorize. FinMem suy giảm nặng nhất (phụ thuộc mạnh vào memorized pattern); TradingAgents nhờ cơ chế debate collaborative giảm nhẹ nhưng vẫn chịu 55.68% Sharpe decay.
+
+**(b) Overfitting qua agentic search.** Gençay ("What survives honest evaluation?", arXiv 2608.27734, 08/2026) chỉ ra: một agent tự đề xuất-đánh giá-tinh chỉnh strategy trong vòng lặp thực hiện hàng chục backtest ngầm trước khi operator thấy một con số, nên "productivity của agent trở thành bias amplifier". Quan trọng: một "leaky oracle" cố tình rò rỉ tương lai đạt Sharpe design 34.7, eval 51.5, và **vẫn sống sót qua Deflated Sharpe Ratio (DSR=1.00)** — chứng minh hiệu chỉnh thống kê thuần không đủ, cần structural guardrail (tool surface loại trừ look-ahead bằng xây dựng).
+
+**(c) Survivorship bias & overfitting của hyperparameter.** FINSABER (Li và cộng sự, KDD 2026, arXiv 2505.07078) tái đánh giá FinMem và FinAgent trên 2004–2024, 100+ mã S&P 500 gồm cả cổ phiếu delisted (dùng constituent list lịch sử), rolling window 2 năm/step 1 năm: buy-and-hold đạt Sharpe cao nhất (~0.703), còn FinMem/FinAgent không tạo alpha CAPM có ý nghĩa thống kê (p-value cao), và agent quá thận trọng trong bull market nhưng quá liều trong bear market. Kết luận của paper: "LLM-derived alpha is likely a methodological artefact of narrow, biased evaluations". Ví dụ nổi bật về overfitting hyperparameter: cumulative return 23.26% của FinMem trên MSFT đảo dấu thành ~−22.04% chỉ với một cửa sổ khác nhưng cũng hợp lý, có tính phí giao dịch (được trích lại trong arXiv 2603.27539).
+
+**(d) Reproducibility & non-determinism.** "Agentic Trading" (Xia và cộng sự, arXiv 2605.19337, screening tới 03/2026): trong 19 nghiên cứu closed-loop, chỉ 2/19 báo cáo split protocol nhất quán về thời gian, 1/19 có mô hình transaction-cost rõ ràng, 1/19 xử lý survivorship, 15/19 bị chấm mức R0, và **không nghiên cứu nào đạt mức reproducibility cao nhất (R3)**. Bottleneck của lĩnh vực hiện là "protocol incomparability", không phải thiếu kiến trúc.
+
+**Giải pháp đã đề xuất:**
+- **Time-restricted / point-in-time models:** DatedGPT (arXiv 2603.11838) — 12 mô hình 1.3B train từ đầu với cutoff hàng năm 2013–2024 (~100B token/năm), perplexity probing xác nhận kiến thức bị chặn đúng năm cutoff; báo cáo annualized Sharpe 3.20 ở setup không có look-ahead và "lookahead premium" 26.4 b.p./std. Pitinf models (PiT-Inference). Benhenda ("Look-Ahead-Bench", arXiv 2601.13770) đưa ra "scaling paradox": LLM thường suy giảm khi scale (do memorize nhiều hơn) còn PIT model cải thiện khi scale; trên hai cửa sổ 6 tháng khớp nhau, strategy dùng DeepSeek 3.2 có +20.73% annualized alpha in-sample rồi rơi xuống −1.04% out-of-sample (decay −21.77%).
+- **Entity anonymization** (che tên công ty để buộc đánh giá sentiment point-in-time), **Temporal RAG** (timestamp nghiêm ngặt), và **inference-time logit adjustment**. Cụ thể, **FinCAD** (arXiv 2605.24564, EMNLP 2026) là adaptation của Context-Aware Decoding không cần retrain: dùng pipeline adversarial (MIPROv2/DSPy) học một prompt kích hoạt "memory prior" của mô hình, rồi trừ logit của prior đó khỏi logit context với cường độ α(entity, date) — chỉ "khai hỏa" trên ngày memorized và tắt dần out-of-sample. Kết quả: cắt tới −67.1% return in-sample trên ngày memorized, trong khi 2025 out-of-sample gần như không đổi (Sharpe trong ±0.10); tương quan Spearman giữa ranking in-sample và out-of-sample tăng từ +0.779 lên +0.846.
+- **Live/forward testing** (DeepFund, StockBench, Alpha Arena) — cách "sạch" nhất, đánh đổi bằng cửa sổ ngắn.
+- **Structural guardrails**: point-in-time data layer lọc theo filing date, LLM không bao giờ chạm lệnh (code xác định sizing/execution), hard risk gates (ai-hedge-fund).
+- **Counterfactual perturbation**: FactFin (trong Profit Mirage) buộc agent học causal driver thay vì memorized outcome, dùng Strategy Code Generator + RAG + MCTS + counterfactual simulator; kèm benchmark FinLake-Bench.
+
+### 5.4. Benchmarks và evaluation
+- **StockBench** (Chen và cộng sự, arXiv 2510.02209, 10/2025): contamination-free, dữ liệu daily (giá, fundamentals, news), **20 mã DJIA trọng số cao nhất**, cửa sổ **03/03/2025–30/06/2025 (82 phiên, sau cutoff của mô hình chính)**, mỗi model khởi điểm $100,000. Đánh giá bằng cumulative return, max drawdown, Sortino. Kết quả (Table 2): buy-and-hold passive baseline chỉ +0.4% return, −15.2% max drawdown, Sortino 0.0155. Đa số LLM (11/13) xếp trên baseline nhưng biên rất mỏng — Kimi-K2 dẫn đầu (+1.9%, Sortino 0.0420), Qwen3-235B-Think có return cao nhất +2.5%, còn GPT-5 chỉ +0.3% (gần như bằng baseline); GPT-OSS-120B (−0.9%) và GPT-OSS-20B (−2.8%, Sortino âm) thua baseline. Quan trọng: §4.4 cho thấy **tất cả agent thua baseline trong downturn nhưng thắng trong upturn** — hiệu năng phụ thuộc regime, nên thông điệp "most agents rarely outperform simple baselines" là chính xác về mặt bền vững/rủi ro.
+- **DeepFund** (arXiv 2505.11065, NeurIPS 2025 D&B): "time travel is cheating" — kết nối dữ liệu real-time sau cutoff, kiến trúc multi-agent. Ngay cả DeepSeek-V3 và Claude-3.7-Sonnet cũng lỗ ròng.
+- **Agent Market Arena / "When Agents Trade"** (arXiv 2510.11695, WWW 2026): benchmark live đa thị trường (crypto + stock), 4 kiến trúc agent (InvestorAgent, TradeAgent, HedgeFundAgent, DeepFundAgent) trên GPT-4o/4.1, Claude-3.5-haiku/sonnet-4, Gemini-2.0-flash. Phát hiện then chốt: **kiến trúc agent quyết định hành vi nhiều hơn LLM backbone**.
+- **Alpha Arena** (Nof1.ai): cuộc thi tiền thật ($10k/model) trên Hyperliquid perpetuals, cùng prompt/harness. Season 1 (18/10–3/11/2025): Qwen3-Max thắng với "22.32 per cent return on an initial investment of US$10,000 over two weeks" (theo SCMP, 04/11/2025); DeepSeek V3.1 +4.89% là mô hình duy nhất khác có lãi; Claude Sonnet 4.5 và Gemini 2.5 Pro mất >40%; GPT-5 tệ nhất, "dropping 62.66 per cent" (còn ~$3.733, theo SCMP). Season 1.5 (kết thúc 3/12/2025) chuyển sang US equities.
+- **InvestorBench** (arXiv 2412.18174): stock/crypto/ETF, memory phân lớp kiểu FinMem.
+- Các benchmark bias chuyên biệt: **Look-Ahead-Bench**, **FinLake-Bench** (Profit Mirage), **HindsightBench** (arXiv 2607.18867), **When Alpha Disappears** (one-switch benchmark, arXiv 2605.23959), **Temporal Leakage in LLM Backtesting** (arXiv 2608.02985).
+
+Metric phổ biến: Sharpe, Sortino, cumulative/annualized return, max drawdown, Information Ratio, và (được khuyến nghị mạnh) **Deflated Sharpe Ratio** + **Probability of Backtest Overfitting** (López de Prado). LLM-as-judge và tracing (LangGraph) được dùng để chấm chất lượng reasoning và audit trajectory (xem TradeArena, arXiv 2605.28850, nhấn mạnh agent trace + risk lifecycle + raw trajectories).
+
+### 5.5. Kiến trúc & design patterns
+Mẫu chủ đạo vẫn là **role-based multi-agent** (analyst → researcher/debate → trader → risk manager) + **reflection/memory** (FinMem layered memory với decay rate khác nhau) + **tool use**. Xu hướng mới trong năm qua:
+- **Self-reflection có cấu trúc**: TradingGroup, và đặc biệt **SHARP** (arXiv 2605.06822) thay "prompt mutation" tự do bằng "rubric evolution" có thể audit — LLM chỉ map text→condition space, còn phán đoán tài chính giữ trong rubric và tinh chỉnh từ market feedback (walk-forward); giải quyết bài toán credit assignment trong self-improving agent.
+- **Tách LLM khỏi execution**: pattern "LLM never touches the trade" (ai-hedge-fund) — agent nêu quan điểm, code xác định sizing/lệnh, risk limit là hard gate. Đây là pattern an toàn nhất cho production.
+- **Backtest feedback loop**: RD-Agent(Q) và FactFin dùng kết quả backtest/counterfactual để tinh chỉnh hypothesis vòng sau; multi-armed bandit chọn hướng nghiên cứu.
+- **Chuyên biệt hóa theo tần suất**: QuantAgent tách riêng cho HFT (chỉ dùng OHLC, 4 agent), khác với long-horizon text-driven như TradingAgents/FinMem.
+
+## Recommendations
+Dành cho kỹ sư AI có nền quant, quen LangGraph/ReAct, muốn xây hệ backtesting cho agent:
+
+1. **Giai đoạn 0 — Chốt evaluation harness trước, agent sau.** Ưu tiên xây/dùng harness contamination-free: chọn cửa sổ test hoàn toàn sau knowledge cutoff của mô hình bạn dùng; dựng data layer **point-in-time** (lọc theo filing/publish date, không phải report period), fail-loud khi thiếu dữ liệu. Tham chiếu kiến trúc ai-hedge-fund (branch mới) và DeepFund.
+2. **Giai đoạn 1 — Fork một framework trưởng thành.** Với alpha/factor: **RD-Agent** (Qlib backend, có backtest thật, giá rẻ <$10/cycle). Với role-based trading agent: **TradingAgents v0.3.x** (đã có look-ahead filtering) hoặc **QuantAgent** (LangGraph, hợp gu ReAct/LangGraph của bạn). Với factor chống decay: mượn 3 regularizer của AlphaAgent (AST-similarity originality, complexity control, hypothesis alignment).
+3. **Giai đoạn 2 — Bắt buộc 3 lớp kiểm soát bias:** (a) survivorship: dùng constituent list lịch sử gồm delisted (kiểu FINSABER); (b) parametric leakage: chạy song song **in-sample vs post-cutoff** và đo decay (nếu Sharpe/return decay >50% như Profit Mirage → nghi memorization; cân nhắc FinCAD/entity anonymization/Temporal RAG hoặc PIT models cho tác vụ nhạy cảm); (c) search overfitting: log **trial ledger** mọi hypothesis và áp **Deflated Sharpe + PBO** theo số trial thật (kiểu AgentAlphaAudit).
+4. **Giai đoạn 3 — Forward/paper trading là "cửa ải" cuối.** Không cấp vốn dựa trên backtest. Chạy paper-trading trên dữ liệu chưa từng tồn tại lúc train (kiểu Alpha Arena/StockBench) tối thiểu vài tháng, phủ ít nhất một regime reversal (vì StockBench cho thấy agent chỉ thắng trong upturn).
+5. **Xử lý non-determinism & chi phí:** cố định seed và temperature thấp cho reproducibility; cache API response theo (ticker, date); vì chạy LLM trên chuỗi lịch sử dài rất tốn kém và chậm, giới hạn tần suất quyết định (daily thay vì intraday) trừ khi làm HFT. Áp dụng pattern "LLM never touches the trade" để giảm rủi ro vận hành.
+
+**Ngưỡng thay đổi quyết định:** Nếu strategy vượt buy-and-hold trên **cả** giai đoạn post-cutoff **và** rolling walk-forward (kiểu FINSABER 2 năm/step 1 năm) với DSR>0 sau khi trừ số trial → đáng cấp vốn nhỏ. Nếu alpha chỉ xuất hiện trong in-sample → coi là memorization, loại. Nếu ranking mô hình in-sample và out-of-sample lệch mạnh (Spearman thấp) → harness chưa kiểm soát được leakage.
+
+## Caveats
+- **Nhiều con số hiệu năng là do tác giả tự báo cáo và trên cửa sổ hẹp/thuận lợi.** RD-Agent(Q) ~2×, AlphaAgent ~11% chủ yếu trên thị trường Trung Quốc (CSI) và chưa qua audit độc lập kiểu FINSABER; hãy coi là kết quả sơ bộ, không phải bằng chứng deployable.
+- **Kết quả Alpha Arena có tính giai thoại**: mẫu nhỏ (6 model), thời gian ngắn (~2 tuần), thị trường crypto biến động cực mạnh, dùng leverage cao — không phải bằng chứng đầu tư đáng tin, và định nghĩa Sharpe/sampling interval không nhất quán giữa các nguồn (một số nguồn thứ cấp báo con số giữa kỳ khác con số chốt).
+- **Ngày tháng & mã số arXiv thế hệ 2026** (ví dụ 26xx.xxxxx) phản ánh preprint rất mới, một số chưa qua peer review; một số nguồn thứ cấp (blog, Medium, Grokipedia) có thể sai lệch chi tiết — ưu tiên bản arXiv/GitHub gốc.
+- **DatedGPT và PIT models còn giới hạn**: mô hình nhỏ (1.3B), và bản thân guarantee cutoff phụ thuộc giả định dữ liệu instruction-tuning (sinh bởi teacher model mới hơn) không rò rỉ — một điểm yếu đã được chỉ ra; con số Sharpe 3.20 nằm ở abstract nhưng có nguồn cho rằng experiment tương ứng không xuất hiện đầy đủ trong thân bài.
+- Báo cáo này tập trung mảng research/open-source; các hệ thống nội bộ của quỹ định lượng lớn hầu như không công bố, nên bức tranh "state of the art thương mại" có thể lạc quan hoặc bi quan hơn thực tế.
