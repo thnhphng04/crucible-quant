@@ -7,7 +7,10 @@ requires-python = ">=3.12,<3.13"
 # Keep runtime deps minimal. Heavy deps (nautilus_trader, optuna, purgedcv, ccxt, LLM SDKs…)
 # are added by the roadmap task that first needs them — see implement_docs/02-CONVENTIONS.md.
 dependencies = [
+    "ccxt>=4.5,<5",
     "numpy>=2.1,<3",
+    "pandas>=2.2,<3",
+    "pyarrow>=17",
     "pyyaml>=6.0",
     "scipy>=1.14,<2",
 ]
@@ -20,6 +23,7 @@ dev = [
     "import-linter>=2.1",
     "types-PyYAML",
     "hypothesis>=6.100",
+    "pandas-stubs>=2.2",
 ]
 
 [build-system]
@@ -67,7 +71,7 @@ files = ["src", "tests", "scripts"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["scipy.*"]
+module = ["scipy.*", "ccxt.*"]
 ignore_missing_imports = true
 
 # ─── pytest ──────────────────────────────────────────────────────────────
@@ -118,6 +122,7 @@ source_modules = [
     "quantcrucible.execution",
     "quantcrucible.data",
     "quantcrucible.config",
+    "quantcrucible.cli",
 ]
 forbidden_modules = ["quantcrucible.holdout"]
 

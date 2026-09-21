@@ -16,6 +16,7 @@ TradingProject/
 ├── docker/                        image sandbox (dự kiến, P0-08)
 ├── scripts/                       công cụ dev (check_doc_mirror.py)
 ├── src/quantcrucible/
+│   ├── cli.py                     data-fetch (tải + cắt holdout), holdout-reharden        P0-09
 │   ├── config/                    loader, schema, khóa campaign                        §10.1   P0-03
 │   ├── core/                      ── tầng đáy ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05

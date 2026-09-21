@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-09-21T07:38:39.792894+00:00",
+  "files": {
+    "BNB-USDT_1d.parquet": "184c54af5226b3259d12a1d455d73c966346b1c626cc3690a82f77fa86d7578f",
+    "BTC-USDT_1d.parquet": "1d8819ee5c600ce27f4e450d53670bc48c17417b5760ba8f7886780b22bda06f",
+    "ETH-USDT_1d.parquet": "5a2fa020c08556cb35e86037c8100333a97a8dde546c2dd1343fbcef1d3f2a8a",
+    "SOL-USDT_1d.parquet": "5e38f3e8e117266262a03065f8f97df6a0fa37bc7c70d33755e080eb0046796d",
+    "XRP-USDT_1d.parquet": "07ddfe3005e2bbc4885282d129f2300e0b0abc97e9428f54961693011203f991"
+  },
+  "range": "2025-09-21/2026-09-22"
+}

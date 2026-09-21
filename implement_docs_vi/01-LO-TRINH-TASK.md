@@ -89,7 +89,7 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** các test gắn marker docker chứng minh: không có mạng (kết nối socket thất bại), env rỗng, không thấy `holdout/`, `config/`, `ledger/`, ghi ra ngoài tmp thất bại, timeout thì bị kill, đầu ra quá lớn bị cắt.
 - **Cần:** P0-06. Xem [05](05-VAN-DE-MO.md) O6 (đặc thù Docker trên Windows).
 
-### ☐ P0-09 Tầng dữ liệu + tách holdout
+### ✅ P0-09 Tầng dữ liệu + tách holdout
 - **Mục tiêu:** bar crypto miễn phí cho nghiên cứu, với holdout được tách vật lý trước khi bất kỳ nghiên cứu nào chạm vào dữ liệu.
 - **Kiến trúc:** §6.1 (`DataSource`), §4.2 (lớp 2), A7.
 - **File:** `data/source.py` (protocol), `data/ccxt_source.py`, `data/store.py` (cache parquet dưới `data/` ở gốc), `data/holdout_split.py`.
