@@ -53,7 +53,7 @@ Không có code agent trong giai đoạn này (P1).
   - **Mọi indicator đều nhân quả.** Một test chung: với chuỗi ngẫu nhiên và `t` ngẫu nhiên, thay đổi các bar sau `t` không được làm đổi giá trị indicator tại `≤ t`. Chỉ thêm indicator mới khi test này đạt.
 - **Nghiệm thu khi:** `Signal` từ chối giá trị sai; test nhân quả đạt với mọi indicator đã đăng ký; viết được EMA crossover ở §3.3.1.
 
-### ☐ P0-05 Template + bộ phân tích TUNABLE
+### ✅ P0-05 Template + bộ phân tích TUNABLE
 - **Mục tiêu:** vùng cố định và `EVOLVE-BLOCK`, được cưỡng chế bằng code.
 - **Kiến trúc:** §3.3.1 (quy tắc 1–3, block có tên, `evolve_scope`).
 - **File:** `core/strategy/template.py`, `core/strategy/tunable.py`, `tests/core/strategy/`.

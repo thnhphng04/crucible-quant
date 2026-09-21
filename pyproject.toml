@@ -36,6 +36,10 @@ target-version = "py312"
 src = ["src", "tests"]
 extend-exclude = ["*.md"]  # docs hold illustrative, unverified snippets (§10) — never reformat
 
+[tool.ruff.format]
+# Strategy sources are template instances: their fixed region is hashed byte for byte (§3.3.1).
+exclude = ["src/quantcrucible/core/zoo/*.py", "src/quantcrucible/validation/oracles/*.py"]
+
 [tool.ruff.lint]
 select = [
     "E", "F", "W",  # pycodestyle / pyflakes

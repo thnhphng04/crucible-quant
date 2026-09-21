@@ -53,7 +53,7 @@ No agent code in this phase (P1).
   - **Every indicator is causal.** One generic test: for random series and random `t`, perturbing bars after `t` must not change the indicator at `≤ t`. New indicators are added only with this test passing.
 - **Accept when:** `Signal` rejects invalid values; the causality test passes for every registered indicator; the EMA crossover from §3.3.1 is expressible.
 
-### ☐ P0-05 Template + TUNABLE parser
+### ✅ P0-05 Template + TUNABLE parser
 - **Goal:** fixed region vs `EVOLVE-BLOCK`, enforced in code.
 - **Arch:** §3.3.1 (rules 1–3, named blocks, `evolve_scope`).
 - **Files:** `core/strategy/template.py`, `core/strategy/tunable.py`, `tests/core/strategy/`.
