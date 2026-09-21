@@ -73,7 +73,7 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test thứ tự; exception ⇒ loại + có dòng ledger; một test chứng minh `feedback` không thể đổi khi chỉ `private` đổi.
 - **Cần:** P0-02.
 
-### ☐ P0-07 Cổng ①a — guardrail tĩnh
+### ✅ P0-07 Cổng ①a — guardrail tĩnh
 - **Mục tiêu:** loại code xấu trước khi nó được chạy.
 - **Kiến trúc:** §3.2 dòng ①a, §3.3.1 quy tắc 1–3, §3.1.6 (DSL), 07-VALIDATION-LAYER §9.
 - **File:** `validation/guardrail.py`, `tests/validation/test_guardrail.py`. Whitelist AST nằm ở `validation/`; `dsl.py` của agent (GĐ 2) dùng lại nó thay vì tự định nghĩa.
