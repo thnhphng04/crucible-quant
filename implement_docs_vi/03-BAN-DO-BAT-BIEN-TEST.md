@@ -82,6 +82,6 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-67 | Tích hợp đảo: cha từ đảo đang xử lý, migrant không nhân bản, con của migrant ở đảo đích | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ✅ |
 | INV-68 | Điểm xếp hạng của engine chỉ đọc metric `public` | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
 | INV-69 | Run bị ngắt không để lại container sandbox nào | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
-| INV-70 | Giao thức so sánh được khóa trước trial đầu tiên của lần chạy | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ☐ |
+| INV-70 | Giao thức so sánh được khóa trước trial đầu tiên của lần chạy | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
 
 Hoãn cùng engine A/B (D19): không key `private` nào xuất hiện trong prompt đã log (§3.3.2); ngưỡng của cổng drift ⓪ được áp dụng đúng như đã khóa (§3.1.7).

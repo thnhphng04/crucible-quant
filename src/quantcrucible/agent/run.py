@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+from quantcrucible.agent.compare import ProtocolError, assert_protocol_predates_trials
 from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
 from quantcrucible.agent.evolution.feature_map import FeatureMap
@@ -89,6 +90,12 @@ def evolve(
     run_label: str | None = None,
 ) -> RunStats:
     limits = run_quotas(session, engines)
+    purpose, _budget = session.ledger.campaign_purpose(session.campaign_id)
+    if purpose == "harness_test":  # the comparison protocol comes before any trial (INV-70)
+        try:
+            assert_protocol_predates_trials(session.ledger, session.campaign_id)
+        except ProtocolError as e:
+            raise EvolveError(str(e)) from e
     measured = {
         k: len(session.ledger.trials(session.campaign_id, engine=k[0], seed=k[1])) for k in limits
     }

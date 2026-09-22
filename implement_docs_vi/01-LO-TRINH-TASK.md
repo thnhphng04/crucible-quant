@@ -290,10 +290,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** độ phủ, hiệu suất trial và các ô đói được báo theo engine; phân kỳ IS→OOS (`is_oos_diverging`) dừng engine đó; có test trên fixture. Xong: `agent/monitor.py` — `engine_report`, event audit `DEGRADATION_CHECKPOINT` mỗi 25 trial (ứng viên giữ kỷ lục IS so với trung vị CPCV-OOS của nó; monitor là nơi duy nhất đọc metric private này), `EarlyStop` gắn vào pipeline (`RunStats.stopped`).
 - **Cần:** P2-13.
 
-### ☐ P2-15 Giao thức so sánh + lần chạy thật
+### ◐ P2-15 Giao thức so sánh + lần chạy thật
 - **Kiến trúc:** §3.1.11 (so sánh, quy tắc quyết định).
 - **Chi tiết:** một ADR khóa trước khi chạy (chỉ số, định nghĩa độ dao động giữa các seed, `trial_budget`, hạn mức); báo cáo so sánh chỉ đọc; một campaign thử harness trên dữ liệu IS thật: C-gp và C-random × 3 seed.
-- **Nghiệm thu khi:** ADR có trước trial đầu tiên của lần chạy (đối chiếu với ledger); báo cáo áp đúng quy tắc quyết định.
+- **Nghiệm thu khi:** ADR có trước trial đầu tiên của lần chạy (đối chiếu với ledger); báo cáo áp đúng quy tắc quyết định. Đã xong: [ADR-0027](adr/0027-giao-thuc-so-sanh-giai-doan-2.md), `agent/compare.py` (giao thức khóa bằng event audit `PROTOCOL_LOCKED` trước mọi trial; `cli compare --lock` / `cli compare`), `config/user.yaml` đặt cho lần chạy (harness_test, 600 trial). Còn lại: chính lần chạy (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — cần Docker, ≈ 10–15 giờ.
 - **Cần:** P2-13, P2-14.
 
 ---

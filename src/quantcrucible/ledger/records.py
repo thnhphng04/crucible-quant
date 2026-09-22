@@ -41,6 +41,7 @@ class Event(StrEnum):
     CALIBRATION_CONFIRMATION = "CALIBRATION_CONFIRMATION"  # detail: status, params, trial id
     MIGRATION = "MIGRATION"  # engine C-gp: detail from/to island, candidate ids (§3.1.5, P2-12)
     DEGRADATION_CHECKPOINT = "DEGRADATION_CHECKPOINT"  # IS record vs its CPCV-OOS (§3.2, P2-14)
+    PROTOCOL_LOCKED = "PROTOCOL_LOCKED"  # engine comparison protocol, before any trial (P2-15)
 
 
 @dataclass(frozen=True, slots=True)

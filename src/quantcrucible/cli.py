@@ -7,6 +7,7 @@
     uv run python -m quantcrucible.cli freeze HASH    freeze the campaign on that portfolio
     uv run python -m quantcrucible.cli campaign-abandon --reason TEXT   OPEN → ABANDONED
     uv run python -m quantcrucible.cli evolve --engine random [--workers 8]   engine C (P2-09)
+    uv run python -m quantcrucible.cli compare --lock | compare   phase-2 engine comparison (P2-15)
 
 The holdout is opened only by its own process (quantcrucible.holdout.evaluator_proc).
 
@@ -286,6 +287,10 @@ def main(argv: list[str] | None = None) -> int:
     evo.add_argument("--workers", type=int, default=8)
     evo.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     evo.add_argument("--root", type=Path, default=Path("."))
+    cmp_ = sub.add_parser("compare", help="lock the comparison protocol, or report the comparison")
+    cmp_.add_argument("--lock", action="store_true", help="record the protocol (before any trial)")
+    cmp_.add_argument("--config", type=Path, default=Path("config/user.yaml"))
+    cmp_.add_argument("--root", type=Path, default=Path("."))
     args = parser.parse_args(argv)
     try:
         return _dispatch(args)
@@ -311,7 +316,28 @@ def _dispatch(args: argparse.Namespace) -> int:
         return campaign_abandon(args.reason, args.root)
     if args.command == "evolve":
         return evolve(args.engine, args.workers, args.config, args.root)
+    if args.command == "compare":
+        return compare(args.lock, args.config, args.root)
     return 2
+
+
+def compare(lock: bool, config: Path, root: Path) -> int:
+    from quantcrucible.agent.compare import ProtocolError, lock_protocol
+    from quantcrucible.agent.compare import compare as run_compare
+
+    session = _session(config, root)
+    try:
+        if lock:
+            digest = lock_protocol(session.ledger, session.campaign_id)
+            sys.stdout.write(f"protocol locked for {session.campaign_id}: sha256 {digest}\n")
+            return 0
+        seeds = int(session.lock["research"]["seeds"])
+        report = run_compare(session, seeds)
+    except ProtocolError as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+    sys.stdout.write(json.dumps(report, indent=1, default=str) + "\n")
+    return 0
 
 
 def evolve(engines: Sequence[str], workers: int, config: Path, root: Path) -> int:

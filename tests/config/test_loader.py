@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from quantcrucible.config.loader import ConfigError, load_user_config, parse_user_config
-from quantcrucible.config.schema import Research, UserConfig
+from quantcrucible.config.schema import Campaign, Research, UserConfig
 
 REPO_USER_YAML = Path(__file__).resolve().parents[2] / "config" / "user.yaml"
 
@@ -16,7 +16,10 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     cfg = load_user_config(REPO_USER_YAML)
     # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
     # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
-    assert cfg.research == replace(Research(), holdout_pass=1.3)
+    # and the phase-2 comparison campaign (ADR-0027): harness_test with a 600-trial budget
+    assert cfg.research == replace(
+        Research(), holdout_pass=1.3, campaign=Campaign("harness_test", 600)
+    )
     assert Research().holdout_pass is None
     assert cfg.operational.models.research == "gpt-oss-120b"
 

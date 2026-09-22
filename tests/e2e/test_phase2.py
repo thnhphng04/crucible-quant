@@ -11,6 +11,7 @@ from datetime import date
 
 import pytest
 
+from quantcrucible.agent.compare import lock_protocol
 from quantcrucible.agent.evolution.islands import island_names
 from quantcrucible.agent.run import evolve
 from quantcrucible.config.loader import parse_user_config
@@ -63,6 +64,7 @@ def run(tmp_path_factory: pytest.TempPathFactory, sandbox_image: str) -> Ledger:
         ledger=ledger, lock=read_lock(lock_path), campaign_id="c-p2", is_data=is_data,
         sandbox=SandboxRunner(sandbox_image, label="e2e-p2gp"), results_dir=root / "results",
     )  # fmt: skip
+    lock_protocol(ledger, "c-p2")
     evolve(session, ["gp", "random"], workers=4, run_label="e2e")
     return ledger
 

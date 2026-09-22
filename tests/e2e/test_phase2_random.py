@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from quantcrucible.agent.compare import lock_protocol
 from quantcrucible.agent.evolution.archive import trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.run import evolve, run_quotas
@@ -63,6 +64,7 @@ class Phase2Random:
             ledger=self.ledger, lock=read_lock(lock_path), campaign_id="c-p2", is_data=is_data,
             sandbox=SandboxRunner(image, label="e2e-p2"), results_dir=root / "results",
         )  # fmt: skip
+        lock_protocol(self.ledger, "c-p2")  # a harness-test campaign needs it first (INV-70)
         self.first = evolve(self.session, ["random"], workers=4, run_label="e2e1")
         self.second = evolve(self.session, ["random"], workers=4, run_label="e2e2")
 

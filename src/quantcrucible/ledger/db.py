@@ -491,6 +491,14 @@ class Ledger:
         )
         return [json.loads(r[0]) if r[0] else {} for r in rows]
 
+    def first_event_id(self, campaign_id: str, event: str) -> int | None:
+        """Id (append order) of the campaign's first audit event of this kind, if any."""
+        row = self._conn.execute(
+            "SELECT MIN(id) FROM generation_log WHERE campaign_id = ? AND event = ?",
+            (campaign_id, str(event)),
+        ).fetchone()
+        return None if row is None or row[0] is None else int(row[0])
+
     def latest_gate_results(
         self, campaign_id: str, gate: str
     ) -> dict[str, tuple[bool, dict[str, Any]]]:

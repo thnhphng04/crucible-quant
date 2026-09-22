@@ -290,10 +290,10 @@ No agent code in this phase (P1).
 - **Accept when:** coverage, trial efficiency and starved cells are reported per engine; IS→OOS divergence (`is_oos_diverging`) stops the engine; tested on fixtures. Done: `agent/monitor.py` — `engine_report`, `DEGRADATION_CHECKPOINT` audit events every 25 trials (IS record holder vs its CPCV-OOS median; the monitor is the only reader of that private metric), `EarlyStop` wired into the pipeline (`RunStats.stopped`).
 - **Needs:** P2-13.
 
-### ☐ P2-15 Comparison protocol + the real run
+### ◐ P2-15 Comparison protocol + the real run
 - **Arch:** §3.1.11 (comparison, decision rule).
 - **Details:** an ADR locked before running (metrics, seed-spread definition, `trial_budget`, quotas); a read-only comparison report; one harness-test campaign on real IS data: C-gp and C-random × 3 seeds.
-- **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule.
+- **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule. Done so far: [ADR-0027](adr/0027-phase2-comparison-protocol.md), `agent/compare.py` (protocol locked as a `PROTOCOL_LOCKED` audit event before any trial; `cli compare --lock` / `cli compare`), `config/user.yaml` set for the run (harness_test, 600 trials). Remaining: the run itself (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — needs Docker, ≈ 10–15 h.
 - **Needs:** P2-13, P2-14.
 
 ---
