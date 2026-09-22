@@ -77,7 +77,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-62 | A harness-test campaign never builds a portfolio, freezes or claims a holdout | §3.1.11, P6 | Code | `tests/validation/test_run.py::test_harness_test_campaign_cannot_freeze` | P2-06 | ☐ |
 | INV-63 | Feature-map bin bounds come only from the campaign lock | §3.1.3 | Code | `tests/agent/evolution/test_feature_map.py::test_bounds_only_from_lock` | P2-07 | ☐ |
 | INV-64 | No strategy compares a price-scale series with a constant (scale invariance) | §3.1.6, §3.1.11 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_price_vs_constant_rejected`, `::test_scale_invariant_rules_pass`, `::test_stop_must_be_in_price_units` | P2-04 | ✅ |
-| INV-65 | C-random reads no results | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ☐ |
+| INV-65 | C-random reads no results | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ✅ |
 | INV-66 | Parameter-only children ≤ `param_only_max`; each evaluated child is one trial | §3.1.11, D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_param_only_cap` | P2-11 | ☐ |
 | INV-67 | Island integration: parent from the processed island, no duplicated migrant, a migrant's children on the destination island | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ☐ |
 | INV-68 | Engine ranking reads `public` metrics only | §3.3.2 | Code | `tests/agent/evolution/test_ranking.py::test_ranking_ignores_private` | P2-11 | ☐ |

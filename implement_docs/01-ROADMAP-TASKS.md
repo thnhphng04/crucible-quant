@@ -228,11 +228,11 @@ No agent code in this phase (P1).
 - **Accept when:** test first — comparing a price-scale series (e.g. `bars.close`) with a constant or a TUNABLE is `AST_REJECT`; every zoo strategy still passes ①a; type-inference unit tests. Done: scale invariance is a unit (dimension) check in `core/strategy/dims.py`, run by gate ①a after the structural whitelist; `OPS` in the registry carries each operator's output unit, period range, value range and warm-up (no separate `agent/dsl.py`).
 - **Needs:** P2-01.
 
-### ☐ P2-05 Grammar sampler + renderer = engine C-random
+### ✅ P2-05 Grammar sampler + renderer = engine C-random
 - **Arch:** §3.1.11 (C-random), §3.3.1.
 - **Files:** `agent/grammar.py`, `agent/engines/random_search.py`.
 - **Details:** typed syntax tree → evolvable-block text through `template.render`; ≤ 6 TUNABLE, uniform within bounds; the warm-up/finiteness guard always emitted; dedup by `strategy_hash`; deterministic per seed; the engine API takes no results.
-- **Accept when:** 1,000 consecutive samples pass ①a (property test); the same seed gives the same sequence; every clause type is produced; C-random cannot read metrics (API + import test).
+- **Accept when:** 1,000 consecutive samples pass ①a (property test); the same seed gives the same sequence; every clause type is produced; C-random cannot read metrics (API + import test). Done: `agent/grammar.py` (typed genome: 7 clause types over price series and oscillators, and/or, ATR stop; renderer), `agent/engines/random_search.py`; `tests/agent/engines/test_random_search.py`. No take-profit until O19.
 - **Needs:** P2-04.
 
 ### ☐ P2-06 Trial-budget scheduler + harness-test campaign

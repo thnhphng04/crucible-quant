@@ -228,11 +228,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test trước — so một chuỗi theo thang giá (vd `bars.close`) với hằng số hoặc TUNABLE là `AST_REJECT`; mọi chiến lược trong zoo vẫn qua ①a; unit test suy luận kiểu. Xong: bất biến theo thang giá là một phép kiểm tra đơn vị (thứ nguyên) trong `core/strategy/dims.py`, cổng ①a chạy nó sau whitelist cấu trúc; `OPS` trong registry mang đơn vị đầu ra, khoảng chu kỳ, khoảng giá trị và warm-up của từng toán tử (không cần `agent/dsl.py` riêng).
 - **Cần:** P2-01.
 
-### ☐ P2-05 Bộ lấy mẫu văn phạm + renderer = engine C-random
+### ✅ P2-05 Bộ lấy mẫu văn phạm + renderer = engine C-random
 - **Kiến trúc:** §3.1.11 (C-random), §3.3.1.
 - **File:** `agent/grammar.py`, `agent/engines/random_search.py`.
 - **Chi tiết:** cây cú pháp có kiểu → text của block tiến hóa qua `template.render`; ≤ 6 TUNABLE, lấy đều trong biên; luôn sinh guard warm-up/hữu hạn; loại trùng theo `strategy_hash`; tất định theo seed; API của engine không nhận kết quả nào.
-- **Nghiệm thu khi:** 1.000 mẫu liên tiếp qua ①a (property test); cùng seed cho cùng chuỗi; mọi loại clause đều được sinh; C-random không đọc được metric (test API + import).
+- **Nghiệm thu khi:** 1.000 mẫu liên tiếp qua ①a (property test); cùng seed cho cùng chuỗi; mọi loại clause đều được sinh; C-random không đọc được metric (test API + import). Xong: `agent/grammar.py` (genome có kiểu: 7 loại clause trên chuỗi giá và oscillator, and/or, stop theo ATR; renderer), `agent/engines/random_search.py`; `tests/agent/engines/test_random_search.py`. Chưa có take-profit cho tới O19.
 - **Cần:** P2-04.
 
 ### ☐ P2-06 Scheduler ngân sách trial + campaign thử harness
