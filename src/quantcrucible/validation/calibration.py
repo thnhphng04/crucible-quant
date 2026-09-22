@@ -31,6 +31,7 @@ from quantcrucible.core.strategy.template import parse
 from quantcrucible.core.strategy.tunable import Tunable
 from quantcrucible.ledger.records import Event, GenerationEvent
 from quantcrucible.validation.gates import (
+    G4_PBO,
     GateContext,
     GatePipeline,
     PipelineOutcome,
@@ -169,6 +170,7 @@ def calibrate(
             "classify it (count it in N or not, ADR-0022) before calibrating further"
         )
     if not scored:
+        _log(ctx, candidate, Event.CALIBRATION_CONFIRMATION, {"status": "not_run"})
         return CalibrationResult(
             candidate.candidate_id, tuple(attempts), dict(candidate.params), None, None
         )
@@ -176,8 +178,43 @@ def calibrate(
     confirmed = dataclasses.replace(
         candidate, params=best, run_id=f"calib-{candidate.candidate_id}", trial_source="param_opt"
     )
-    outcome = full_pipeline.run(confirmed, ctx)
+    # The search is over and its budget spent; from here only this one parameter set is measured.
+    try:
+        outcome = full_pipeline.run(confirmed, ctx)
+    except Exception as e:
+        _log(ctx, candidate, Event.CALIBRATION_CONFIRMATION,
+             {"status": "error", "params": best, "error": f"{type(e).__name__}: {e}"})  # fmt: skip
+        raise CalibrationError(
+            f"{candidate.candidate_id}: budget used ({len(attempts)} of {budget} attempts); "
+            f"confirmation failed ({type(e).__name__}: {e}) — calibration did NOT succeed"
+        ) from e
+    status = "passed" if outcome.passed else "rejected"
+    _log(ctx, candidate, Event.CALIBRATION_CONFIRMATION,
+         {"status": status, "params": best, "trial_id": outcome.trial_id})  # fmt: skip
     return CalibrationResult(candidate.candidate_id, tuple(attempts), best, best_sharpe, outcome)
+
+
+def confirmation_status(ctx: GateContext, campaign_id: str, candidate_id: str) -> str:
+    """``passed`` / ``rejected`` / ``not_run`` (no attempt passed ③) / ``error`` /
+    ``incomplete`` (no record: the process died during the confirmation)."""
+    events = [
+        (e, d) for e, d in ctx.ledger.event_details(campaign_id)
+        if d is not None and d.get("candidate_id") == candidate_id
+    ]  # fmt: skip
+    for event, detail in reversed(events):
+        if event == Event.CALIBRATION_CONFIRMATION:
+            return str(detail["status"])
+    if any(event == Event.CALIBRATION_STARTED for event, _ in events):
+        return "incomplete"  # a confirmation that measured at ③ but never finished ④ included
+    # runs older than these events: the confirmation is the candidate's own `param_opt` trial
+    confirmations = [
+        t for t in ctx.ledger.trials(campaign_id)
+        if t.candidate_id == candidate_id and t.source == "param_opt"
+    ]  # fmt: skip
+    if confirmations:
+        passed = ctx.ledger.passed_trials(campaign_id, G4_PBO)
+        return "passed" if confirmations[-1].id in passed else "rejected"
+    return "incomplete"
 
 
 def _register(ctx: GateContext, c: StrategyCandidate, budget: int) -> bool:
@@ -196,10 +233,23 @@ def check_allowed(ctx: GateContext, c: StrategyCandidate, budget: int) -> bool:
     if prior is None:
         return False
     where = f"{prior.candidate_id!r} (strategy {prior.strategy_hash[:12]}…) in {c.campaign_id}"
-    if prior.outcome is not None:
+    if prior.outcome == "stopped":
         raise CalibrationRefused(
-            f"{where} was already calibrated ({prior.outcome}: {prior.attempts} of "
-            f"{prior.budget} attempts): calibration runs once per strategy per campaign"
+            f"{where} was already calibrated and stopped after {prior.attempts} of "
+            f"{prior.budget} attempts (an attempt awaits classification, ADR-0022): "
+            "calibration runs once per strategy per campaign"
+        )
+    if prior.outcome is not None:
+        status = confirmation_status(ctx, c.campaign_id, prior.candidate_id)
+        verdict = {
+            "passed": "confirmation passed",
+            "rejected": "confirmation rejected",
+            "not_run": "no attempt passed ③, nothing to confirm",
+        }.get(status, "confirmation failed or incomplete — calibration did NOT succeed")
+        raise CalibrationRefused(
+            f"{where} was already calibrated: search finished, budget used ({prior.attempts} "
+            f"of {prior.budget} attempts); {verdict}. Optuna never runs again for it; "
+            "re-running the confirmation is not supported"
         )
     if (prior.candidate_id, prior.strategy_hash, prior.budget) != (
         c.candidate_id,

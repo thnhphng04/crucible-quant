@@ -185,9 +185,16 @@ def portfolio(config: Path, root: Path, calibrate: bool) -> int:
             sys.stderr.write(f"calibration refused: {e}\n")
             return 2
         for c in results:
+            if c.confirmation is None:
+                verdict = "no attempt passed ③, nothing to confirm — parameters unchanged"
+            elif c.confirmation.passed:
+                verdict = f"confirmation PASSED (trial #{c.confirmation.trial_id})"
+            else:
+                verdict = "confirmation REJECTED — the candidate leaves the portfolio"
             sys.stdout.write(
-                f"calibrated {c.candidate_id}: {c.evaluations} attempts = {c.n_trials} trials"
-                f" + {c.n_errors} errors (nothing measured, no trial)\n"
+                f"calibration of {c.candidate_id}: search finished, budget used —"
+                f" {c.evaluations} attempts = {c.n_trials} trials + {c.n_errors} errors"
+                f" (nothing measured, no trial); {verdict}\n"
             )
         if results:
             built, outcome = evaluate_portfolio(session)

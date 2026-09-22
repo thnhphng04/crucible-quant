@@ -263,3 +263,47 @@ def test_a_stopped_calibration_is_not_rerun(ledger: Ledger, tmp_path: Path) -> N
     with pytest.raises(CalibrationRefused, match="stopped"):
         calibrate(cand(), c, budget=5, full_pipeline=FULL)
     assert ledger.trials("c1") == []
+
+
+# ── search finished vs confirmation incomplete (ADR-0017 amendment 2) ─────────────────────
+def test_a_rerun_reports_the_confirmation(ledger: Ledger, tmp_path: Path) -> None:
+    calibrate(cand(), ctx(ledger, tmp_path, Runner()), budget=3, full_pipeline=FULL)
+    with pytest.raises(CalibrationRefused, match=r"budget used \(3 of 3.*confirmation passed"):
+        calibrate(cand(), ctx(ledger, tmp_path, Runner()), budget=3, full_pipeline=FULL)
+
+
+class CrashInConfirmation(Runner):
+    def run(self, job: SandboxJob) -> SandboxResult:
+        if job.kind == "grid_backtest":  # gate ④ runs only in the confirmation
+            raise Crash
+        return super().run(job)
+
+
+def test_a_crashed_confirmation_is_not_reported_as_success(ledger: Ledger, tmp_path: Path) -> None:
+    """The process dies during the confirmation: the budget is spent (no more Optuna), and a
+    rerun says the calibration did not succeed rather than 'already calibrated'."""
+    with pytest.raises(Crash):
+        calibrate(cand(), ctx(ledger, tmp_path, CrashInConfirmation()), budget=3,
+                  full_pipeline=FULL)  # fmt: skip
+    n = ledger.trial_stats().n_raw
+    runner = Runner()
+    with pytest.raises(CalibrationRefused, match="failed or incomplete — calibration did NOT"):
+        calibrate(cand(), ctx(ledger, tmp_path, runner), budget=3, full_pipeline=FULL)
+    assert runner.kinds == [] and ledger.trial_stats().n_raw == n
+    run = ledger.calibration_run("c1", "x")
+    assert run is not None and run.outcome == "finished"  # the search, not the calibration
+
+
+class BrokenPipeline(GatePipeline):
+    def run(self, candidate: Any, ctx: GateContext) -> Any:
+        raise RuntimeError("disk full")
+
+
+def test_a_failed_confirmation_says_so(ledger: Ledger, tmp_path: Path) -> None:
+    c = ctx(ledger, tmp_path, Runner())
+    with pytest.raises(CalibrationError, match=r"budget used \(3 of 3.*did NOT succeed"):
+        calibrate(cand(), c, budget=3, full_pipeline=BrokenPipeline([]))
+    (detail,) = [d for e, d in ledger.event_details("c1") if e == Event.CALIBRATION_CONFIRMATION]
+    assert detail is not None and detail["status"] == "error"
+    with pytest.raises(CalibrationRefused, match="did NOT succeed"):
+        calibrate(cand(), c, budget=3, full_pipeline=FULL)

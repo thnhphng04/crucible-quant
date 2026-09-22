@@ -37,6 +37,7 @@ class Event(StrEnum):
     CAMPAIGN_ABANDONED = "CAMPAIGN_ABANDONED"  # detail: reason (ADR-0019)
     CALIBRATION_FINISHED = "CALIBRATION_FINISHED"  # detail: every attempt (ADR-0017 amendment)
     CALIBRATION_STARTED = "CALIBRATION_STARTED"  # detail: budget, technical retry or not
+    CALIBRATION_CONFIRMATION = "CALIBRATION_CONFIRMATION"  # detail: status, params, trial id
 
 
 @dataclass(frozen=True, slots=True)

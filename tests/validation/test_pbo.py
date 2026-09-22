@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import ast
+import importlib.metadata
 import math
+from pathlib import Path
 
 import numpy as np
 import purgedcv
 import pytest
 
+from quantcrucible.validation import pbo as pbo_module
 from quantcrucible.validation.pbo import pbo
+
+# The independent implementation PBO is checked against (arch §7 phase gate, ADR-0023). A new
+# version is a new reference: re-review the cross-check before changing this pin.
+PURGEDCV_VERSION = "0.1.6"
 
 
 def test_pbo_reference_example() -> None:
@@ -34,8 +42,19 @@ def test_pbo_reference_example() -> None:
     np.testing.assert_allclose(stable.logits, [math.log(3)] * 2)
 
 
+def test_pbo_is_independent_of_purgedcv() -> None:
+    """The cross-check below verifies something only if our PBO does not call the library it is
+    compared with: `validation/pbo.py` imports numpy/scipy only, no purgedcv, no project code."""
+    tree = ast.parse(Path(pbo_module.__file__ or "").read_text(encoding="utf-8"))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert not {m for m in imported if m.split(".")[0] in {"purgedcv", "quantcrucible"}}
+
+
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_matches_purgedcv(seed: int) -> None:
+    """Same input, same CSCV result as an independent implementation (purgedcv, pinned)."""
+    assert importlib.metadata.version("purgedcv") == PURGEDCV_VERSION
     m = np.random.default_rng(seed).normal(0.0002, 0.01, (25, 480))
     m[3] = 0.0  # a configuration that never trades
     ours = pbo(m, n_splits=8)
