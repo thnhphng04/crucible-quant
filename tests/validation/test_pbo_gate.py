@@ -3,6 +3,7 @@ the grid's return matrix."""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,7 @@ from quantcrucible.validation.gates import (
     StrategyCandidate,
     TrialMeasurement,
 )
-from quantcrucible.validation.pbo_gate import PboGate, configuration_set
+from quantcrucible.validation.pbo_gate import PboGate, configuration_set, param_stability
 from quantcrucible.validation.report import EvaluationReport
 from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
 from tests.factories import make_bars
@@ -121,7 +122,9 @@ def test_g4_passes_a_stable_edge_and_keeps_pbo_private(ledger: Ledger, tmp_path:
     result = PboGate().check(cand(), ctx(ledger, tmp_path, runner))
     assert result.passed and result.value is not None and result.value < 0.05
     assert result.report is not None
-    assert "pbo" in result.report.private and not result.report.public
+    assert "pbo" in result.report.private
+    assert set(result.report.public) == {"spp_median_sharpe", "plateau"}  # IS-only (D20)
+    assert result.detail is not None and result.detail["public"] == result.report.public
     assert "pbo" not in result.report.feedback
     job = runner.jobs[0]
     assert job.kind == "grid_backtest" and job.options["grid"][0] == PARAMS
@@ -187,3 +190,35 @@ def test_g4_matrix_is_immutable_per_measurement(ledger: Ledger, tmp_path: Path) 
     assert first.detail is not None and second.detail is not None and before is not None
     assert first.detail["matrix_path"] != second.detail["matrix_path"]
     pd.testing.assert_frame_equal(pd.read_parquet(first.detail["matrix_path"]), before)
+
+
+# ── parameter stability (D20, P2-10) ─────────────────────────────────────────────────────────
+def _rows_with_sharpes(sharpes: list[float], n: int = 400, ppy: float = 365.0) -> np.ndarray:
+    """Return rows whose annualized Sharpe is exactly each given value."""
+    rng = np.random.default_rng(0)
+    base = rng.standard_normal(n)
+    base = (base - base.mean()) / base.std(ddof=1)  # mean 0, sd 1
+    return np.array([0.01 * (base + s / math.sqrt(ppy)) for s in sharpes])
+
+
+def test_spp_median_and_plateau_by_hand() -> None:
+    """Candidate first. Sharpes 2.0 | 0.5, 1.0, 1.5, 3.0 → median of all five 1.5; with a 50%
+    threshold (≥ 1.0) three of the four neighbours are on the plateau."""
+    m = _rows_with_sharpes([2.0, 0.5, 1.0, 1.5, 3.0])
+    median, plateau = param_stability(m, 365.0, 0.5)
+    assert median == pytest.approx(1.5)
+    assert plateau == pytest.approx(0.75)
+
+
+def test_plateau_is_zero_without_a_positive_edge() -> None:
+    m = _rows_with_sharpes([-0.5, 1.0, 2.0])
+    assert param_stability(m, 365.0, 0.5)[1] == 0.0
+    assert param_stability(_rows_with_sharpes([1.0]), 365.0, 0.5)[1] == 0.0  # no neighbours
+
+
+def test_stability_is_computed_from_the_same_grid_no_extra_trial(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    runner = GridRunner(edge=0.002)
+    PboGate().check(cand(), ctx(ledger, tmp_path, runner))
+    assert len(runner.jobs) == 1 and ledger.trials() == []

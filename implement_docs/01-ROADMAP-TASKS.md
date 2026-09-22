@@ -260,10 +260,10 @@ No agent code in this phase (P1).
 - **Accept when:** on synthetic data with a temp ledger, every candidate has ledger rows, the run stops exactly at its trial quota, and the feature map has more than one occupied cell. Done: `agent/run.py::evolve` (quotas from the campaign's locked budget, scheduler started from the ledger, C-random replays its seeded sequence on resume), `cli evolve --engine random [--workers N]`; the e2e also checks that a second run adds nothing.
 - **Needs:** P2-05, P2-06, P2-07, P2-08.
 
-### ☐ P2-10 Parameter stability at gate ④ (SPP median, plateau)
+### ✅ P2-10 Parameter stability at gate ④ (SPP median, plateau)
 - **Arch:** §3.2 (v0.6, D20).
 - **Files:** `validation/pbo_gate.py`.
-- **Accept when:** both come from the existing grid (no extra backtest, no trial); both are `public`; hand-built grid fixtures give the expected median and plateau; PBO and CPCV stay `private`.
+- **Accept when:** both come from the existing grid (no extra backtest, no trial); both are `public`; hand-built grid fixtures give the expected median and plateau; PBO and CPCV stay `private`. Done: `pbo_gate.param_stability` (candidate in row 0; plateau 0 without a positive Sharpe); gate ④ reports `spp_median_sharpe` and `plateau` as `public` and keeps them in its detail for the archive.
 - **Needs:** P2-01.
 
 ### ☐ P2-11 GP operators + ranking score

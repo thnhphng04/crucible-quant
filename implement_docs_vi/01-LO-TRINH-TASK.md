@@ -260,10 +260,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** trên dữ liệu tổng hợp với ledger tạm, mọi ứng viên có dòng trong ledger, run dừng đúng ở hạn mức trial, feature map có nhiều hơn một ô. Xong: `agent/run.py::evolve` (hạn mức lấy từ ngân sách đã khóa của campaign, scheduler khởi đầu từ ledger, C-random phát lại chuỗi theo seed khi chạy tiếp), `cli evolve --engine random [--workers N]`; e2e còn kiểm tra lần chạy thứ hai không thêm gì.
 - **Cần:** P2-05, P2-06, P2-07, P2-08.
 
-### ☐ P2-10 Độ ổn định tham số ở cổng ④ (trung vị SPP, plateau)
+### ✅ P2-10 Độ ổn định tham số ở cổng ④ (trung vị SPP, plateau)
 - **Kiến trúc:** §3.2 (v0.6, D20).
 - **File:** `validation/pbo_gate.py`.
-- **Nghiệm thu khi:** cả hai tính từ lưới sẵn có (không backtest thêm, không tốn trial); cả hai là `public`; fixture lưới dựng tay cho đúng trung vị và plateau; PBO và CPCV vẫn là `private`.
+- **Nghiệm thu khi:** cả hai tính từ lưới sẵn có (không backtest thêm, không tốn trial); cả hai là `public`; fixture lưới dựng tay cho đúng trung vị và plateau; PBO và CPCV vẫn là `private`. Xong: `pbo_gate.param_stability` (ứng viên ở dòng 0; plateau bằng 0 khi không có Sharpe dương); cổng ④ báo `spp_median_sharpe` và `plateau` dạng `public` và giữ chúng trong detail cho archive.
 - **Cần:** P2-01.
 
 ### ☐ P2-11 Toán tử GP + điểm xếp hạng

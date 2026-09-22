@@ -81,6 +81,28 @@ def configuration_set(
     return out
 
 
+def param_stability(
+    matrix: np.ndarray, periods_per_year: float, plateau_threshold: float
+) -> tuple[float, float]:
+    """(SPP median, plateau) of the configuration set, candidate in row 0 (D20).
+
+    SPP median: the median annualized IS Sharpe over every configuration (Walton's System
+    Parameter Permutation estimate). Plateau: the share of the other configurations whose IS
+    Sharpe is ≥ ``plateau_threshold`` × the candidate's — 0 when the candidate has no positive
+    Sharpe or no neighbours. IS-only and computed from the grid already run: no trial.
+    """
+    m = np.asarray(matrix, dtype=np.float64)
+    mean = np.nanmean(m, axis=1)
+    sd = np.nanstd(m, axis=1, ddof=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sharpes = np.where(sd > 0, mean / sd * math.sqrt(periods_per_year), 0.0)
+    median = float(np.median(sharpes))
+    own, others = float(sharpes[0]), sharpes[1:]
+    if own <= 0 or len(others) == 0:
+        return median, 0.0
+    return median, float(np.mean(others >= plateau_threshold * own))
+
+
 class PboGate:
     """Gate ④: reject when PBO ≥ ``gates.pbo_max`` (§3.2, §10.1 hard ceiling 0.5)."""
 
@@ -121,6 +143,11 @@ class PboGate:
             matrix, pd.to_datetime(out["ts"]), periods_per_year(candidate.timeframe),
             horizon_bars=max(1, math.ceil(float(holding[0]))),
         )  # fmt: skip
+        threshold = float(research.get("gp", {}).get("plateau_threshold", 0.5))
+        spp_median, plateau = param_stability(
+            matrix, periods_per_year(candidate.timeframe), threshold
+        )
+        public = {"spp_median_sharpe": spp_median, "plateau": plateau}  # IS-only (§3.3.2, D20)
         private = {
             "pbo": result.pbo,
             "pbo_slope": result.slope,
@@ -140,6 +167,7 @@ class PboGate:
                 "n_trades": list(out.get("n_trades", [])),
                 "cpcv_path_sharpes": paths.path_sharpes.tolist(),
                 "cpcv_selected": list(paths.selected),
+                "public": public,
             },
-            report=EvaluationReport.build(private=private),
+            report=EvaluationReport.build(public=public, private=private),
         )  # fmt: skip
