@@ -215,11 +215,11 @@ No agent code in this phase (P1).
 - **Accept when:** loader tests — shares sum to 1; A/B shares > 0 refused while D19 defers them; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; a lock written with the old engine keys is refused by `assert_lock_matches` (a new campaign is needed). Done: `tests/config/test_loader.py::test_engine_c_is_the_focus_by_default`, `tests/config/test_lock.py::test_a_lock_with_the_old_engine_keys_is_refused`.
 - **Needs:** P2-01.
 
-### ☐ P2-03 Candidate provenance + ledger schema v5
+### ✅ P2-03 Candidate provenance + ledger schema v5
 - **Arch:** §4.1, §3.1.5.
 - **Files:** `validation/run.py`, `validation/research_run.py`, `ledger/migration_005_*.sql`, `ledger/db.py`, `ledger/records.py`.
 - **Details:** a `Provenance` (engine, seed, run_id, cell_id, island, parent hashes, mutation type) passed through `submit` into `StrategyCandidate`, `generation_log` and `trials`; new column `island`; parents and mutation type in `detail`; reads by (campaign, engine, seed).
-- **Accept when:** provenance round-trips to both tables; migration 4 → 5 runs on a v4 database; the append-only triggers still hold.
+- **Accept when:** provenance round-trips to both tables; migration 4 → 5 runs on a v4 database; the append-only triggers still hold. Done: `validation/run.py::Provenance`, `submit(..., params, provenance)`, `Ledger.trials(campaign, engine, seed)`, `Ledger.events_for`; the island columns are added only if missing so every migration stays idempotent.
 - **Needs:** P2-01.
 
 ### ✅ P2-04 Typed DSL + scale invariance at gate ①a

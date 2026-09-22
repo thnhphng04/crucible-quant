@@ -735,6 +735,7 @@ CREATE TABLE generation_log (
     event          TEXT NOT NULL,        -- LLM_CALL | PATCH_FAIL | COMPILE_FAIL | AST_REJECT | TEMPLATE_TAMPER | DRIFT_REJECT | SANDBOX_VIOLATION | ...
     strategy_hash  TEXT,                 -- NULL if no code was produced yet
     drift_delta    REAL,                 -- normalized Δ (gate ⓪), if any
+    island         TEXT,                 -- 🆕 v0.6: the island the candidate evolved on (§3.1.5); parents + mutation type in detail
     detail         JSON
 );
 
@@ -759,7 +760,8 @@ CREATE TABLE trials (
     returns_path   TEXT NOT NULL,        -- needed for N_eff clustering and DSR
     candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: links gate_results; N_eff clusters live in trial_clusters
     gate_failed    TEXT,                 -- NULL if everything passed
-    verdict        TEXT NOT NULL         -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer veto after backtest)
+    verdict        TEXT NOT NULL,        -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer veto after backtest)
+    island         TEXT                  -- 🆕 v0.6 (§3.1.5)
 );
 
 -- Portfolio variants evaluated (§3.2.1) — each row is also a selection

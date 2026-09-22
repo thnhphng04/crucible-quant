@@ -76,6 +76,7 @@ class GenerationEvent:
     strategy_hash: str | None = None
     drift_delta: float | None = None
     detail: dict[str, Any] | None = None
+    island: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -99,6 +100,7 @@ class TrialRecord:
     hypothesis: str | None = None
     cell_id: str | None = None
     gate_failed: str | None = None
+    island: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -120,6 +122,8 @@ class TrialRow:
     verdict: str
     hypothesis: str | None
     cell_id: str | None
+    seed: int = 0
+    island: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

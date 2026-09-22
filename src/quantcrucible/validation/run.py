@@ -7,7 +7,7 @@ reject events and — from ③ on — the ``trials`` row.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +27,7 @@ from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.data.holdout_split import read_holdout_lock
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.ledger.records import TrialSource
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import (
     GateContext,
@@ -103,6 +104,23 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     return campaign_id
 
 
+@dataclass(frozen=True, slots=True)
+class Provenance:
+    """Where an engine's candidate comes from (P2-03): recorded in both the audit log and, once
+    measured, its trial. ``parents`` are strategy hashes; ``mutation`` how it was bred."""
+
+    engine: str
+    seed: int
+    run_id: str
+    island: str | None = None
+    cell_id: str | None = None
+    parents: tuple[str, ...] = ()
+    mutation: str | None = None
+    agent: str = "engine"
+    model_used: str = "none"
+    trial_source: TrialSource = "evolution"
+
+
 def make_candidate(
     source: str,
     campaign_id: str,
@@ -110,13 +128,14 @@ def make_candidate(
     params: Mapping[str, float | int] | None = None,
     candidate_id: str | None = None,
     evolve_scope: str = "joint",
+    provenance: Provenance | None = None,
 ) -> StrategyCandidate:
     if params is None:
         params = default_params(list(parse(source).tunables))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
     first = min(b.ts[0] for b in is_data.values()).astype("datetime64[D]")
     last = max(b.ts[-1] for b in is_data.values()).astype("datetime64[D]")
-    return StrategyCandidate(
+    candidate = StrategyCandidate(
         candidate_id=candidate_id or f"manual-{strategy_hash(source)[:10]}-{stamp}",
         source=source,
         params=dict(params),
@@ -127,6 +146,14 @@ def make_candidate(
         campaign_id=campaign_id,
         evolve_scope=evolve_scope,
     )
+    if provenance is None:
+        return candidate
+    p = provenance
+    return replace(
+        candidate, run_id=p.run_id, engine=p.engine, seed=p.seed, island=p.island,
+        cell_id=p.cell_id, parents=p.parents, mutation=p.mutation, agent=p.agent,
+        model_used=p.model_used, trial_source=p.trial_source,
+    )  # fmt: skip
 
 
 def run_candidate(

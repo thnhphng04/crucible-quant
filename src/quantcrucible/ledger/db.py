@@ -37,8 +37,16 @@ MIGRATIONS = (
     "migration_002_no_replace.sql",
     "migration_003_claims_and_abandon.sql",
     "migration_004_calibration_runs.sql",
+    "migration_005_island.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
+# Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
+ADDED_COLUMNS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "migration_005_island.sql": (
+        ("generation_log", "island", "TEXT"),
+        ("trials", "island", "TEXT"),
+    ),
+}
 RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
 
 
@@ -50,6 +58,14 @@ def _ts(value: datetime) -> str:
     if value.tzinfo is None:
         raise ValueError("ledger timestamps must be timezone-aware (UTC)")
     return value.isoformat()
+
+
+def _filters(**columns: Any) -> tuple[str, tuple[Any, ...]]:
+    """`` WHERE a = ? AND b = ?`` for the columns given a value (None = no filter)."""
+    used = {k: v for k, v in columns.items() if v is not None}
+    if not used:
+        return "", ()
+    return " WHERE " + " AND ".join(f"{k} = ?" for k in used), tuple(used.values())
 
 
 def _json(value: Any) -> str | None:
@@ -70,6 +86,10 @@ class Ledger:
             conn.execute("PRAGMA journal_mode = WAL")
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         for step in range(version, SCHEMA_VERSION):
+            for table, column, decl in ADDED_COLUMNS.get(MIGRATIONS[step], ()):
+                existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             script = files("quantcrucible.ledger").joinpath(MIGRATIONS[step]).read_text("utf-8")
             conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {step + 1};\nCOMMIT;")
         if version > SCHEMA_VERSION:
@@ -205,12 +225,12 @@ class Ledger:
     def log_event(self, e: GenerationEvent) -> int:
         return self._insert(
             "INSERT INTO generation_log (ts, run_id, campaign_id, engine, seed, evolve_scope,"
-            " agent, model_used, cell_id, event, strategy_hash, drift_delta, detail)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " agent, model_used, cell_id, event, strategy_hash, drift_delta, detail, island)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(e.ts), e.run_id, e.campaign_id, e.engine, e.seed, e.evolve_scope, e.agent,
                 e.model_used, e.cell_id, str(e.event), e.strategy_hash, e.drift_delta,
-                _json(e.detail),
+                _json(e.detail), e.island,
             ),
         )  # fmt: skip
 
@@ -218,13 +238,13 @@ class Ledger:
         return self._insert(
             "INSERT INTO trials (ts, run_id, campaign_id, candidate_id, engine, seed, evolve_scope,"
             " strategy_hash, hypothesis, params, universe, timeframe, timerange, cell_id, source,"
-            " sharpe_is, returns_path, gate_failed, verdict)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " sharpe_is, returns_path, gate_failed, verdict, island)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(t.ts), t.run_id, t.campaign_id, t.candidate_id, t.engine, t.seed,
                 t.evolve_scope, t.strategy_hash, t.hypothesis, _json(t.params), t.universe,
                 t.timeframe, t.timerange, t.cell_id, t.source, t.sharpe_is, t.returns_path,
-                t.gate_failed, t.verdict,
+                t.gate_failed, t.verdict, t.island,
             ),
         )  # fmt: skip
 
@@ -380,24 +400,34 @@ class Ledger:
         )
         return [(r[0], r[1]) for r in rows]
 
-    def trials(self, campaign_id: str | None = None) -> list[TrialRow]:
-        """Every trial (all campaigns unless ``campaign_id`` is given), in insertion order."""
-        sql = (
+    def trials(
+        self, campaign_id: str | None = None, engine: str | None = None, seed: int | None = None
+    ) -> list[TrialRow]:
+        """Every trial in insertion order — all campaigns, engines and seeds unless filtered."""
+        where, args = _filters(campaign_id=campaign_id, engine=engine, seed=seed)
+        rows = self._conn.execute(
             "SELECT id, campaign_id, candidate_id, engine, strategy_hash, params, universe,"
-            " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id FROM trials"
+            " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id, seed,"
+            f" island FROM trials{where} ORDER BY id",
+            args,
         )
-        args: tuple[Any, ...] = ()
-        if campaign_id is not None:
-            sql += " WHERE campaign_id = ?"
-            args = (campaign_id,)
-        rows = self._conn.execute(sql + " ORDER BY id", args)
         return [
             TrialRow(
                 int(r[0]), r[1], r[2], r[3], r[4], json.loads(r[5]), r[6], r[7], r[8],
-                float(r[9]), r[10], r[11], r[12], r[13],
+                float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15],
             )
             for r in rows
         ]  # fmt: skip
+
+    def events_for(
+        self, campaign_id: str, engine: str | None = None, seed: int | None = None
+    ) -> list[tuple[str, str | None, dict[str, Any] | None]]:
+        """(event, island, detail) of one campaign's audit log, optionally for one engine/seed."""
+        where, args = _filters(campaign_id=campaign_id, engine=engine, seed=seed)
+        rows = self._conn.execute(
+            f"SELECT event, island, detail FROM generation_log{where} ORDER BY id", args
+        )
+        return [(r[0], r[1], json.loads(r[2]) if r[2] else None) for r in rows]
 
     def portfolio_variants(self, campaign_id: str | None = None) -> list[PortfolioVariant]:
         sql = (

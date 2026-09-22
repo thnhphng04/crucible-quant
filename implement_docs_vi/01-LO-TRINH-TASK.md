@@ -215,11 +215,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test loader — tổng tỷ lệ bằng 1; tỷ lệ A/B > 0 bị từ chối khi D19 còn hoãn chúng; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; lock ghi bằng khóa engine cũ bị `assert_lock_matches` từ chối (cần campaign mới). Xong: `tests/config/test_loader.py::test_engine_c_is_the_focus_by_default`, `tests/config/test_lock.py::test_a_lock_with_the_old_engine_keys_is_refused`.
 - **Cần:** P2-01.
 
-### ☐ P2-03 Provenance của ứng viên + schema ledger v5
+### ✅ P2-03 Provenance của ứng viên + schema ledger v5
 - **Kiến trúc:** §4.1, §3.1.5.
 - **File:** `validation/run.py`, `validation/research_run.py`, `ledger/migration_005_*.sql`, `ledger/db.py`, `ledger/records.py`.
 - **Chi tiết:** một `Provenance` (engine, seed, run_id, cell_id, đảo, hash của cha, loại đột biến) truyền qua `submit` vào `StrategyCandidate`, `generation_log` và `trials`; cột mới `island`; cha và loại đột biến nằm trong `detail`; hàm đọc theo (campaign, engine, seed).
-- **Nghiệm thu khi:** provenance ghi đúng vào cả hai bảng; migration 4 → 5 chạy được trên DB v4; các trigger append-only vẫn giữ.
+- **Nghiệm thu khi:** provenance ghi đúng vào cả hai bảng; migration 4 → 5 chạy được trên DB v4; các trigger append-only vẫn giữ. Xong: `validation/run.py::Provenance`, `submit(..., params, provenance)`, `Ledger.trials(campaign, engine, seed)`, `Ledger.events_for`; cột island chỉ được thêm khi chưa có nên mọi migration vẫn idempotent.
 - **Cần:** P2-01.
 
 ### ✅ P2-04 DSL có kiểu + bất biến theo thang giá ở cổng ①a

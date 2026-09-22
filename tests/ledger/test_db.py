@@ -450,3 +450,46 @@ def test_older_calibrations_are_carried_over_from_their_rows(
     )
     with pytest.raises(LedgerError, match="already calibrated"):
         lg.start_calibration("c1", "other-id", "h-a", 3)
+
+
+# ── schema v5: provenance for engine C (P2-03) ───────────────────────────────────────────────
+def test_island_and_seed_round_trip(ledger: Ledger) -> None:
+    ledger.log_event(_event(engine="gp", seed=2, island="i1", detail={"parents": ["a"]}))
+    ledger.record_trial(dataclasses.replace(_trial(0.5, "g1"), engine="gp", seed=2, island="i1"))
+    ledger.record_trial(dataclasses.replace(_trial(0.1, "g2"), engine="gp", seed=3, island="i0"))
+    ledger.record_trial(dataclasses.replace(_trial(0.2, "r1"), engine="random", seed=2))
+    rows = ledger.trials("c1", engine="gp", seed=2)
+    assert [(r.candidate_id, r.seed, r.island) for r in rows] == [("g1", 2, "i1")]
+    assert [r.candidate_id for r in ledger.trials("c1", engine="gp")] == ["g1", "g2"]
+    assert [r.candidate_id for r in ledger.trials(seed=2)] == ["g1", "r1"]
+    [(event, island, detail)] = ledger.events_for("c1", engine="gp", seed=2)
+    assert (event, island, detail) == (Event.CANDIDATE_SUBMITTED, "i1", {"parents": ["a"]})
+
+
+def test_v4_ledger_is_migrated_to_v5(ledger_path: Path) -> None:
+    """A v4 ledger (before `island`) keeps its rows and gains the column, still append-only."""
+    from importlib.resources import files
+
+    raw = sqlite3.connect(ledger_path, isolation_level=None)
+    for step, name in enumerate(
+        ("schema.sql", "migration_002_no_replace.sql", "migration_003_claims_and_abandon.sql",
+         "migration_004_calibration_runs.sql"),
+    ):  # fmt: skip
+        script = files("quantcrucible.ledger").joinpath(name).read_text("utf-8")
+        raw.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {step + 1};\nCOMMIT;")
+    raw.execute(
+        "INSERT INTO campaigns VALUES ('c1', '2026-01-01T00:00:00+00:00', 'x', 'h', NULL, 'OPEN')"
+    )
+    raw.execute(
+        "INSERT INTO trials (ts, run_id, campaign_id, candidate_id, engine, seed, strategy_hash,"
+        " params, universe, timeframe, timerange, source, sharpe_is, returns_path, verdict)"
+        " VALUES ('2026-01-01T00:00:00+00:00', 'r', 'c1', 'old', 'manual', 4, 'h', '{}', 'BTC',"
+        " '1d', 'x', 'manual', 0.3, 'p', 'PASS')"
+    )
+    raw.close()
+    lg = Ledger.open(ledger_path)
+    assert lg._conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    [row] = lg.trials("c1")
+    assert (row.candidate_id, row.seed, row.island) == ("old", 4, None)
+    with pytest.raises(sqlite3.DatabaseError):
+        lg._conn.execute("UPDATE trials SET island = 'x'")

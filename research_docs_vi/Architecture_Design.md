@@ -735,6 +735,7 @@ CREATE TABLE generation_log (
     event          TEXT NOT NULL,        -- LLM_CALL | PATCH_FAIL | COMPILE_FAIL | AST_REJECT | TEMPLATE_TAMPER | DRIFT_REJECT | SANDBOX_VIOLATION | ...
     strategy_hash  TEXT,                 -- NULL nếu chưa sinh được code
     drift_delta    REAL,                 -- Δ chuẩn hóa (gate ⓪), nếu có
+    island         TEXT,                 -- 🆕 v0.6: đảo nơi candidate tiến hóa (§3.1.5); cha + loại đột biến trong detail
     detail         JSON
 );
 
@@ -759,7 +760,8 @@ CREATE TABLE trials (
     returns_path   TEXT NOT NULL,        -- cần cho gom cụm N_eff và DSR
     candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: nối với gate_results; cụm N_eff nằm ở trial_clusters
     gate_failed    TEXT,                 -- NULL nếu pass hết
-    verdict        TEXT NOT NULL         -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer phủ quyết sau backtest)
+    verdict        TEXT NOT NULL,        -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer phủ quyết sau backtest)
+    island         TEXT                  -- 🆕 v0.6 (§3.1.5)
 );
 
 -- Phương án danh mục đã đánh giá (§3.2.1) — mỗi dòng cũng là một phép chọn
