@@ -199,11 +199,109 @@ Không có code agent trong giai đoạn này (P1).
 
 ---
 
-## Giai đoạn 2–6 — các mốc (chia thành task khi bắt đầu giai đoạn)
+## Giai đoạn 2 — Engine C, không LLM, chỉ crypto (4–6 tuần)
+
+> **Cổng giai đoạn (kiến trúc §7, v0.6):** ≥ 150 thế hệ C-gp tự chạy; mọi `s_new` vào ledger; feature map không sụp về một bin; test tích hợp đảo đạt; so sánh C-gp với C-random ở chế độ `isolated` với quy tắc quyết định khóa trước khi chạy. Engine A/B (LLM) hoãn (D19): giai đoạn này không có code LLM và không có cổng ⓪ drift — drift chỉ canh các lượt refine của LLM.
+
+### ✅ P2-01 Chia giai đoạn 2 thành task + ADR điều phối
+- **Kiến trúc:** §3.1.11, §3.1.8, §7.
+- **Mục tiêu:** danh sách task này, các dòng bất biến của giai đoạn 2, và [ADR-0024](adr/0024-dieu-phoi-engine-c-va-trang-thai-tien-hoa-dan-xuat.md): điều phối bằng Python thuần, trạng thái tiến hóa dẫn xuất từ ledger, lập lịch theo trial thống kê.
+- **Nghiệm thu khi:** `scripts/check_doc_mirror.py` đạt; ADR-0024 được chấp nhận.
+
+### ☐ P2-02 Cấu hình cho engine C
+- **Kiến trúc:** §10.1, D14, D19, D20.
+- **File:** `config/schema.py`, `config/loader.py`, `config/user.yaml`.
+- **Chi tiết:** khóa engine `gp`, `random`, `quantevolve`, `simple_loop`; `gp: {param_only_max, plateau_threshold}`; `phase2: {purpose, trial_budget}` — đều thuộc Nhóm B, khóa theo campaign.
+- **Nghiệm thu khi:** test loader — tổng tỷ lệ bằng 1; tỷ lệ A/B > 0 bị từ chối khi D19 còn hoãn chúng; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; lock ghi bằng khóa engine cũ bị `assert_lock_matches` từ chối (cần campaign mới).
+- **Cần:** P2-01.
+
+### ☐ P2-03 Provenance của ứng viên + schema ledger v5
+- **Kiến trúc:** §4.1, §3.1.5.
+- **File:** `validation/run.py`, `validation/research_run.py`, `ledger/migration_005_*.sql`, `ledger/db.py`, `ledger/records.py`.
+- **Chi tiết:** một `Provenance` (engine, seed, run_id, cell_id, đảo, hash của cha, loại đột biến) truyền qua `submit` vào `StrategyCandidate`, `generation_log` và `trials`; cột mới `island`; cha và loại đột biến nằm trong `detail`; hàm đọc theo (campaign, engine, seed).
+- **Nghiệm thu khi:** provenance ghi đúng vào cả hai bảng; migration 4 → 5 chạy được trên DB v4; các trigger append-only vẫn giữ.
+- **Cần:** P2-01.
+
+### ☐ P2-04 DSL có kiểu + bất biến theo thang giá ở cổng ①a
+- **Kiến trúc:** §3.1.6, §3.3.1 luật 3, §3.1.11 luật 2.
+- **File:** `core/strategy/registry.py` (`OpSpec`: kiểu vào/ra, loại tham số và biên, warm-up), `validation/guardrail.py`, `agent/dsl.py`.
+- **Nghiệm thu khi:** test trước — so một chuỗi theo thang giá (vd `bars.close`) với hằng số hoặc TUNABLE là `AST_REJECT`; mọi chiến lược trong zoo vẫn qua ①a; unit test suy luận kiểu.
+- **Cần:** P2-01.
+
+### ☐ P2-05 Bộ lấy mẫu văn phạm + renderer = engine C-random
+- **Kiến trúc:** §3.1.11 (C-random), §3.3.1.
+- **File:** `agent/grammar.py`, `agent/engines/random_search.py`.
+- **Chi tiết:** cây cú pháp có kiểu → text của block tiến hóa qua `template.render`; ≤ 6 TUNABLE, lấy đều trong biên; luôn sinh guard warm-up/hữu hạn; loại trùng theo `strategy_hash`; tất định theo seed; API của engine không nhận kết quả nào.
+- **Nghiệm thu khi:** 1.000 mẫu liên tiếp qua ①a (property test); cùng seed cho cùng chuỗi; mọi loại clause đều được sinh; C-random không đọc được metric (test API + import).
+- **Cần:** P2-04.
+
+### ☐ P2-06 Scheduler ngân sách trial + campaign thử harness
+- **Kiến trúc:** §3.1.11 (ngân sách), §4.1, cổng ② (MinBTL).
+- **File:** `agent/scheduler.py`, `validation/run.py`, `validation/portfolio.py`, `validation/freeze.py`.
+- **Nghiệm thu khi:** hạn mức theo (engine, seed) không bao giờ bị vượt khi nhiều worker chạy đồng thời; campaign `harness_test` không dựng được danh mục, không đóng băng, không claim holdout; mở campaign mà `trial_budget` cộng `N` của ledger vượt mức MinBTL cho phép với độ dài IS thì bị từ chối.
+- **Cần:** P2-02, P2-03.
+
+### ☐ P2-07 Feature map biên cố định + archive riêng từng engine
+- **Kiến trúc:** §3.1.3, §3.1.11.
+- **File:** `agent/evolution/feature_map.py`, `agent/evolution/archive.py`, `config/lock.py` (biên nằm trong `derived`).
+- **Chi tiết:** 6 chiều, 16 bin, biên khóa; category lấy từ phân loại AST của cây DSL; archive dựng lại từ ledger và kho source chiến lược; mỗi engine một archive.
+- **Nghiệm thu khi:** biên chỉ lấy từ lock; giá trị ngoài khoảng rơi vào bin biên; dựng lại từ ledger cho đúng archive; các engine không bao giờ dùng chung archive ở chế độ `isolated`.
+- **Cần:** P2-03.
+
+### ☐ P2-08 Pipeline bất đồng bộ, tắt an toàn, thông lượng cổng ④
+- **Kiến trúc:** §3.1.8, O9, O14, [ADR-0004](adr/0004-sandbox-docker.md).
+- **File:** `agent/pipeline.py`, `validation/sandbox.py`.
+- **Chi tiết:** mỗi (engine, seed) một producer → hàng đợi prefetch → K slot đánh giá gọi `submit`; một luồng ghi ledger duy nhất; container sandbox gắn nhãn theo run và bị kill khi ngắt; đo thông lượng cổng ④ rồi cải thiện (chạy job lưới song song hoặc worker sống lâu) mà không rời NautilusTrader (P5).
+- **Nghiệm thu khi:** ngắt giữa chừng không để lại container `qc-sandbox` nào (test docker); không lỗi khóa ledger với K slot; thông lượng đo được ghi trong một ADR; O14 được đóng hoặc thu hẹp.
+- **Cần:** P2-06.
+
+### ☐ P2-09 CLI `evolve` + e2e cho C-random
+- **File:** `cli.py`, `tests/e2e/test_phase2_random.py`.
+- **Nghiệm thu khi:** trên dữ liệu tổng hợp với ledger tạm, mọi ứng viên có dòng trong ledger, run dừng đúng ở hạn mức trial, feature map có nhiều hơn một ô.
+- **Cần:** P2-05, P2-06, P2-07, P2-08.
+
+### ☐ P2-10 Độ ổn định tham số ở cổng ④ (trung vị SPP, plateau)
+- **Kiến trúc:** §3.2 (v0.6, D20).
+- **File:** `validation/pbo_gate.py`.
+- **Nghiệm thu khi:** cả hai tính từ lưới sẵn có (không backtest thêm, không tốn trial); cả hai là `public`; fixture lưới dựng tay cho đúng trung vị và plateau; PBO và CPCV vẫn là `private`.
+- **Cần:** P2-01.
+
+### ☐ P2-11 Toán tử GP + điểm xếp hạng
+- **Kiến trúc:** §3.1.11 (C-gp), §3.1.6 #1, D20.
+- **File:** `agent/evolution/operators.py`, `agent/evolution/ranking.py`.
+- **Chi tiết:** lai ghép cây con có kiểu, đột biến cây con và đột biến điểm, đột biến TUNABLE trong biên; con chỉ đổi tham số ≤ `param_only_max`; ghi loại đột biến; điểm xếp hạng = §3.1.6 #1 với trung vị SPP và plateau là thành phần phụ — công thức cụ thể trong một ADR.
+- **Nghiệm thu khi:** mọi con hợp lệ về kiểu và qua ①a (property test); con chỉ đổi tham số giữ `strategy_hash` của cha; trần tỷ lệ giữ suốt một run; điểm xếp hạng chỉ đọc metric `public`.
+- **Cần:** P2-05, P2-10.
+
+### ☐ P2-12 Chọn cha, đảo, di cư
+- **Kiến trúc:** §3.1.4, §3.1.5.
+- **File:** `agent/evolution/sampling.py`, `agent/evolution/islands.py`.
+- **Nghiệm thu khi:** test tích hợp đảo — cha lấy từ đúng đảo đang xử lý; migrant không bị nhân bản ở đảo đích; con của migrant thuộc đảo đích; đảo rỗng không sinh con; đảo của từng cha được ghi log.
+- **Cần:** P2-07, P2-11.
+
+### ☐ P2-13 Engine C-gp + e2e giai đoạn 2
+- **File:** `agent/engines/gp_search.py`, `agent/loop.py`, `tests/e2e/test_phase2.py`.
+- **Nghiệm thu khi:** trên dữ liệu tổng hợp, ≥ 150 thế hệ tự chạy, mọi `s_new` có trong ledger, feature map không sụp, test đảo đạt.
+- **Cần:** P2-09, P2-12.
+
+### ☐ P2-14 Giám sát + dừng sớm
+- **Kiến trúc:** §3.2 (đường IS→OOS), §3.1.11 (các chỉ số so sánh).
+- **File:** `agent/monitor.py`.
+- **Nghiệm thu khi:** độ phủ, hiệu suất trial và các ô đói được báo theo engine; phân kỳ IS→OOS (`is_oos_diverging`) dừng engine đó; có test trên fixture.
+- **Cần:** P2-13.
+
+### ☐ P2-15 Giao thức so sánh + lần chạy thật
+- **Kiến trúc:** §3.1.11 (so sánh, quy tắc quyết định).
+- **Chi tiết:** một ADR khóa trước khi chạy (chỉ số, định nghĩa độ dao động giữa các seed, `trial_budget`, hạn mức); báo cáo so sánh chỉ đọc; một campaign thử harness trên dữ liệu IS thật: C-gp và C-random × 3 seed.
+- **Nghiệm thu khi:** ADR có trước trial đầu tiên của lần chạy (đối chiếu với ledger); báo cáo áp đúng quy tắc quyết định.
+- **Cần:** P2-13, P2-14.
+
+---
+
+## Giai đoạn 3–6 — các mốc (chia thành task khi bắt đầu giai đoạn)
 
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
-| **2** Engine C, không LLM, chỉ crypto (4–6 tuần) — v0.6, D19 | Văn phạm DSL có kiểu (+ bất biến theo thang giá ở cổng ①a); provenance của ứng viên + scheduler ngân sách trial + campaign thử harness; feature map với biên bin cố định; đảo + di cư + test tích hợp đảo; pipeline bất đồng bộ (thông lượng O14); **C-random** (i.i.d. từ văn phạm) và **C-gp** (GP có kiểu mạnh: lai ghép/đột biến cây con, đột biến `TUNABLE`, mỗi con một trial); ≥ 150 thế hệ C-gp tự chạy; so sánh C-gp với C-random ở chế độ `isolated` với quy tắc quyết định khóa **trước** khi chạy. Engine A/B (LLM) hoãn | §3.1.11, §3.1.3, §3.1.5, §3.3.1, §7 |
 | **3** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |
 | **4** IB → forex + cổ phiếu quốc tế (3–4 tuần) | Adapter IB qua Nautilus; phiên/lịch giao dịch; nguồn dữ liệu Stooq; chỉ chỉ số/ETF (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 tuần) | Tự viết module roll (điều chỉnh tỷ lệ, roll theo OI/volume) từ dữ liệu TurtleTrader; khớp với một nguồn tham chiếu | §6.1 |

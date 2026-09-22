@@ -199,11 +199,109 @@ No agent code in this phase (P1).
 
 ---
 
-## Phases 2–6 — milestones (break into tasks when the phase starts)
+## Phase 2 — Engine C, no LLM, crypto only (4–6 weeks)
+
+> **Phase gate (arch §7, v0.6):** ≥ 150 C-gp generations run autonomously; every `s_new` reaches the ledger; the feature map does not collapse into one bin; the island integration test passes; C-gp vs C-random compared in `isolated` mode with the decision rule locked before running. Engines A/B (LLM) are deferred (D19): no LLM code and no gate ⓪ drift in this phase — drift only guards LLM refinement passes.
+
+### ✅ P2-01 Break phase 2 into tasks + orchestration ADR
+- **Arch:** §3.1.11, §3.1.8, §7.
+- **Goal:** this task list, the phase-2 invariant rows, and [ADR-0024](adr/0024-engine-c-orchestration-and-derived-evolution-state.md): plain-Python orchestration, evolution state derived from the ledger, scheduling by statistical trials.
+- **Accept when:** `scripts/check_doc_mirror.py` passes; ADR-0024 accepted.
+
+### ☐ P2-02 Config for engine C
+- **Arch:** §10.1, D14, D19, D20.
+- **Files:** `config/schema.py`, `config/loader.py`, `config/user.yaml`.
+- **Details:** engine keys `gp`, `random`, `quantevolve`, `simple_loop`; `gp: {param_only_max, plateau_threshold}`; `phase2: {purpose, trial_budget}` — all Group B, locked per campaign.
+- **Accept when:** loader tests — shares sum to 1; A/B shares > 0 refused while D19 defers them; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; a lock written with the old engine keys is refused by `assert_lock_matches` (a new campaign is needed).
+- **Needs:** P2-01.
+
+### ☐ P2-03 Candidate provenance + ledger schema v5
+- **Arch:** §4.1, §3.1.5.
+- **Files:** `validation/run.py`, `validation/research_run.py`, `ledger/migration_005_*.sql`, `ledger/db.py`, `ledger/records.py`.
+- **Details:** a `Provenance` (engine, seed, run_id, cell_id, island, parent hashes, mutation type) passed through `submit` into `StrategyCandidate`, `generation_log` and `trials`; new column `island`; parents and mutation type in `detail`; reads by (campaign, engine, seed).
+- **Accept when:** provenance round-trips to both tables; migration 4 → 5 runs on a v4 database; the append-only triggers still hold.
+- **Needs:** P2-01.
+
+### ☐ P2-04 Typed DSL + scale invariance at gate ①a
+- **Arch:** §3.1.6, §3.3.1 rule 3, §3.1.11 rule 2.
+- **Files:** `core/strategy/registry.py` (`OpSpec`: input/output types, parameter kinds and bounds, warm-up), `validation/guardrail.py`, `agent/dsl.py`.
+- **Accept when:** test first — comparing a price-scale series (e.g. `bars.close`) with a constant or a TUNABLE is `AST_REJECT`; every zoo strategy still passes ①a; type-inference unit tests.
+- **Needs:** P2-01.
+
+### ☐ P2-05 Grammar sampler + renderer = engine C-random
+- **Arch:** §3.1.11 (C-random), §3.3.1.
+- **Files:** `agent/grammar.py`, `agent/engines/random_search.py`.
+- **Details:** typed syntax tree → evolvable-block text through `template.render`; ≤ 6 TUNABLE, uniform within bounds; the warm-up/finiteness guard always emitted; dedup by `strategy_hash`; deterministic per seed; the engine API takes no results.
+- **Accept when:** 1,000 consecutive samples pass ①a (property test); the same seed gives the same sequence; every clause type is produced; C-random cannot read metrics (API + import test).
+- **Needs:** P2-04.
+
+### ☐ P2-06 Trial-budget scheduler + harness-test campaign
+- **Arch:** §3.1.11 (budget), §4.1, gate ② (MinBTL).
+- **Files:** `agent/scheduler.py`, `validation/run.py`, `validation/portfolio.py`, `validation/freeze.py`.
+- **Accept when:** quotas per (engine, seed) are never exceeded under concurrent workers; a `harness_test` campaign cannot build a portfolio, freeze or claim a holdout; opening a campaign whose `trial_budget` plus the ledger's `N` exceeds what MinBTL allows for the IS length is refused.
+- **Needs:** P2-02, P2-03.
+
+### ☐ P2-07 Feature map with fixed bounds + per-engine archive
+- **Arch:** §3.1.3, §3.1.11.
+- **Files:** `agent/evolution/feature_map.py`, `agent/evolution/archive.py`, `config/lock.py` (bounds in `derived`).
+- **Details:** 6 dimensions, 16 bins, bounds locked; the category comes from an AST classification of the DSL tree; the archive is rebuilt from the ledger and the strategy archive; one archive per engine.
+- **Accept when:** bounds come only from the lock; out-of-range values land in the edge bin; rebuilding from the ledger reproduces the archive; engines never share an archive in `isolated` mode.
+- **Needs:** P2-03.
+
+### ☐ P2-08 Async pipeline, safe shutdown, gate-④ throughput
+- **Arch:** §3.1.8, O9, O14, [ADR-0004](adr/0004-docker-sandbox.md).
+- **Files:** `agent/pipeline.py`, `validation/sandbox.py`.
+- **Details:** one producer per (engine, seed) → prefetch queue → K evaluation slots calling `submit`; a single ledger writer; sandbox containers labelled per run and killed on interrupt; gate-④ throughput measured, then improved (parallel grid jobs or a long-lived worker) without leaving NautilusTrader (P5).
+- **Accept when:** an interrupt leaves no `qc-sandbox` container (docker test); no ledger lock errors under K slots; measured throughput recorded in an ADR; O14 closed or narrowed.
+- **Needs:** P2-06.
+
+### ☐ P2-09 CLI `evolve` + e2e for C-random
+- **Files:** `cli.py`, `tests/e2e/test_phase2_random.py`.
+- **Accept when:** on synthetic data with a temp ledger, every candidate has ledger rows, the run stops exactly at its trial quota, and the feature map has more than one occupied cell.
+- **Needs:** P2-05, P2-06, P2-07, P2-08.
+
+### ☐ P2-10 Parameter stability at gate ④ (SPP median, plateau)
+- **Arch:** §3.2 (v0.6, D20).
+- **Files:** `validation/pbo_gate.py`.
+- **Accept when:** both come from the existing grid (no extra backtest, no trial); both are `public`; hand-built grid fixtures give the expected median and plateau; PBO and CPCV stay `private`.
+- **Needs:** P2-01.
+
+### ☐ P2-11 GP operators + ranking score
+- **Arch:** §3.1.11 (C-gp), §3.1.6 #1, D20.
+- **Files:** `agent/evolution/operators.py`, `agent/evolution/ranking.py`.
+- **Details:** typed subtree crossover, subtree and point mutation, TUNABLE mutation within bounds; parameter-only children ≤ `param_only_max`; mutation type recorded; ranking = §3.1.6 #1 with SPP median and plateau as a secondary term — exact form in an ADR.
+- **Accept when:** every child is type-valid and passes ①a (property test); a parameter-only child keeps its parent's `strategy_hash`; the cap holds over a run; ranking reads `public` metrics only.
+- **Needs:** P2-05, P2-10.
+
+### ☐ P2-12 Parent sampling, islands, migration
+- **Arch:** §3.1.4, §3.1.5.
+- **Files:** `agent/evolution/sampling.py`, `agent/evolution/islands.py`.
+- **Accept when:** island integration test — the parent comes from the island being processed; migrants are not duplicated at the destination; a migrant's children belong to the destination; an empty island yields no children; each parent's island is logged.
+- **Needs:** P2-07, P2-11.
+
+### ☐ P2-13 Engine C-gp + phase-2 e2e
+- **Files:** `agent/engines/gp_search.py`, `agent/loop.py`, `tests/e2e/test_phase2.py`.
+- **Accept when:** on synthetic data, ≥ 150 generations run unattended, every `s_new` is in the ledger, the feature map is not collapsed, the island test passes.
+- **Needs:** P2-09, P2-12.
+
+### ☐ P2-14 Monitoring + early stop
+- **Arch:** §3.2 (IS→OOS curve), §3.1.11 (comparison metrics).
+- **Files:** `agent/monitor.py`.
+- **Accept when:** coverage, trial efficiency and starved cells are reported per engine; IS→OOS divergence (`is_oos_diverging`) stops the engine; tested on fixtures.
+- **Needs:** P2-13.
+
+### ☐ P2-15 Comparison protocol + the real run
+- **Arch:** §3.1.11 (comparison, decision rule).
+- **Details:** an ADR locked before running (metrics, seed-spread definition, `trial_budget`, quotas); a read-only comparison report; one harness-test campaign on real IS data: C-gp and C-random × 3 seeds.
+- **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule.
+- **Needs:** P2-13, P2-14.
+
+---
+
+## Phases 3–6 — milestones (break into tasks when the phase starts)
 
 | Phase | Milestones | Arch |
 |---|---|---|
-| **2** Engine C, no LLM, crypto only (4–6 wk) — v0.6, D19 | Typed DSL grammar (+ scale-invariance at gate ①a); candidate provenance + trial-budget scheduler + harness-test campaign; feature map with fixed bin bounds; islands + migration + island integration test; async pipeline (O14 throughput); **C-random** (i.i.d. from the grammar) and **C-gp** (strongly-typed GP: subtree crossover/mutation, `TUNABLE` mutation, each child one trial); ≥ 150 autonomous C-gp generations; C-gp vs C-random comparison in `isolated` mode with the decision rule locked **before** running. Engines A/B (LLM) deferred | §3.1.11, §3.1.3, §3.1.5, §3.3.1, §7 |
 | **3** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
 | **4** IB → forex + intl equities (3–4 wk) | IB adapter via Nautilus; sessions/calendars; Stooq data source; indices/ETFs only (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 wk) | Own roll module (ratio adjustment, OI/volume roll) from TurtleTrader data; match a reference source | §6.1 |
