@@ -79,7 +79,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-64 | No strategy compares a price-scale series with a constant (scale invariance) | §3.1.6, §3.1.11 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_price_vs_constant_rejected`, `::test_scale_invariant_rules_pass`, `::test_stop_must_be_in_price_units` | P2-04 | ✅ |
 | INV-65 | C-random reads no results | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ✅ |
 | INV-66 | Parameter-only children ≤ `param_only_max`; each evaluated child is one trial | §3.1.11, D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_param_only_cap`, `::test_a_parameter_only_child_keeps_the_parent_hash` | P2-11 | ✅ |
-| INV-67 | Island integration: parent from the processed island, no duplicated migrant, a migrant's children on the destination island | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ☐ |
+| INV-67 | Island integration: parent from the processed island, no duplicated migrant, a migrant's children on the destination island | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ✅ |
 | INV-68 | Engine ranking reads `public` metrics only | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
 | INV-69 | An interrupted run leaves no sandbox container | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
 | INV-70 | The comparison protocol is locked before the run's first trial | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ☐ |

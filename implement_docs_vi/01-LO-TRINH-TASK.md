@@ -273,10 +273,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** mọi con hợp lệ về kiểu và qua ①a (property test); con chỉ đổi tham số giữ `strategy_hash` của cha; trần tỷ lệ giữ suốt một run; điểm xếp hạng chỉ đọc metric `public`. Xong: [ADR-0026](adr/0026-toan-tu-gp-va-diem-xep-hang.md) — thành phần DSR là DSR-rank của ADR-0013 (PSR so với ngưỡng đã deflate: không có DSR theo từng chiến lược, INV-42); cổng ③ thêm các moment của return IS vào `public`; lúc submit ghi `signature` của clause.
 - **Cần:** P2-05, P2-10.
 
-### ☐ P2-12 Chọn cha, đảo, di cư
+### ✅ P2-12 Chọn cha, đảo, di cư
 - **Kiến trúc:** §3.1.4, §3.1.5.
 - **File:** `agent/evolution/sampling.py`, `agent/evolution/islands.py`.
-- **Nghiệm thu khi:** test tích hợp đảo — cha lấy từ đúng đảo đang xử lý; migrant không bị nhân bản ở đảo đích; con của migrant thuộc đảo đích; đảo rỗng không sinh con; đảo của từng cha được ghi log.
+- **Nghiệm thu khi:** test tích hợp đảo — cha lấy từ đúng đảo đang xử lý; migrant không bị nhân bản ở đảo đích; con của migrant thuộc đảo đích; đảo rỗng không sinh con; đảo của từng cha được ghi log. Xong: `agent/evolution/islands.py` (N = C + 1 đảo, di cư top 10% theo vòng dưới dạng event audit `MIGRATION`, quần thể dựng lại từ ledger), `agent/evolution/sampling.py` (Eq. 1, α = 0,5; bạn lai chọn theo cùng cách).
 - **Cần:** P2-07, P2-11.
 
 ### ☐ P2-13 Engine C-gp + e2e giai đoạn 2

@@ -39,6 +39,7 @@ class Event(StrEnum):
     CALIBRATION_FINISHED = "CALIBRATION_FINISHED"  # detail: every attempt (ADR-0017 amendment)
     CALIBRATION_STARTED = "CALIBRATION_STARTED"  # detail: budget, technical retry or not
     CALIBRATION_CONFIRMATION = "CALIBRATION_CONFIRMATION"  # detail: status, params, trial id
+    MIGRATION = "MIGRATION"  # engine C-gp: detail from/to island, candidate ids (§3.1.5, P2-12)
 
 
 @dataclass(frozen=True, slots=True)

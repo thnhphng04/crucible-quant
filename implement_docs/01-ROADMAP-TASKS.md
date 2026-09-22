@@ -273,10 +273,10 @@ No agent code in this phase (P1).
 - **Accept when:** every child is type-valid and passes ①a (property test); a parameter-only child keeps its parent's `strategy_hash`; the cap holds over a run; ranking reads `public` metrics only. Done: [ADR-0026](adr/0026-gp-operators-and-ranking-score.md) — the DSR term is ADR-0013's DSR-rank (PSR vs the deflated benchmark: no per-strategy DSR, INV-42); gate ③ adds the IS return moments to `public`; submissions record the clause `signature`.
 - **Needs:** P2-05, P2-10.
 
-### ☐ P2-12 Parent sampling, islands, migration
+### ✅ P2-12 Parent sampling, islands, migration
 - **Arch:** §3.1.4, §3.1.5.
 - **Files:** `agent/evolution/sampling.py`, `agent/evolution/islands.py`.
-- **Accept when:** island integration test — the parent comes from the island being processed; migrants are not duplicated at the destination; a migrant's children belong to the destination; an empty island yields no children; each parent's island is logged.
+- **Accept when:** island integration test — the parent comes from the island being processed; migrants are not duplicated at the destination; a migrant's children belong to the destination; an empty island yields no children; each parent's island is logged. Done: `agent/evolution/islands.py` (N = C + 1 islands, ring migration of the top 10% as `MIGRATION` audit events, populations rebuilt from the ledger), `agent/evolution/sampling.py` (Eq. 1, α = 0.5; the crossover mate drawn the same way).
 - **Needs:** P2-07, P2-11.
 
 ### ☐ P2-13 Engine C-gp + phase-2 e2e
