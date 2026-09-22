@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
 from quantcrucible.agent.evolution.feature_map import FeatureMap
+from quantcrucible.agent.monitor import EarlyStop
 from quantcrucible.agent.pipeline import (
     DEFAULT_WORKERS,
     Engine,
@@ -99,5 +100,6 @@ def evolve(
         workers,
         label,
         on_abort=getattr(session.sandbox, "kill_all", None),
+        monitor=EarlyStop(session.ledger, session.campaign_id, label),
     )
     return pipeline.run()

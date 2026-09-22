@@ -284,10 +284,10 @@ No agent code in this phase (P1).
 - **Accept when:** on synthetic data, ≥ 150 generations run unattended, every `s_new` is in the ledger, the feature map is not collapsed, the island test passes. Done: `agent/engines/gp_search.py` (state rebuilt from the ledger at every proposal: entries, genomes recorded with each submission, migrations, ranking), wired into `agent/run.py` (no separate `loop.py`); `tests/agent/test_gp_loop.py` runs 150 generations × 5 islands through the real pipeline and ledger with deterministic fake gates; `tests/e2e/test_phase2.py` runs C-gp and C-random through the real gates in docker.
 - **Needs:** P2-09, P2-12.
 
-### ☐ P2-14 Monitoring + early stop
+### ✅ P2-14 Monitoring + early stop
 - **Arch:** §3.2 (IS→OOS curve), §3.1.11 (comparison metrics).
 - **Files:** `agent/monitor.py`.
-- **Accept when:** coverage, trial efficiency and starved cells are reported per engine; IS→OOS divergence (`is_oos_diverging`) stops the engine; tested on fixtures.
+- **Accept when:** coverage, trial efficiency and starved cells are reported per engine; IS→OOS divergence (`is_oos_diverging`) stops the engine; tested on fixtures. Done: `agent/monitor.py` — `engine_report`, `DEGRADATION_CHECKPOINT` audit events every 25 trials (IS record holder vs its CPCV-OOS median; the monitor is the only reader of that private metric), `EarlyStop` wired into the pipeline (`RunStats.stopped`).
 - **Needs:** P2-13.
 
 ### ☐ P2-15 Comparison protocol + the real run

@@ -56,6 +56,7 @@ class RunStats:
     trials: dict[Key, int] = field(default_factory=dict)
     passed: dict[Key, int] = field(default_factory=dict)
     starved: set[Key] = field(default_factory=set)  # stopped: too many proposals, too few trials
+    stopped: set[Key] = field(default_factory=set)  # stopped by the monitor (IS→OOS divergence)
 
 
 class Pipeline:
@@ -68,6 +69,7 @@ class Pipeline:
         run_label: str,
         max_attempts_per_trial: int = 50,
         on_abort: Callable[[], object] | None = None,
+        monitor: Callable[[Key, int], bool] | None = None,
     ) -> None:
         if workers < 1:
             raise ValueError("workers must be >= 1")
@@ -78,6 +80,7 @@ class Pipeline:
         self.run_label = run_label
         self.max_attempts_per_trial = max_attempts_per_trial
         self.on_abort = on_abort
+        self.monitor = monitor  # (key, trials in the ledger) → stop this (engine, seed)?
         self._counter = itertools.count(1)
         self._lock = threading.Lock()
 
@@ -103,7 +106,9 @@ class Pipeline:
                 for key in keys:
                     if len(in_flight) >= self.workers:
                         break
-                    if key in stats.starved or not self.scheduler.reserve(*key):
+                    if key in stats.starved or key in stats.stopped:
+                        continue
+                    if not self.scheduler.reserve(*key):
                         continue
                     proposal = self.engines[key].next()
                     stats.proposed[key] = stats.proposed.get(key, 0) + 1
@@ -126,6 +131,10 @@ class Pipeline:
                         engine.observe(proposal, outcome)
                     if self._starved(key, stats):
                         stats.starved.add(key)
+                    if self.monitor is not None and self.monitor(
+                        key, self.scheduler.measured(*key)
+                    ):
+                        stats.stopped.add(key)
         except BaseException:
             for fut in in_flight:
                 fut.cancel()

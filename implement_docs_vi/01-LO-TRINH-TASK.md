@@ -284,10 +284,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** trên dữ liệu tổng hợp, ≥ 150 thế hệ tự chạy, mọi `s_new` có trong ledger, feature map không sụp, test đảo đạt. Xong: `agent/engines/gp_search.py` (trạng thái dựng lại từ ledger ở mỗi đề xuất: entry, genome ghi cùng mỗi lần submit, di cư, xếp hạng), nối vào `agent/run.py` (không cần `loop.py` riêng); `tests/agent/test_gp_loop.py` chạy 150 thế hệ × 5 đảo qua pipeline và ledger thật với các cổng giả tất định; `tests/e2e/test_phase2.py` chạy C-gp và C-random qua các cổng thật trong docker.
 - **Cần:** P2-09, P2-12.
 
-### ☐ P2-14 Giám sát + dừng sớm
+### ✅ P2-14 Giám sát + dừng sớm
 - **Kiến trúc:** §3.2 (đường IS→OOS), §3.1.11 (các chỉ số so sánh).
 - **File:** `agent/monitor.py`.
-- **Nghiệm thu khi:** độ phủ, hiệu suất trial và các ô đói được báo theo engine; phân kỳ IS→OOS (`is_oos_diverging`) dừng engine đó; có test trên fixture.
+- **Nghiệm thu khi:** độ phủ, hiệu suất trial và các ô đói được báo theo engine; phân kỳ IS→OOS (`is_oos_diverging`) dừng engine đó; có test trên fixture. Xong: `agent/monitor.py` — `engine_report`, event audit `DEGRADATION_CHECKPOINT` mỗi 25 trial (ứng viên giữ kỷ lục IS so với trung vị CPCV-OOS của nó; monitor là nơi duy nhất đọc metric private này), `EarlyStop` gắn vào pipeline (`RunStats.stopped`).
 - **Cần:** P2-13.
 
 ### ☐ P2-15 Giao thức so sánh + lần chạy thật

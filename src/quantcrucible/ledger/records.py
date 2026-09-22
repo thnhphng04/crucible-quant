@@ -40,6 +40,7 @@ class Event(StrEnum):
     CALIBRATION_STARTED = "CALIBRATION_STARTED"  # detail: budget, technical retry or not
     CALIBRATION_CONFIRMATION = "CALIBRATION_CONFIRMATION"  # detail: status, params, trial id
     MIGRATION = "MIGRATION"  # engine C-gp: detail from/to island, candidate ids (§3.1.5, P2-12)
+    DEGRADATION_CHECKPOINT = "DEGRADATION_CHECKPOINT"  # IS record vs its CPCV-OOS (§3.2, P2-14)
 
 
 @dataclass(frozen=True, slots=True)
