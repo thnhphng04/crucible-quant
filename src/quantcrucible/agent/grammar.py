@@ -419,3 +419,30 @@ def categories(genome: Genome) -> tuple[str, ...]:
     """The strategy categories a genome's clauses belong to, in ``CATEGORIES`` order."""
     found = {_clause_category(c) for c in genome.clauses()}
     return tuple(c for c in CATEGORIES if c in found)
+
+
+# ── structural signature (novelty in the ranking, arch §3.1.6 #1) ─────────────────────────────
+def _series_sig(s: Series) -> str:
+    return "close" if isinstance(s, Close) else s.op
+
+
+def _clause_sig(c: Clause) -> str:
+    if isinstance(c, Compare):
+        return f"cmp({_series_sig(c.left)}{c.op}{_series_sig(c.right)})"
+    if isinstance(c, Cross):
+        return f"cross({_series_sig(c.left)},{'up' if c.up else 'down'},{_series_sig(c.right)})"
+    if isinstance(c, Threshold):
+        return f"thr({c.osc.op}{c.op})"
+    if isinstance(c, CrossLevel):
+        return f"xlvl({c.osc.op},{'up' if c.up else 'down'})"
+    if isinstance(c, Distance):
+        return f"dist({_series_sig(c.left)}-{_series_sig(c.right)}{c.op})"
+    if isinstance(c, Breakout):
+        return f"brk({'up' if c.up else 'down'})"
+    return f"slope({_series_sig(c.series)},{'up' if c.up else 'down'})"
+
+
+def signature(genome: Genome) -> tuple[str, ...]:
+    """The genome's clauses without their numbers, sorted — two strategies with the same
+    signature differ only in parameter values or clause order."""
+    return tuple(sorted(_clause_sig(c) for c in genome.clauses()))

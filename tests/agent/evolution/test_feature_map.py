@@ -54,6 +54,7 @@ def test_categories_are_the_grammars() -> None:
 def _candidate(
     lg: Ledger, cid: str, engine: str, seed: int, sharpe: float, cats: list[str],
     g3_pass: bool = True, g4_pass: bool | None = True, trades: float = 60.0,
+    g4_detail: dict[str, Any] | None = None,
 ) -> None:  # fmt: skip
     lg.log_event(GenerationEvent(
         run_id="r", campaign_id="c1", engine=engine, seed=seed, agent="engine", model_used="none",
@@ -80,7 +81,7 @@ def _candidate(
     if g4_pass is not None:
         lg.record_gate_result(GateResultRecord(
             campaign_id="c1", candidate_id=cid, gate=G4_PBO, passed=g4_pass, reason="r",
-            trial_id=tid, detail={"pbo": 0.2, "cpcv_path_sharpes": [9.9]},
+            trial_id=tid, detail=g4_detail or {"pbo": 0.2, "cpcv_path_sharpes": [9.9]},
         ))  # fmt: skip
 
 

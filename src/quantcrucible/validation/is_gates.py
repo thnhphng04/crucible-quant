@@ -27,7 +27,7 @@ from quantcrucible.validation.gates import (
 )
 from quantcrucible.validation.report import EvaluationReport
 from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
-from quantcrucible.validation.statistical import min_btl_years
+from quantcrucible.validation.statistical import min_btl_years, sharpe_moments
 
 DAYS_PER_YEAR = 365.25
 
@@ -95,6 +95,16 @@ class MinBtlGate:
         return GateResult(years >= need, self.id, years, verdict, detail=detail)
 
 
+def _moments(returns: Any) -> dict[str, float]:
+    """Per-observation Sharpe, skew, kurtosis and length of the IS returns (IS-only, public);
+    empty when they are undefined (fewer than 4 returns, zero variance, non-finite values)."""
+    try:
+        m = sharpe_moments(returns)
+    except ValueError:
+        return {}
+    return {"sr_obs": m.sr, "skew_is": m.skew, "kurtosis_is": m.kurtosis, "n_obs": float(m.n_obs)}
+
+
 class InSampleGate:
     """Gate ③: IS backtest in the sandbox + the D15 constraints (trades, holding, indicator ρ)."""
 
@@ -114,6 +124,7 @@ class InSampleGate:
             return sandbox_failure(self.id, res)
         out: dict[str, Any] = res.report["result"]
         public = {k: float(v) for k, v in out["public"].items()}
+        public.update(_moments(out["returns"]))  # for the engines' DSR ranking (§3.1.6 #1)
         path = measurement_path(
             results_dir / "returns" / candidate.campaign_id, candidate.candidate_id
         )

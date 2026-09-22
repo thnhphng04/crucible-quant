@@ -266,11 +266,11 @@ No agent code in this phase (P1).
 - **Accept when:** both come from the existing grid (no extra backtest, no trial); both are `public`; hand-built grid fixtures give the expected median and plateau; PBO and CPCV stay `private`. Done: `pbo_gate.param_stability` (candidate in row 0; plateau 0 without a positive Sharpe); gate ④ reports `spp_median_sharpe` and `plateau` as `public` and keeps them in its detail for the archive.
 - **Needs:** P2-01.
 
-### ☐ P2-11 GP operators + ranking score
+### ✅ P2-11 GP operators + ranking score
 - **Arch:** §3.1.11 (C-gp), §3.1.6 #1, D20.
 - **Files:** `agent/evolution/operators.py`, `agent/evolution/ranking.py`.
 - **Details:** typed subtree crossover, subtree and point mutation, TUNABLE mutation within bounds; parameter-only children ≤ `param_only_max`; mutation type recorded; ranking = §3.1.6 #1 with SPP median and plateau as a secondary term — exact form in an ADR.
-- **Accept when:** every child is type-valid and passes ①a (property test); a parameter-only child keeps its parent's `strategy_hash`; the cap holds over a run; ranking reads `public` metrics only.
+- **Accept when:** every child is type-valid and passes ①a (property test); a parameter-only child keeps its parent's `strategy_hash`; the cap holds over a run; ranking reads `public` metrics only. Done: [ADR-0026](adr/0026-gp-operators-and-ranking-score.md) — the DSR term is ADR-0013's DSR-rank (PSR vs the deflated benchmark: no per-strategy DSR, INV-42); gate ③ adds the IS return moments to `public`; submissions record the clause `signature`.
 - **Needs:** P2-05, P2-10.
 
 ### ☐ P2-12 Parent sampling, islands, migration

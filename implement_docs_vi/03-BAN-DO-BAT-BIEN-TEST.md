@@ -78,9 +78,9 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-63 | Biên bin của feature map chỉ lấy từ lock của campaign | §3.1.3 | Code | `tests/agent/evolution/test_feature_map.py::test_bounds_only_from_lock`, `::test_out_of_range_lands_in_the_edge_bin` | P2-07 | ✅ |
 | INV-64 | Không chiến lược nào so một chuỗi theo thang giá với hằng số (bất biến theo thang giá) | §3.1.6, §3.1.11 | Code (cổng ①a) | `tests/validation/test_guardrail.py::test_price_vs_constant_rejected`, `::test_scale_invariant_rules_pass`, `::test_stop_must_be_in_price_units` | P2-04 | ✅ |
 | INV-65 | C-random không đọc kết quả nào | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ✅ |
-| INV-66 | Con chỉ đổi tham số ≤ `param_only_max`; mỗi con được đánh giá là một trial | §3.1.11, D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_param_only_cap` | P2-11 | ☐ |
+| INV-66 | Con chỉ đổi tham số ≤ `param_only_max`; mỗi con được đánh giá là một trial | §3.1.11, D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_param_only_cap`, `::test_a_parameter_only_child_keeps_the_parent_hash` | P2-11 | ✅ |
 | INV-67 | Tích hợp đảo: cha từ đảo đang xử lý, migrant không nhân bản, con của migrant ở đảo đích | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ☐ |
-| INV-68 | Điểm xếp hạng của engine chỉ đọc metric `public` | §3.3.2 | Code | `tests/agent/evolution/test_ranking.py::test_ranking_ignores_private` | P2-11 | ☐ |
+| INV-68 | Điểm xếp hạng của engine chỉ đọc metric `public` | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
 | INV-69 | Run bị ngắt không để lại container sandbox nào | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
 | INV-70 | Giao thức so sánh được khóa trước trial đầu tiên của lần chạy | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ☐ |
 

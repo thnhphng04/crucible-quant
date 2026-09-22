@@ -266,11 +266,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** cả hai tính từ lưới sẵn có (không backtest thêm, không tốn trial); cả hai là `public`; fixture lưới dựng tay cho đúng trung vị và plateau; PBO và CPCV vẫn là `private`. Xong: `pbo_gate.param_stability` (ứng viên ở dòng 0; plateau bằng 0 khi không có Sharpe dương); cổng ④ báo `spp_median_sharpe` và `plateau` dạng `public` và giữ chúng trong detail cho archive.
 - **Cần:** P2-01.
 
-### ☐ P2-11 Toán tử GP + điểm xếp hạng
+### ✅ P2-11 Toán tử GP + điểm xếp hạng
 - **Kiến trúc:** §3.1.11 (C-gp), §3.1.6 #1, D20.
 - **File:** `agent/evolution/operators.py`, `agent/evolution/ranking.py`.
 - **Chi tiết:** lai ghép cây con có kiểu, đột biến cây con và đột biến điểm, đột biến TUNABLE trong biên; con chỉ đổi tham số ≤ `param_only_max`; ghi loại đột biến; điểm xếp hạng = §3.1.6 #1 với trung vị SPP và plateau là thành phần phụ — công thức cụ thể trong một ADR.
-- **Nghiệm thu khi:** mọi con hợp lệ về kiểu và qua ①a (property test); con chỉ đổi tham số giữ `strategy_hash` của cha; trần tỷ lệ giữ suốt một run; điểm xếp hạng chỉ đọc metric `public`.
+- **Nghiệm thu khi:** mọi con hợp lệ về kiểu và qua ①a (property test); con chỉ đổi tham số giữ `strategy_hash` của cha; trần tỷ lệ giữ suốt một run; điểm xếp hạng chỉ đọc metric `public`. Xong: [ADR-0026](adr/0026-toan-tu-gp-va-diem-xep-hang.md) — thành phần DSR là DSR-rank của ADR-0013 (PSR so với ngưỡng đã deflate: không có DSR theo từng chiến lược, INV-42); cổng ③ thêm các moment của return IS vào `public`; lúc submit ghi `signature` của clause.
 - **Cần:** P2-05, P2-10.
 
 ### ☐ P2-12 Chọn cha, đảo, di cư

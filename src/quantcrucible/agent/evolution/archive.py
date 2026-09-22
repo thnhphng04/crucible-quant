@@ -29,6 +29,7 @@ class Entry:
     categories: tuple[str, ...]
     public: Mapping[str, float]  # gate ③ (+ ④ public, when it ran): IS-only metrics
     cell: Cell
+    signature: tuple[str, ...] = ()  # clauses without numbers (grammar.signature)
 
     @property
     def cell_id(self) -> str:
@@ -90,12 +91,13 @@ def load_entries(
             continue  # rejected at ④ (PBO ≥ pbo_max)
         public: dict[str, float] = dict(detail3.get("public", {}))
         public.update(g4.get(t.candidate_id, (True, {}))[1].get("public", {}))
-        cats = tuple(tags.get(t.candidate_id, {}).get("categories", ()))
+        tag = tags.get(t.candidate_id, {})
+        cats = tuple(tag.get("categories", ()))
         desc = descriptors(public, _years(t.timerange))
         out.append(
             Entry(
                 t.candidate_id, t.id, t.strategy_hash, t.params, t.island, cats, public,
-                fmap.cell(desc, cats),
+                fmap.cell(desc, cats), tuple(tag.get("signature", ())),
             )
         )  # fmt: skip
     return out
