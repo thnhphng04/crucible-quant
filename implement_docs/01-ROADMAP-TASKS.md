@@ -208,11 +208,11 @@ No agent code in this phase (P1).
 - **Goal:** this task list, the phase-2 invariant rows, and [ADR-0024](adr/0024-engine-c-orchestration-and-derived-evolution-state.md): plain-Python orchestration, evolution state derived from the ledger, scheduling by statistical trials.
 - **Accept when:** `scripts/check_doc_mirror.py` passes; ADR-0024 accepted.
 
-### ☐ P2-02 Config for engine C
+### ✅ P2-02 Config for engine C
 - **Arch:** §10.1, D14, D19, D20.
 - **Files:** `config/schema.py`, `config/loader.py`, `config/user.yaml`.
-- **Details:** engine keys `gp`, `random`, `quantevolve`, `simple_loop`; `gp: {param_only_max, plateau_threshold}`; `phase2: {purpose, trial_budget}` — all Group B, locked per campaign.
-- **Accept when:** loader tests — shares sum to 1; A/B shares > 0 refused while D19 defers them; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; a lock written with the old engine keys is refused by `assert_lock_matches` (a new campaign is needed).
+- **Details:** engine keys `gp`, `random`, `quantevolve`, `simple_loop`; `gp: {param_only_max, plateau_threshold}`; `campaign: {purpose: research|harness_test, trial_budget}` — all Group B, locked per campaign.
+- **Accept when:** loader tests — shares sum to 1; A/B shares > 0 refused while D19 defers them; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; a lock written with the old engine keys is refused by `assert_lock_matches` (a new campaign is needed). Done: `tests/config/test_loader.py::test_engine_c_is_the_focus_by_default`, `tests/config/test_lock.py::test_a_lock_with_the_old_engine_keys_is_refused`.
 - **Needs:** P2-01.
 
 ### ☐ P2-03 Candidate provenance + ledger schema v5

@@ -133,3 +133,26 @@ def test_holdout_pass_is_locked_for_the_whole_campaign(ledger: Ledger, lock_path
         with pytest.raises(LockMismatchError, match="holdout_pass"):
             assert_lock_matches(edited, lock_path, ledger, "c1")
     assert assert_lock_matches(cfg, lock_path, ledger, "c1")["research"]["holdout_pass"] == 1.3
+
+
+def test_a_lock_with_the_old_engine_keys_is_refused(
+    ledger: Ledger, lock_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A campaign locked before arch v0.6 (engines quantevolve/simple_loop/random) cannot run
+    under the engine-C settings: Group B changed, so a new campaign is needed."""
+    from quantcrucible.config.loader import research_to_dict as real
+
+    target = "quantcrucible.config.lock.research_to_dict"
+
+    def pre_v06(research: object) -> dict[str, object]:
+        d = real(research)  # type: ignore[arg-type]
+        d["engines"] = {"quantevolve": 0.5, "simple_loop": 0.4, "random": 0.1}
+        for key in ("gp", "campaign"):
+            d.pop(key)
+        return d
+
+    monkeypatch.setattr(target, pre_v06)
+    open_campaign(UserConfig(), ledger, "c1", lock_path, HOLDOUT)
+    monkeypatch.setattr(target, real)
+    with pytest.raises(LockMismatchError, match="campaign, engines, gp"):
+        assert_lock_matches(UserConfig(), lock_path, ledger, "c1")

@@ -1226,6 +1226,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
+  campaign: {purpose: research, trial_budget: null}   # harness_test = the phase-2 engine comparison: no portfolio, no freeze (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: the ⑥′ source (ADR-0015)

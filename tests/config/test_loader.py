@@ -61,7 +61,15 @@ def test_tightening_is_allowed() -> None:
         ({"research": {"engine_mode": "parallel"}}, "not one of"),
         ({"research": {"seeds": "three"}}, "integer"),
         ({"research": {"seeds": True}}, "integer"),
-        ({"research": {"engines": {"quantevolve": 0.9}}}, "sum to 1"),
+        ({"research": {"engines": {"gp": 0.9}}}, "sum to 1"),
+        ({"research": {"engines": {"gp": 0.4, "quantevolve": 0.1}}}, "deferred"),
+        ({"research": {"engines": {"gp": 0.5, "random": 0.4, "simple_loop": 0.1}}}, "deferred"),
+        ({"research": {"gp": {"param_only_max": 1.5}}}, "param_only_max"),
+        ({"research": {"gp": {"param_only_max": -0.1}}}, "param_only_max"),
+        ({"research": {"gp": {"plateau_threshold": 0}}}, "plateau_threshold"),
+        ({"research": {"gp": {"plateau_threshold": 1.2}}}, "plateau_threshold"),
+        ({"research": {"campaign": {"purpose": "production"}}}, "not one of"),
+        ({"research": {"campaign": {"trial_budget": 0}}}, "trial_budget"),
         ({"research": {"drift": {"allow_below": 0.2}}}, "allow_below"),
         ({"research": {"target_vol": 0}}, "> 0"),
         ({"research": {"max_risk_pct": 2}}, "<= 1"),
@@ -109,3 +117,19 @@ def test_yaml_nan_literal_rejected(tmp_path: Path) -> None:
     cfg.write_text("research:\n  constraints: {max_indicator_corr: .nan}\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="finite"):
         load_user_config(cfg)
+
+
+def test_engine_c_is_the_focus_by_default() -> None:
+    """Arch v0.6 (D14, D19, D20): C-gp and C-random share phase 2; A/B are deferred at 0."""
+    r = parse_user_config({}).research
+    assert (r.engines.gp, r.engines.random) == (0.5, 0.5)
+    assert (r.engines.quantevolve, r.engines.simple_loop) == (0.0, 0.0)
+    assert (r.gp.param_only_max, r.gp.plateau_threshold) == (0.30, 0.5)
+    assert r.campaign.purpose == "research" and r.campaign.trial_budget is None
+
+
+def test_campaign_purpose_and_budget() -> None:
+    r = parse_user_config(
+        {"research": {"campaign": {"purpose": "harness_test", "trial_budget": 1200}}}
+    ).research
+    assert r.campaign.purpose == "harness_test" and r.campaign.trial_budget == 1200

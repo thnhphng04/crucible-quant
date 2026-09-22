@@ -208,11 +208,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Mục tiêu:** danh sách task này, các dòng bất biến của giai đoạn 2, và [ADR-0024](adr/0024-dieu-phoi-engine-c-va-trang-thai-tien-hoa-dan-xuat.md): điều phối bằng Python thuần, trạng thái tiến hóa dẫn xuất từ ledger, lập lịch theo trial thống kê.
 - **Nghiệm thu khi:** `scripts/check_doc_mirror.py` đạt; ADR-0024 được chấp nhận.
 
-### ☐ P2-02 Cấu hình cho engine C
+### ✅ P2-02 Cấu hình cho engine C
 - **Kiến trúc:** §10.1, D14, D19, D20.
 - **File:** `config/schema.py`, `config/loader.py`, `config/user.yaml`.
-- **Chi tiết:** khóa engine `gp`, `random`, `quantevolve`, `simple_loop`; `gp: {param_only_max, plateau_threshold}`; `phase2: {purpose, trial_budget}` — đều thuộc Nhóm B, khóa theo campaign.
-- **Nghiệm thu khi:** test loader — tổng tỷ lệ bằng 1; tỷ lệ A/B > 0 bị từ chối khi D19 còn hoãn chúng; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; lock ghi bằng khóa engine cũ bị `assert_lock_matches` từ chối (cần campaign mới).
+- **Chi tiết:** khóa engine `gp`, `random`, `quantevolve`, `simple_loop`; `gp: {param_only_max, plateau_threshold}`; `campaign: {purpose: research|harness_test, trial_budget}` — đều thuộc Nhóm B, khóa theo campaign.
+- **Nghiệm thu khi:** test loader — tổng tỷ lệ bằng 1; tỷ lệ A/B > 0 bị từ chối khi D19 còn hoãn chúng; `param_only_max` ∈ [0, 1]; `trial_budget` > 0; lock ghi bằng khóa engine cũ bị `assert_lock_matches` từ chối (cần campaign mới). Xong: `tests/config/test_loader.py::test_engine_c_is_the_focus_by_default`, `tests/config/test_lock.py::test_a_lock_with_the_old_engine_keys_is_refused`.
 - **Cần:** P2-01.
 
 ### ☐ P2-03 Provenance của ứng viên + schema ledger v5
