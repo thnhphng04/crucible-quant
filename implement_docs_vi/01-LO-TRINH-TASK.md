@@ -203,7 +203,7 @@ Không có code agent trong giai đoạn này (P1).
 
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
-| **2** Vòng lặp agent, chỉ crypto (6–8 tuần) | Định tuyến model + LLM client (chỉ dưới `agent/`); bộ dựng prompt kèm test rò rỉ key `private`; các agent Research / Coding / Evaluation; patcher (SEARCH/REPLACE + viết lại block); cổng ⓪ drift (lớp 1–2) + hiệu chỉnh ngưỡng Δ; feature map với biên bin cố định; đảo + di cư + test tích hợp đảo; pipeline bất đồng bộ; engine A/B/C + scheduler cưỡng chế tỷ lệ ngân sách trial; ≥ 150 thế hệ tự chạy; so sánh đa engine ở chế độ `isolated` với quy tắc quyết định khóa **trước** khi chạy; A/B model cho Research Agent | §3.1.x, §3.1.11, §3.3.1, §7 |
+| **2** Engine C, không LLM, chỉ crypto (4–6 tuần) — v0.6, D19 | Văn phạm DSL có kiểu (+ bất biến theo thang giá ở cổng ①a); provenance của ứng viên + scheduler ngân sách trial + campaign thử harness; feature map với biên bin cố định; đảo + di cư + test tích hợp đảo; pipeline bất đồng bộ (thông lượng O14); **C-random** (i.i.d. từ văn phạm) và **C-gp** (GP có kiểu mạnh: lai ghép/đột biến cây con, đột biến `TUNABLE`, mỗi con một trial); ≥ 150 thế hệ C-gp tự chạy; so sánh C-gp với C-random ở chế độ `isolated` với quy tắc quyết định khóa **trước** khi chạy. Engine A/B (LLM) hoãn | §3.1.11, §3.1.3, §3.1.5, §3.3.1, §7 |
 | **3** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |
 | **4** IB → forex + cổ phiếu quốc tế (3–4 tuần) | Adapter IB qua Nautilus; phiên/lịch giao dịch; nguồn dữ liệu Stooq; chỉ chỉ số/ETF (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 tuần) | Tự viết module roll (điều chỉnh tỷ lệ, roll theo OI/volume) từ dữ liệu TurtleTrader; khớp với một nguồn tham chiếu | §6.1 |

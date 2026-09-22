@@ -203,7 +203,7 @@ No agent code in this phase (P1).
 
 | Phase | Milestones | Arch |
 |---|---|---|
-| **2** Agent loop, crypto only (6–8 wk) | Model routing + LLM client (only under `agent/`); prompt builder with the `private`-key leak test; Research / Coding / Evaluation agents; patcher (SEARCH/REPLACE + block rewrite); gate ⓪ drift (layers 1–2) + calibration of Δ thresholds; feature map with fixed bin bounds; islands + migration + island integration test; async pipeline; engines A/B/C + scheduler enforcing trial-budget shares; ≥ 150 autonomous generations; multi-engine comparison in `isolated` mode with the decision rule locked **before** running; Research-Agent model A/B | §3.1.x, §3.1.11, §3.3.1, §7 |
+| **2** Engine C, no LLM, crypto only (4–6 wk) — v0.6, D19 | Typed DSL grammar (+ scale-invariance at gate ①a); candidate provenance + trial-budget scheduler + harness-test campaign; feature map with fixed bin bounds; islands + migration + island integration test; async pipeline (O14 throughput); **C-random** (i.i.d. from the grammar) and **C-gp** (strongly-typed GP: subtree crossover/mutation, `TUNABLE` mutation, each child one trial); ≥ 150 autonomous C-gp generations; C-gp vs C-random comparison in `isolated` mode with the decision rule locked **before** running. Engines A/B (LLM) deferred | §3.1.11, §3.1.3, §3.1.5, §3.3.1, §7 |
 | **3** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
 | **4** IB → forex + intl equities (3–4 wk) | IB adapter via Nautilus; sessions/calendars; Stooq data source; indices/ETFs only (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 wk) | Own roll module (ratio adjustment, OI/volume roll) from TurtleTrader data; match a reference source | §6.1 |

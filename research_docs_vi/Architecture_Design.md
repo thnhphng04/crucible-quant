@@ -13,6 +13,8 @@
 > **Thay đổi 0.3 → 0.4** (nguồn: đọc repo MadEvolve, §3.1.10): **template strategy có vùng cố định + vùng tiến hóa**, cưỡng chế bằng hash (§3.3.1) · **tham số khai báo `TUNABLE`** — nguồn của lưới PBO và luật ≤ 6 tham số (§3.3.1, §3.2) · **hợp đồng evaluator tách metric public/private** (§3.3.2) · **đặc tả sandbox** chạy code sinh ra (§3.3.3) · Coding Team dùng **patch diff/viết lại block, strict, retry kèm lỗi** (§3.1.2) · **pipeline bất đồng bộ**, migration/curation tính theo số candidate (§3.1.8) · **biên bin feature map cố định** (§3.1.3) · test tích hợp island (§3.1.5, GĐ 2) · lần đánh giá của optimizer tham số **là trial** (§4.1)
 >
 > **Thay đổi 0.4 → 0.5** (nguồn: đọc toàn văn paper MadEvolve arXiv 2605.23007): **kiến trúc đa engine** — QuantEvolve 4 agent + vòng lặp đơn giản kiểu MadEvolve + random search chạy song song, chế độ cô lập/cộng tác (§3.1.11) · **tắt bộ tối ưu tham số trong vòng tiến hóa**, chỉ hiệu chỉnh một lần trước khi đóng băng (§3.3.1, §3.2.1) · **tiến hóa theo module**: vùng entry / exit+stop / regime (§3.3.1) · **ràng buộc số lệnh + thời gian nắm giữ tối thiểu** (gate ③) · **ràng buộc tương quan giữa indicator** (§3.3.1) · **đường cong suy giảm IS→OOS** trên CPCV (§3.2) · **fill model bi quan + kiểm tra độ nhạy chi phí** (§3.5, gate ⑥′) · **chạy nhiều seed** (§3.1.8)
+>
+> **Thay đổi 0.5 → 0.6** (quyết định của người dùng 22/9/2026, nguồn: [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]): **engine C không LLM là trọng tâm** — C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; engine A/B **hoãn**, thiết kế giữ nguyên (§3.1.11, D19) · GĐ 2 xây C (§7) · bộ sinh không thiên lệch theo tần suất giao dịch · GP được đột biến `TUNABLE` với trần tỉ lệ con chỉ đổi tham số; thêm trung vị SPP + plateau từ lưới gate ④ (§3.2, D20); calibration 5b giữ nguyên
 
 ---
 
@@ -110,6 +112,8 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 ### 3.1. Agent Layer — theo kiến trúc QuantEvolve (arXiv 2510.18569)
 
 Thay cho thiết kế Generator/Critic/Scheduler trước đó, tầng agent dùng kiến trúc **quality-diversity evolutionary** của QuantEvolve: **feature map (MAP-Elites) + island model + 4 agent**.
+
+> 🆕 **v0.6:** GĐ 2 xây **engine C không LLM** trước (§3.1.11, D19). Các mục §3.1.1–3.1.10 mô tả engine A/B, đã hoãn; phần C dùng lại là feature map (§3.1.3), island (§3.1.5), các ràng buộc §3.1.6 và các tham số vận hành không liên quan LLM (§3.1.8).
 
 > 📖 Nguồn: Yun, Lee & Jeon — *QuantEvolve: Automating Quantitative Strategy Discovery through Multi-Agent Evolutionary Framework*, AI Tech Lab, Qraft Technologies. Đọc trực tiếp từ PDF gốc. Đánh giá phê phán: [[00-TONG-HOP-NGHIEN-CUU]].
 
@@ -419,39 +423,44 @@ Tầng 2 — hồi quy trace (chạy trong sandbox, sau ①a)
 
 > **Kết luận:** repo đáng dùng làm **nguồn mẫu kỹ thuật** (L1–L5 đều rẻ, đã chạy được), **không** đáng dùng làm nền code — phần quality-diversity (X3, X4) lỏng hơn chính paper QuantEvolve mà ta đang theo, và phần ghi chép trial (X1, X2) đi ngược P2. Cách dùng: viết lại theo thiết kế của ta, tham khảo `transformer/patcher.py`, `transformer/blocks.py` và `transformer/parallel.py` (MIT — được phép chép kèm ghi nguồn).
 
-#### 3.1.11. 🆕 Đa engine sinh strategy
+#### 3.1.11. 🆕 Đa engine sinh strategy — engine C là trọng tâm (v0.6)
+
+> 🆕 **v0.6 (22/9/2026, quyết định của người dùng — D19):** **engine C (không LLM) là trọng tâm.** GĐ 2 chỉ xây C, gồm hai nhánh: **C-gp** (tiến hóa GP trên văn phạm có kiểu — engine chính) và **C-random** (lấy mẫu ngẫu nhiên i.i.d. từ cùng văn phạm — đối chứng). Engine A và B **hoãn**: thiết kế §3.1.1–3.1.10 giữ nguyên, được xây sau và khi đó phải so với C. Nền tảng: [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]].
 
 Hệ chạy song song **nhiều engine sinh candidate**, dùng chung toàn bộ phần sau: template, DSL, sandbox, gate, ledger, quy tắc dựng danh mục (§3.2.1), holdout. Chỉ khâu *sinh* là khác.
 
 ```
-                    ┌─► Engine A: QuantEvolve 4 agent ──┐
-config/user.yaml ───┤                                    ├─► bộ điều phối ─► sandbox ─► gate ⓪–④ ─► ledger
- (tỉ lệ ngân sách)  ├─► Engine B: vòng lặp đơn giản ────┤   (ép tỉ lệ)                                │
-                    └─► Engine C: random search ────────┘                                              ▼
+                    ┌─► Engine C-gp: GP, văn phạm có kiểu ──┐
+config/user.yaml ───┤                                        ├─► bộ điều phối ─► sandbox ─► gate ⓪–④ ─► ledger
+ (tỉ lệ ngân sách)  ├─► Engine C-random: mẫu i.i.d. ────────┤   (ép tỉ lệ)                                │
+                    └─► (hoãn, D19) Engine A, Engine B ──────┘                                              ▼
                                                                     dựng danh mục từ ứng viên qua ④ của MỌI engine
 ```
 
 | Engine | Cách sinh | Lời gọi LLM / candidate | Vai trò |
 |---|---|---|---|
-| **A — QuantEvolve** | §3.1.1–3.1.9: Research Agent (hypothesis 6 tag) → Coding Team → Evaluation Team → insight repository | 5–10 | Hệ chính: sâu, có giả thuyết và tri thức tích lũy |
-| **B — Vòng đơn giản** | Theo MadEvolve: chọn parent (power-law theo xếp hạng) + 2–3 inspiration → **một** lời gọi LLM trả diff hoặc viết lại vùng tiến hóa → đánh giá → archive. Không hypothesis, không Evaluation Team, không insight | 1 (+ retry) | Rẻ, sinh nhiều biến thể nhỏ; đối chứng cho các tầng agent |
-| **C — Random search** | Không LLM: ghép ngẫu nhiên toán tử DSL, tham số ngẫu nhiên trong biên `TUNABLE` | 0 | Đối chứng "LLM có giúp gì so với may rủi" — giữ suốt dự án với tỉ lệ nhỏ |
+| **C-gp — Tiến hóa GP** 🆕 | Strongly-typed GP trên cây cú pháp của DSL (§3.1.6), render vào vùng tiến hóa (§3.3.1). Toán tử: lai ghép cây con, đột biến cây con/điểm, đột biến giá trị `TUNABLE` trong biên. Chọn parent từ archive riêng — feature map §3.1.3 + island §3.1.5, dùng lại không cần LLM. Fitness = điểm xếp hạng §3.1.6 #1, chỉ đọc chỉ số `public` (§3.3.2) | 0 | **Engine chính (GĐ 2)** |
+| **C-random — Lấy mẫu ngẫu nhiên** | Không LLM: lấy mẫu i.i.d. từ **cùng** văn phạm có kiểu và cùng bộ sinh dùng để khởi tạo C-gp; tham số đều trong biên `TUNABLE`; không chọn lọc, không đọc kết quả | 0 | Đối chứng "tiến hóa có giúp gì so với may rủi" — giữ suốt dự án |
+| **A — QuantEvolve** (hoãn, D19) | §3.1.1–3.1.9: Research Agent (hypothesis 6 tag) → Coding Team → Evaluation Team → insight repository | 5–10 | Xây sau; khi đó phải thắng C-gp và C-random |
+| **B — Vòng đơn giản** (hoãn, D19) | Theo MadEvolve: chọn parent (power-law theo xếp hạng) + 2–3 inspiration → **một** lời gọi LLM trả diff hoặc viết lại vùng tiến hóa → đánh giá → archive. Không hypothesis, không Evaluation Team, không insight | 1 (+ retry) | Xây sau; đối chứng cho các tầng agent của A |
+
+**Quy tắc chung của engine C:** (1) đột biến giá trị `TUNABLE` là tiến hóa, không phải bộ tối ưu — mỗi con được đánh giá là **một** trial, không quét tham số quanh từng candidate (§3.3.1 vẫn áp dụng). Con **chỉ đổi tham số** tối đa `param_only_max` (mặc định tạm 30%) số con của C-gp, loại đột biến ghi vào `generation_log.detail`; con đó giữ nguyên `strategy_hash` của cha nên gate ④ tự tính nó là biến thể của cùng code (tập cấu hình PBO, §3.2); (2) văn phạm **có kiểu** — chỉ so sánh chuỗi cùng thang đo, không bao giờ so giá với một hằng số (bất biến theo thang giá, §3.1.6); (3) **không thiên lệch theo tần suất giao dịch** — phí và trượt giá do backtest xử lý (§3.5), việc chọn lọc do gate và DSR/PBO; (4) tất định theo seed.
 
 **Hai chế độ:**
 
 | Chế độ | Khi nào | Archive | Mục đích |
 |---|---|---|---|
 | `isolated` | GĐ 2 — đợt thử nghiệm harness | Mỗi engine một archive, **không trao đổi** | So sánh sạch |
-| `collaborative` | Từ GĐ 3 | Archive riêng, **định kỳ chuyển top 10%** giữa engine A ↔ B (như migration island). C không nhận migrant | A đóng góp chiều sâu, B đóng góp số lượng biến thể |
+| `collaborative` | Khi A/B được xây lại (D19) | Archive riêng, **định kỳ chuyển top 10%** giữa các engine tiến hóa (C-gp, A, B — như migration island). C-random không bao giờ nhận migrant | Kết hợp chiều sâu và số lượng biến thể |
 
-**Chia ngân sách theo số trial thống kê**, không theo lời gọi LLM hay giờ GPU — nếu không, engine B (rẻ gấp 5–10 lần) sẽ chiếm hết `N`. Bộ điều phối trong pipeline bất đồng bộ (§3.1.8) ép đúng tỉ lệ khai báo trong `user.yaml` (§10.1). GĐ 2 dùng **tỉ lệ cố định**. Sau GĐ 2 có thể phân bổ thích ứng theo **hiệu suất trial** (số strategy qua ④ / 100 trial) — **không bao giờ** theo Sharpe IS.
+**Chia ngân sách theo số trial thống kê**, không theo lời gọi LLM hay giờ CPU/GPU — nếu không, engine rẻ nhất sẽ chiếm hết `N`. Bộ điều phối trong pipeline bất đồng bộ (§3.1.8) ép đúng tỉ lệ khai báo trong `user.yaml` (§10.1). GĐ 2 dùng **tỉ lệ cố định**; trong đợt so sánh, **mỗi engine × seed có cùng hạn mức trial**. Sau GĐ 2 có thể phân bổ thích ứng theo **hiệu suất trial** (số strategy qua ④ / 100 trial) — **không bao giờ** theo Sharpe IS.
 
-**Phép so sánh ở GĐ 2** (chế độ `isolated`, cùng dữ liệu, cùng gate, cùng ngân sách trial, ≥ 3 seed mỗi engine). So bằng:
+**Phép so sánh ở GĐ 2** (chế độ `isolated`, C-gp và C-random, cùng dữ liệu, cùng gate, cùng ngân sách trial, ≥ 3 seed mỗi engine). So bằng:
 
 1. Hiệu suất trial: số strategy qua ④ trên mỗi 100 trial
 2. Độ phủ: số ô feature map có strategy qua ④
 3. DSR của danh mục dựng theo §3.2.1 từ riêng mỗi engine, ở cùng `N`
-4. Chi phí: lời gọi LLM và giờ GPU cho mỗi strategy qua ④
+4. Chi phí: giờ CPU cho mỗi strategy qua ④
 5. Suy giảm IS→OOS trên CPCV (§3.2)
 
 **Không** so Sharpe IS của strategy tốt nhất — đó là best-of-N.
@@ -460,9 +469,9 @@ config/user.yaml ───┤                                    ├─► bộ 
 
 | Kết quả | Hành động |
 |---|---|
-| A thắng cả B và C, cách biệt vượt độ dao động giữa các seed | Giữ A làm engine chính, B chạy song song ở chế độ `collaborative` |
-| A **hòa** B | **B thành engine chính** (rẻ hơn 5–10 lần). Chỉ thêm lại thành phần của A (vd hypothesis 6 tag) nếu ablation riêng cho thấy đáng |
-| Cả A và B không thắng C | Vấn đề nằm ở DSL, dữ liệu hoặc gate — **dừng lại tìm nguyên nhân** trước khi xây tiếp |
+| C-gp thắng C-random, cách biệt vượt độ dao động giữa các seed | Giữ C-gp làm engine chính; C-random chạy tiếp với tỉ lệ nhỏ làm đối chứng thường trực |
+| C-gp **hòa** C-random | **C-random thành engine chính** (đơn giản hơn, không có vòng chọn lọc). Chỉ thêm lại thành phần của GP nếu ablation riêng cho thấy đáng |
+| Không nhánh nào có strategy qua ④ với tỉ lệ đáng kể | Vấn đề nằm ở DSL, dữ liệu hoặc gate — **dừng lại tìm nguyên nhân** trước khi xây tiếp, kể cả trước khi mở lại A/B |
 
 > ⚠️ **Chạy song song không cho thêm trial miễn phí.** Mọi engine đánh giá trên cùng dữ liệu IS ⇒ mọi trial cộng vào cùng một `N`. Lợi ích là đa dạng + luôn có đối chứng, không phải số lượng. Strategy sinh ra ở đợt thử nghiệm harness (GĐ 2) **không được vào danh mục**.
 
@@ -510,6 +519,7 @@ class Gate(Protocol):
 - **Tập cấu hình** = **lưới tham số đăng ký trước** quanh ứng viên, 🆕 dựng tự động từ khai báo `TUNABLE` (§3.3.1): mỗi tham số tự do (≤ 6) lấy 3–5 giá trị trong khoảng ±30% (bước cố định trong `evaluation.lock.yaml`), cộng các biến thể mà vòng refine *thực sự đã thử* cho hypothesis này (lấy từ ledger). `M` bị chặn trên (vd ≤ 200, lấy mẫu nếu vượt).
 - **Quy tắc chọn** = Sharpe IS cao nhất — đúng quy tắc mà vòng tiến hóa dùng.
 - **Ý nghĩa:** PBO thấp ⇒ quy tắc chọn tham số trong vùng này có tính ổn định OOS. PBO cao ⇒ tham số được chọn nhờ nhiễu. PBO **không** thay cho DSR: nó không phạt số hypothesis đã thử trên toàn dự án.
+- 🆕 **v0.6 — độ ổn định tham số (D20).** Từ chính lưới đó (IS, không tốn trial) tính thêm: **trung vị Sharpe của lưới** (System Parameter Permutation, Walton) và **plateau** = tỉ lệ cấu hình láng giềng có Sharpe IS ≥ 50% Sharpe của candidate. Cả hai chỉ dựa trên IS nên là chỉ số `public` (§3.3.2), được dùng làm **thành phần phụ** trong điểm xếp hạng của C-gp; không bao giờ dùng để chọn một cấu hình trong lưới (lưới không phải trial, ADR-0011). PBO và CPCV vẫn là `private`.
 - Ở cấp danh mục, nếu thử nhiều quy tắc dựng danh mục (§3.2.1), chạy thêm CSCV với tập cấu hình = các phương án danh mục đó.
 
 **🆕 Đường cong suy giảm IS→OOS (v0.5, theo MadEvolve Hình 11 — nhưng không dùng holdout).** Sau mỗi `K` candidate, lấy strategy đang giữ kỷ lục IS của từng engine và ghi Sharpe trung vị trên các **đường OOS của CPCV** (metric *private*, §3.3.2). Vẽ hai đường: kỷ lục IS và OOS-CPCV của chính strategy đó. Đường OOS phẳng hoặc đi xuống trong khi IS tăng = tín hiệu p-hacking ⇒ **dừng engine đó sớm**. MadEvolve đo đường này trên *tập test* cho mọi champion — với ta như vậy là mở holdout hàng nghìn lần, vi phạm P6.
@@ -716,7 +726,7 @@ CREATE TABLE generation_log (
     ts             TIMESTAMP NOT NULL,
     run_id         TEXT NOT NULL,
     campaign_id    TEXT NOT NULL,        -- đợt nghiên cứu (§4.2)
-    engine         TEXT NOT NULL,        -- 🆕 quantevolve | simple_loop | random (§3.1.11)
+    engine         TEXT NOT NULL,        -- 🆕 gp | random | quantevolve | simple_loop (§3.1.11)
     seed           INTEGER NOT NULL,     -- 🆕 B7
     evolve_scope   TEXT,                 -- 🆕 entry | exit | regime | joint (§3.3.1)
     agent          TEXT NOT NULL,        -- data | research | coding | eval
@@ -917,7 +927,8 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 │   ├── engines/                   🆕 §3.1.11
 │   │   ├── quantevolve.py         ← engine A (4 agent)
 │   │   ├── simple_loop.py         ← engine B (parent + inspirations → 1 lời gọi LLM)
-│   │   └── random_search.py       ← engine C (không LLM)
+│   │   ├── gp_search.py           ← engine C-gp (GP, không LLM — chính, v0.6)
+│   │   └── random_search.py       ← engine C-random (không LLM — đối chứng)
 │   ├── scheduler.py               🆕 ép tỉ lệ ngân sách trial giữa các engine
 │   └── prompts/                   ← template theo Appendix A của paper
 ├── validation/
@@ -1105,8 +1116,8 @@ class DataSource(Protocol):
 | ----------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------- |
 | **0** | **Harness + ledger + oracle suite**. Chưa có agent. Viết tay 1 strategy EMA crossover chạy hết 8 bước. 🆕 Template + sandbox + `EvaluationReport` | 🔒**Pipeline TỪ CHỐI được cả 4 mức leaky oracle**                                   | 2–3 tuần           |
 | **1** | Validation layer đầy đủ (CPCV/PBO/DSR/MinBTL) + Risk & Sizing                                                  | 🔒 Strategy tay qua đủ gate, ledger tách audit/trial đúng, `N_eff` + `V[SR]` tính được; DSR khớp ví dụ số công bố trong paper gốc; PBO khớp các fixture tính tay theo định nghĩa CSCV/PBO và kết quả của một cài đặt độc lập trên cùng đầu vào; test sizing ½ (§3.4) pass                                            | 2–3 tuần           |
-| **2** | Agent loop**QuantEvolve** (4 agent + feature map + island),**crypto-only**                             | 🔒 ≥150 generation tự động, mọi`s_new` vào ledger, feature map không sụp về 1 bin. 🆕 Test tích hợp island pass (§3.1.5). 🆕 **So sánh đa engine A/B/C ở chế độ `isolated`** theo §3.1.11 — quy tắc quyết định chốt trước khi chạy (kiểm chứng nội bộ cho K4, §3.1) + A/B model Research Agent (§3.1.9)     | **6–8 tuần** |
-| **3** | Mở breadth: 15–30 instrument ít tương quan. 🆕 Chuyển đa engine sang `collaborative` | 🔒 Vol targeting hoạt động, không instrument nào chiếm >20% rủi ro | 2–3 tuần          |
+| **2** | 🆕 v0.6: **Engine C không LLM** (C-gp + C-random, feature map + island), **crypto-only**. Engine A/B hoãn (D19) | 🔒 ≥150 generation C-gp tự động, mọi `s_new` vào ledger, feature map không sụp về 1 bin. Test tích hợp island pass (§3.1.5). **So sánh C-gp với C-random ở chế độ `isolated`** theo §3.1.11 — quy tắc quyết định chốt trước khi chạy | **4–6 tuần** |
+| **3** | Mở breadth: 15–30 instrument ít tương quan. 🆕 Chế độ `collaborative` chỉ khi A/B đã được xây lại (D19) | 🔒 Vol targeting hoạt động, không instrument nào chiếm >20% rủi ro | 2–3 tuần          |
 | **4** | Adapter IB → forex + stock quốc tế                                                                              | 🔒 Session/calendar đúng, không sinh look-ahead                                               | 3–4 tuần           |
 | **5** | Futures đa tài sản —**gồm tự xây module roll** từ dữ liệu free (xem 6.1)                           | 🔒 Continuous contract tự dựng khớp với nguồn tham chiếu; roll gap không sinh return giả | **5–7 tuần** |
 | **6** | 🔴 Adapter SSI → VN30F1M                                                                                          | 🔒 Reconciliation đúng khi reconnect có vị thế mở                                          | 3–6 tuần           |
@@ -1166,14 +1177,16 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D8 | Drawdown tối đa chịu được                  | 🟡 Mặc định tạm    | 20%                                                                           | Kill-switch; là một phần của D4                                                            |
 | D9 | Tham số dựng danh mục (ρ, K, tái cân bằng) | 🟡 Mặc định tạm    | 0.5 / 20 / hàng tháng (§3.2.1)                                              | ⚠️ Phải đóng băng **trước lần đánh giá danh mục đầu tiên** — sau đó mỗi lần đổi là một `portfolio_variant` |
 | D10 | Ngưỡng drift Δ                            | 🟡 Mặc định tạm    | 0.05 / 0.15, Δ chuẩn hóa (§3.1.7)                                          | Hiệu chỉnh ở GĐ 2 trước khi dùng để tự động hủy                                        |
-| D11 | Model Research Agent                      | 🟡 Mặc định tạm    | Non-reasoning, `gpt-oss-120b` (§3.1.9)                                      | A/B nội bộ ở GĐ 2                                                                          |
+| D11 | Model Research Agent                      | 🟡 Mặc định tạm    | Non-reasoning, `gpt-oss-120b` (§3.1.9)                                      | A/B nội bộ khi engine A được xây lại (hoãn, D19)                                          |
 | D12 | Lỗ tối đa mỗi lệnh khi chạm stop (`max_risk_pct`) | 🟡 Mặc định tạm | 1% vốn                                                               | Trần rủi ro trong sizing (§3.4)                                                            |
 | D13 | Lưới tham số PBO; số micro-scenario drift | 🟡 Mặc định tạm    | 3–5 giá trị trong ±30%, `M` ≤ 200; ~20 scenario                              | §3.2, §3.1.7                                                                               |
-| D14 | Tỉ lệ ngân sách engine; chế độ | 🟡 Mặc định tạm | A 0.5 / B 0.4 / C 0.1; `isolated` ở GĐ 2 | §3.1.11 |
+| D14 | Tỉ lệ ngân sách engine; chế độ | 🟡 Mặc định tạm | GĐ 2: C-gp 0.5 / C-random 0.5 (cùng hạn mức mỗi engine × seed); A, B = 0 (hoãn); `isolated` | §3.1.11, D19 |
 | D15 | Số lệnh / thời gian nắm giữ tối thiểu; tương quan indicator tối đa; số seed | 🟡 Mặc định tạm | 30 lệnh trên IS / 1 bar; 0.9; 3 seed | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Phạm vi tiến hóa | 🟡 Mặc định tạm | `joint` (cả entry + exit + regime) | §3.3.1 |
 | D17 | Sharpe mục tiêu của MinBTL (gate ②) | 🟡 Mặc định tạm | 1.5 năm hóa; chỉ được hạ | ADR-0002. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial |
 | D18 | Dữ liệu nghiên cứu (GĐ 0) | 🟡 Mặc định tạm | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP theo USDT từ 2018; holdout = 12 tháng cuối; nguồn thứ hai cho ⑥′ = Gate.io (`second_exchange`) | ADR-0002, ADR-0015, §6.1 |
+| D19 | Engine trọng tâm | ✅ Đã chốt (22/9/2026) | **Engine C không LLM**: C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; A/B hoãn, thiết kế giữ nguyên; bộ sinh không thiên lệch theo tần suất giao dịch | §3.1.11, §7, [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]. Mở lại A/B là quyết định của người dùng |
+| D20 | Tham số trong engine C | 🟡 Mặc định tạm | Con chỉ đổi tham số ≤ 30% số con C-gp; trung vị SPP + plateau (ngưỡng 50%) là thành phần phụ của điểm xếp hạng; calibration 5b giữ nguyên (một lần, trước freeze) | §3.1.11, §3.2, §3.2.1 5b |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 
@@ -1208,10 +1221,11 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
     rebalance: monthly
   pbo_grid: {values_per_param: 5, range: 0.30, max_configs: 200}   # D13
   drift: {allow_below: 0.05, reject_at: 0.15, n_scenarios: 20}      # D10, D13
-  engines: {quantevolve: 0.5, simple_loop: 0.4, random: 0.1}       # D14
+  engines: {gp: 0.5, random: 0.5, quantevolve: 0, simple_loop: 0}   # D14, D19 — A/B hoãn
   engine_mode: isolated         # D14 — isolated | collaborative
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
+  gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: nguồn ⑥′ (ADR-0015)

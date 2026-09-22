@@ -40,6 +40,8 @@ The four original research reports are **Vietnamese only** — they were not tra
 
 > Elsewhere in these documents the four are referenced by short number: `90`, `91`, `92`, `93`.
 
+Additional source report (22 Sep 2026, Vietnamese only, not an input to 00): [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) — **strategy generation without an LLM** (rule universes, random, GP/GE, alpha mining) and parameter optimization/validation; groundwork for Engine C.
+
 ---
 
 ## The two schools under consideration
