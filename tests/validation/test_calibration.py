@@ -11,8 +11,8 @@ import pytest
 
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
-from quantcrucible.validation.calibration import calibrate
-from quantcrucible.validation.gates import G3_IS, G4_PBO, GateContext, GatePipeline
+from quantcrucible.validation.calibration import CalibrationError, calibrate
+from quantcrucible.validation.gates import G3_IS, G4_PBO, GateContext, GatePipeline, GateResult
 from quantcrucible.validation.is_gates import InSampleGate
 from quantcrucible.validation.pbo_gate import PboGate
 from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
@@ -159,3 +159,24 @@ def test_every_attempt_is_accounted_for(ledger: Ledger, tmp_path: Path) -> None:
         len(errors),
     )
     assert [a["attempt_id"] for a in event["log"]] == [a.attempt_id for a in result.attempts]
+
+
+class LeakyFailure:
+    """A ③ that shows a number but records no measurement — performance seen, yet no trial."""
+
+    id = G3_IS
+    cost = 3
+
+    def check(self, candidate: Any, ctx: GateContext) -> GateResult:
+        return GateResult(False, G3_IS, 1.7, "crashed after the backtest", report=None)
+
+
+def test_an_error_after_output_is_not_silently_exempt(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0022: only an attempt that produced no performance output is exempt from N. One that
+    exposed a number without a measurement stops calibration for a human to classify."""
+    c = ctx(ledger, tmp_path, Runner())
+    with pytest.raises(CalibrationError, match="classify"):
+        calibrate(cand(), c, budget=5, full_pipeline=FULL, measure=GatePipeline([LeakyFailure()]))
+    (event,) = [d for e, d in ledger.event_details("c1") if e == Event.CALIBRATION_FINISHED]
+    assert event is not None and event["log"][0]["outcome"] == "error_after_output"
+    assert ledger.trials("c1") == []

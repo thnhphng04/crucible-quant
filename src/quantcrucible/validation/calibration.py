@@ -41,14 +41,22 @@ FAILED_SCORE = -10.0  # Optuna's objective for a rejected or failed attempt — 
 # stored anywhere as a Sharpe
 
 
+class CalibrationError(RuntimeError):
+    """Calibration stopped: an attempt needs a human to classify it (ADR-0022)."""
+
+
 @dataclass(frozen=True, slots=True)
 class Attempt:
-    """One Optuna attempt. ``passed`` / ``rejected``: measured at ③, a trials row. ``error``:
-    nothing measured — no trial, no Sharpe; ``reason`` says why."""
+    """One Optuna attempt (ADR-0022 counting convention).
+
+    ``passed`` / ``rejected``: measured at ③ — a trials row, counted in N and V[SR].
+    ``error``: failed before any performance output — no trial, not in N or V[SR], traced here.
+    ``error_after_output``: a performance number was produced but nothing was measured — never
+    exempted automatically; calibration stops so a human can classify it."""
 
     attempt_id: str  # <candidate_id>-optNNN — also the candidate id in gate_results
     params: dict[str, float | int]
-    outcome: str  # passed | rejected | error
+    outcome: str  # passed | rejected | error | error_after_output
     trial_id: int | None
     sharpe_is: float | None
     reason: str | None
@@ -74,11 +82,11 @@ class CalibrationResult:
 
     @property
     def n_trials(self) -> int:
-        return sum(a.outcome != "error" for a in self.attempts)
+        return sum(not a.outcome.startswith("error") for a in self.attempts)
 
     @property
     def n_errors(self) -> int:
-        return sum(a.outcome == "error" for a in self.attempts)
+        return sum(a.outcome.startswith("error") for a in self.attempts)
 
 
 def _suggest(trial: optuna.Trial, t: Tunable) -> float | int:
@@ -93,6 +101,7 @@ def calibrate(
     budget: int,
     full_pipeline: GatePipeline,
     seed: int = 0,
+    measure: GatePipeline | None = None,
 ) -> CalibrationResult:
     """Search, record every evaluation, then confirm the best through ``full_pipeline``."""
     if budget < 1:
@@ -100,7 +109,7 @@ def calibrate(
     tunables = list(parse(candidate.source).tunables)
     if not tunables:
         raise ValueError("nothing to calibrate: the strategy declares no TUNABLE")
-    measure = GatePipeline([InSampleGate()])
+    measure = measure or GatePipeline([InSampleGate()])
     scored: list[tuple[float, dict[str, float | int]]] = []
     attempts: list[Attempt] = []
 
@@ -116,15 +125,22 @@ def calibrate(
         outcome = measure.run(evaluation, ctx)
         result = outcome.results[-1]
         measured = outcome.trial_id is not None
+        output = result.value is not None or result.report is not None
+        kind = (
+            ("passed" if outcome.passed else "rejected") if measured
+            else "error_after_output" if output else "error"
+        )  # fmt: skip
         attempts.append(
             Attempt(
-                attempt_id=evaluation.candidate_id, params=params,
-                outcome="error" if not measured else "passed" if outcome.passed else "rejected",
+                attempt_id=evaluation.candidate_id, params=params, outcome=kind,
                 trial_id=outcome.trial_id,
                 sharpe_is=float(result.value) if measured and result.value is not None else None,
                 reason=None if outcome.passed else result.reason,
             )
         )  # fmt: skip
+        if kind == "error_after_output":
+            trial.study.stop()  # no further attempt until a human classifies this one
+            return FAILED_SCORE
         if outcome.passed and result.value is not None:
             scored.append((float(result.value), params))
             return float(result.value)
@@ -134,6 +150,12 @@ def calibrate(
     study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=seed))
     study.optimize(objective, n_trials=budget)
     _log_attempts(ctx, candidate, attempts)
+    unclassified = [a.attempt_id for a in attempts if a.outcome == "error_after_output"]
+    if unclassified:
+        raise CalibrationError(
+            f"{unclassified}: a performance number was produced without a measurement — "
+            "classify it (count it in N or not, ADR-0022) before calibrating further"
+        )
     if not scored:
         return CalibrationResult(
             candidate.candidate_id, tuple(attempts), dict(candidate.params), None, None
@@ -148,7 +170,7 @@ def calibrate(
 
 def _log_attempts(ctx: GateContext, c: StrategyCandidate, attempts: list[Attempt]) -> None:
     """One audit event that accounts for every attempt: B = trials + errors."""
-    n_errors = sum(a.outcome == "error" for a in attempts)
+    n_errors = sum(a.outcome.startswith("error") for a in attempts)
     ctx.ledger.log_event(
         GenerationEvent(
             run_id=f"calib-{c.candidate_id}", campaign_id=c.campaign_id, engine=c.engine,

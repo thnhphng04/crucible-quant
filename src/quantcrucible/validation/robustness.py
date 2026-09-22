@@ -25,7 +25,12 @@ from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.is_gates import backtest_options
 from quantcrucible.validation.portfolio import Member, Portfolio, combine, load_returns
-from quantcrucible.validation.portfolio_dsr import G6P_ROBUSTNESS, dsr_counts, n_breakdown
+from quantcrucible.validation.portfolio_dsr import (
+    G6P_ROBUSTNESS,
+    dsr_counts,
+    n_breakdown,
+    unmeasured_sensitivity,
+)
 from quantcrucible.validation.sandbox import JobRunner, SandboxJob
 from quantcrucible.validation.statistical import portfolio_dsr
 
@@ -113,13 +118,14 @@ class RobustnessGate:
         )  # fmt: skip
         stressed_ret = combine(stressed[cols], weights, portfolio.rule.rebalance)
         sharpe_stressed = annual_sharpe(stressed_ret, ppy)
-        dsr = portfolio_dsr(
-            stressed_ret.to_numpy(), ctx.ledger.trial_stats(),
-            ctx.ledger.total_portfolio_variants(), ppy,
-        )  # fmt: skip
+        stats, n_variants = ctx.ledger.trial_stats(), ctx.ledger.total_portfolio_variants()
+        dsr = portfolio_dsr(stressed_ret.to_numpy(), stats, n_variants, ppy)
+        sensitivity, note = unmeasured_sensitivity(
+            ctx.ledger, stressed_ret.to_numpy(), stats, n_variants, ppy
+        )
         if not sharpe_stressed > 0:
             problems.append(f"Sharpe {sharpe_stressed:.2f} with costs × {mult:g} is not > 0")
-        counts = n_breakdown(ctx.ledger, ctx.ledger.total_portfolio_variants())
+        counts = n_breakdown(ctx.ledger, n_variants)
         if not dsr.dsr_n_eff >= dsr_min:
             problems.append(f"costs × {mult:g}: {dsr_counts(dsr, counts)} — below {dsr_min:g}")
 
@@ -128,7 +134,7 @@ class RobustnessGate:
         detail: dict[str, Any] = {
             "cost_multiplier": mult, "sharpe_stressed": sharpe_stressed,
             "dsr_stressed_n_eff": dsr.dsr_n_eff, "dsr_stressed_n_raw": dsr.dsr_n_raw,
-            "n_eff": dsr.n_eff, "n_raw": dsr.n_raw, **counts,
+            "n_eff": dsr.n_eff, "n_raw": dsr.n_raw, **counts, **sensitivity,
         }  # fmt: skip
         if not second:
             problems.append("no second-source data (research.data.second_exchange)")
@@ -153,7 +159,7 @@ class RobustnessGate:
                         f"(drop {drop:.0%} > {max_drop:.0%})"
                     )
         summary = (
-            f"costs × {mult:g}: Sharpe {sharpe_stressed:.2f}, {dsr_counts(dsr, counts)}; "
+            f"costs × {mult:g}: Sharpe {sharpe_stressed:.2f}, {dsr_counts(dsr, counts)}{note}; "
             f"second source drop {detail.get('sharpe_drop', float('nan')):.0%}"
         )
         return GateResult(

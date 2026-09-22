@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.ledger.records import TrialRecord
+from quantcrucible.ledger.records import GateResultRecord, TrialRecord
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.portfolio import Portfolio, PortfolioRule, build_and_record
 from quantcrucible.validation.portfolio_dsr import (
@@ -150,3 +150,24 @@ def test_both_counts_and_the_clusters_are_reported(ledger: Ledger, tmp_path: Pat
     assert f"{d['dsr_n_eff']:.3f} at N_eff={d['n_eff']}" in result.reason
     assert f"{d['dsr_n_raw']:.3f} at N_raw={d['n_raw']}" in result.reason
     assert f"{d['n_clusters']} clusters of {d['n_clustered_trials']} trials" in result.reason
+
+
+def test_unmeasured_attempts_are_a_sensitivity_not_a_count(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0022 (O17): a ③ run that measured nothing is not a trial — N and V[SR] are unchanged
+    — but ⑤ reports the DSR it would have if each such attempt were its own cluster."""
+    p = strong_portfolio(ledger, tmp_path)
+    before = check(ledger, p)
+    for i in range(3):
+        ledger.record_gate_result(
+            GateResultRecord(campaign_id="c1", candidate_id=f"e{i}", gate="g3_is", passed=False,
+                             reason="sandbox: ValueError: NaN stop", trial_id=None)
+        )  # fmt: skip
+    after = check(ledger, p)
+    assert before.detail is not None and after.detail is not None
+    assert after.detail["n_raw"] == before.detail["n_raw"]  # not trials
+    assert after.detail["dsr_n_eff"] == pytest.approx(before.detail["dsr_n_eff"])
+    assert after.passed == before.passed  # a sensitivity never decides the gate
+    assert after.detail["unmeasured_attempts"] == 3
+    assert after.detail["dsr_n_eff_if_counted"] <= after.detail["dsr_n_eff"]
+    assert after.detail["dsr_n_raw_if_counted"] <= after.detail["dsr_n_raw"]
+    assert "3 unmeasured attempts" in after.reason

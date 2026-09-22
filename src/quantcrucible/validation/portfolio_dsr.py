@@ -19,8 +19,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+import numpy.typing as npt
+
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.ledger.records import GateResultRecord
+from quantcrucible.ledger.records import GateResultRecord, TrialStats
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.n_eff import update_n_eff
 from quantcrucible.validation.portfolio import Portfolio
@@ -108,6 +110,30 @@ def dsr_counts(report: DsrReport, b: dict[str, int]) -> str:
     )
 
 
+def unmeasured_sensitivity(
+    ledger: Ledger, returns: npt.ArrayLike, stats: TrialStats, n_variants: int, ppy: float
+) -> tuple[dict[str, float], str]:
+    """ADR-0022: attempts that measured nothing are not trials, but DSR is also reported as if
+    each were one more trial in its own cluster — a sensitivity check, never the gate rule."""
+    e = ledger.unmeasured_attempts()
+    if e == 0:
+        return {"unmeasured_attempts": 0.0}, ""
+    alt = portfolio_dsr(
+        returns,
+        TrialStats(stats.n_raw + e, stats.n_eff + e, stats.var_sr), n_variants, ppy,
+    )  # fmt: skip
+    detail = {
+        "unmeasured_attempts": float(e),
+        "dsr_n_eff_if_counted": alt.dsr_n_eff,
+        "dsr_n_raw_if_counted": alt.dsr_n_raw,
+    }
+    note = (
+        f"; sensitivity: {e} unmeasured attempts, if each counted as its own cluster →"
+        f" DSR {alt.dsr_n_eff:.3f} at N_eff={alt.n_eff}, {alt.dsr_n_raw:.3f} at N_raw={alt.n_raw}"
+    )
+    return detail, note
+
+
 class DsrGate:
     """Gate ⑤: DSR(N_eff) of the consolidated portfolio ≥ ``gates.dsr_min``; DSR(N_raw) is
     always reported next to it (§4.1)."""
@@ -118,14 +144,17 @@ class DsrGate:
     def check(self, portfolio: Portfolio, ctx: GateContext) -> GateResult:
         dsr_min = float(ctx.lock["research"]["gates"]["dsr_min"])
         clustering = update_n_eff(ctx.ledger, seed=0)
+        stats = ctx.ledger.trial_stats()
+        n_variants = ctx.ledger.total_portfolio_variants()
         report = portfolio_dsr(
-            portfolio.returns.to_numpy(),
-            ctx.ledger.trial_stats(),
-            ctx.ledger.total_portfolio_variants(),
-            portfolio.periods_per_year,
+            portfolio.returns.to_numpy(), stats, n_variants, portfolio.periods_per_year
         )
-        counts = n_breakdown(ctx.ledger, ctx.ledger.total_portfolio_variants())
-        reason = f"{dsr_counts(report, counts)}; min {dsr_min:g} (at N_eff)"
+        sensitivity, note = unmeasured_sensitivity(
+            ctx.ledger, portfolio.returns.to_numpy(), stats, n_variants,
+            portfolio.periods_per_year,
+        )  # fmt: skip
+        counts = n_breakdown(ctx.ledger, n_variants)
+        reason = f"{dsr_counts(report, counts)}; min {dsr_min:g} (at N_eff){note}"
         return GateResult(
             passed=report.dsr_n_eff >= dsr_min,
             gate=self.id,
@@ -138,6 +167,6 @@ class DsrGate:
                 "sr_benchmark_n_raw": report.sr_benchmark_n_raw,
                 "sr": report.moments.sr, "skew": report.moments.skew,
                 "kurtosis": report.moments.kurtosis, "n_obs": report.moments.n_obs,
-                "clustering_run": clustering.run_id, **counts,
+                "clustering_run": clustering.run_id, **counts, **sensitivity,
             },
         )  # fmt: skip

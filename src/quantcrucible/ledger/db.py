@@ -254,6 +254,15 @@ class Ledger:
             raise LedgerError(str(e)) from e
         return int(run or 0)
 
+    def unmeasured_attempts(self) -> int:
+        """Gate-③ runs that measured nothing (no trial row), every campaign — not trials (§4.1,
+        ADR-0022); counted only for the sensitivity check next to DSR."""
+        (n,) = self._conn.execute(
+            "SELECT COUNT(*) FROM gate_results WHERE gate = 'g3_is' AND passed = 0"
+            " AND trial_id IS NULL"
+        ).fetchone()
+        return int(n)
+
     def latest_clustering(self) -> tuple[int, int] | None:
         """(trials covered, distinct clusters) of the latest N_eff clustering run."""
         row = self._conn.execute(
