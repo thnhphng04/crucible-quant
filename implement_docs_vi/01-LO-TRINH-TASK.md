@@ -255,9 +255,9 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** ngắt giữa chừng không để lại container `qc-sandbox` nào (test docker); không lỗi khóa ledger với K slot; thông lượng đo được ghi trong một ADR; O14 được đóng hoặc thu hẹp. Xong: `agent/pipeline.py` (luồng điều phối + `workers` slot, mỗi slot một kết nối ledger — SQLite tuần tự hóa các lượt ghi), `SandboxRunner(label=…).kill_all()`, cửa sổ bar và sổ sách tầng Risk rẻ hơn (equity trùng từng bit, nhanh hơn ~40%); [ADR-0025](adr/0025-thong-luong-danh-gia-va-chay-dong-thoi.md).
 - **Cần:** P2-06.
 
-### ☐ P2-09 CLI `evolve` + e2e cho C-random
+### ✅ P2-09 CLI `evolve` + e2e cho C-random
 - **File:** `cli.py`, `tests/e2e/test_phase2_random.py`.
-- **Nghiệm thu khi:** trên dữ liệu tổng hợp với ledger tạm, mọi ứng viên có dòng trong ledger, run dừng đúng ở hạn mức trial, feature map có nhiều hơn một ô.
+- **Nghiệm thu khi:** trên dữ liệu tổng hợp với ledger tạm, mọi ứng viên có dòng trong ledger, run dừng đúng ở hạn mức trial, feature map có nhiều hơn một ô. Xong: `agent/run.py::evolve` (hạn mức lấy từ ngân sách đã khóa của campaign, scheduler khởi đầu từ ledger, C-random phát lại chuỗi theo seed khi chạy tiếp), `cli evolve --engine random [--workers N]`; e2e còn kiểm tra lần chạy thứ hai không thêm gì.
 - **Cần:** P2-05, P2-06, P2-07, P2-08.
 
 ### ☐ P2-10 Độ ổn định tham số ở cổng ④ (trung vị SPP, plateau)

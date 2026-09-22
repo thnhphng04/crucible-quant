@@ -255,9 +255,9 @@ No agent code in this phase (P1).
 - **Accept when:** an interrupt leaves no `qc-sandbox` container (docker test); no ledger lock errors under K slots; measured throughput recorded in an ADR; O14 closed or narrowed. Done: `agent/pipeline.py` (orchestrating thread + `workers` slots, each with its own ledger connection — SQLite serializes the writes), `SandboxRunner(label=…).kill_all()`, cheaper bar windows and Risk-layer bookkeeping (bit-identical equity, ~40% faster); [ADR-0025](adr/0025-evaluation-throughput-and-concurrency.md).
 - **Needs:** P2-06.
 
-### ☐ P2-09 CLI `evolve` + e2e for C-random
+### ✅ P2-09 CLI `evolve` + e2e for C-random
 - **Files:** `cli.py`, `tests/e2e/test_phase2_random.py`.
-- **Accept when:** on synthetic data with a temp ledger, every candidate has ledger rows, the run stops exactly at its trial quota, and the feature map has more than one occupied cell.
+- **Accept when:** on synthetic data with a temp ledger, every candidate has ledger rows, the run stops exactly at its trial quota, and the feature map has more than one occupied cell. Done: `agent/run.py::evolve` (quotas from the campaign's locked budget, scheduler started from the ledger, C-random replays its seeded sequence on resume), `cli evolve --engine random [--workers N]`; the e2e also checks that a second run adds nothing.
 - **Needs:** P2-05, P2-06, P2-07, P2-08.
 
 ### ☐ P2-10 Parameter stability at gate ④ (SPP median, plateau)

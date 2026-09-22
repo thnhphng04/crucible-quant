@@ -72,7 +72,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 
 | ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-60 | Every engine candidate is evaluated through `submit` → `GatePipeline`; no engine reaches the backtester directly | P2, §3.1.11 | Lint (agent may not import execution/sandbox) + Code | `lint-imports`, `tests/e2e/test_phase2_random.py::test_every_candidate_has_ledger_rows` | P2-09 | ☐ |
+| INV-60 | Every engine candidate is evaluated through `submit` → `GatePipeline`; no engine reaches the backtester directly | P2, §3.1.11 | Lint (agent may not import execution/sandbox) + Code | `lint-imports`, `tests/e2e/test_phase2_random.py::test_every_candidate_has_ledger_rows` | P2-09 | ✅ |
 | INV-61 | The trial quota of each (engine, seed) is never exceeded | §3.1.11 | Code | `tests/agent/test_scheduler.py::test_quota_never_exceeded_concurrently`, `::test_existing_trials_count_against_the_quota` | P2-06 | ✅ |
 | INV-62 | A harness-test campaign is never frozen, so it never claims or opens a holdout | §3.1.11, P6 | DB (`campaign_purposes` + trigger) | `tests/validation/test_run.py::test_harness_test_campaign_cannot_freeze`, `tests/ledger/test_db.py::test_harness_test_campaign_is_never_frozen` | P2-06 | ✅ |
 | INV-63 | Feature-map bin bounds come only from the campaign lock | §3.1.3 | Code | `tests/agent/evolution/test_feature_map.py::test_bounds_only_from_lock`, `::test_out_of_range_lands_in_the_edge_bin` | P2-07 | ✅ |

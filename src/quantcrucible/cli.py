@@ -6,6 +6,7 @@
     uv run python -m quantcrucible.cli portfolio [--calibrate]   build + gates ⑤ → ⑥′ (5b)
     uv run python -m quantcrucible.cli freeze HASH    freeze the campaign on that portfolio
     uv run python -m quantcrucible.cli campaign-abandon --reason TEXT   OPEN → ABANDONED
+    uv run python -m quantcrucible.cli evolve --engine random [--workers 8]   engine C (P2-09)
 
 The holdout is opened only by its own process (quantcrucible.holdout.evaluator_proc).
 
@@ -107,7 +108,7 @@ def holdout_reharden(root: Path) -> int:
     return 0
 
 
-def _session(config: Path, root: Path) -> ResearchSession:
+def _session(config: Path, root: Path, label: str = "default") -> ResearchSession:
     """The open campaign (verified against config/user.yaml, or a new one) and its IS data."""
     from quantcrucible.config.lock import read_lock
     from quantcrucible.data.store import ResearchStore, parse_range
@@ -134,7 +135,7 @@ def _session(config: Path, root: Path) -> ResearchSession:
     return ResearchSession(
         ledger=ledger, lock=lock, campaign_id=campaign_id,
         is_data={s: store.bars(s, data.timeframe) for s in data.symbols},
-        sandbox=SandboxRunner(ensure_image(root)), results_dir=root / "results",
+        sandbox=SandboxRunner(ensure_image(root), label=label), results_dir=root / "results",
         second_is_data=second,
     )  # fmt: skip
 
@@ -280,6 +281,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     aband.add_argument("--reason", required=True)
     aband.add_argument("--root", type=Path, default=Path("."))
+    evo = sub.add_parser("evolve", help="run engine C on the campaign until its quotas are used")
+    evo.add_argument("--engine", action="append", choices=["random", "gp"], required=True)
+    evo.add_argument("--workers", type=int, default=8)
+    evo.add_argument("--config", type=Path, default=Path("config/user.yaml"))
+    evo.add_argument("--root", type=Path, default=Path("."))
     args = parser.parse_args(argv)
     try:
         return _dispatch(args)
@@ -303,7 +309,35 @@ def _dispatch(args: argparse.Namespace) -> int:
         return freeze(args.portfolio_hash, args.root)
     if args.command == "campaign-abandon":
         return campaign_abandon(args.reason, args.root)
+    if args.command == "evolve":
+        return evolve(args.engine, args.workers, args.config, args.root)
     return 2
+
+
+def evolve(engines: Sequence[str], workers: int, config: Path, root: Path) -> int:
+    """Engine C on the open campaign; resumes from the ledger if called again."""
+    from quantcrucible.agent.run import EvolveError
+    from quantcrucible.agent.run import evolve as run_evolve
+
+    label = "run-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    session = _session(config, root, label)
+    try:
+        stats = run_evolve(session, engines, workers=workers, run_label=label)
+    except EvolveError as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+    summary = {
+        f"{e}-s{s}": {
+            "proposed": stats.proposed.get((e, s), 0),
+            "trials": stats.trials.get((e, s), 0),
+            "passed": stats.passed.get((e, s), 0),
+            "starved": (e, s) in stats.starved,
+        }
+        for (e, s) in sorted(set(stats.proposed) | set(stats.trials))
+    }
+    report = {"campaign": session.campaign_id, "run": label, **summary}
+    sys.stdout.write(json.dumps(report, indent=1) + "\n")
+    return 0
 
 
 if __name__ == "__main__":

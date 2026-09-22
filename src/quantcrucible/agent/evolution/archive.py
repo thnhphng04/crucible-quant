@@ -121,3 +121,21 @@ def coverage(archives: Iterable[Archive]) -> int:
     for a in archives:
         cells |= a.cells()
     return len(cells)
+
+
+def trial_cells(
+    ledger: Ledger, campaign_id: str, engine: str, seed: int, fmap: FeatureMap
+) -> dict[str, Cell]:
+    """candidate_id → cell for every measured trial of one (engine, seed), eligible or not —
+    where an engine's search went, as opposed to what its archive kept (diagnostics)."""
+    g3 = ledger.latest_gate_results(campaign_id, G3_IS)
+    tags: dict[str, Mapping[str, Any]] = {}
+    for _event, _island, detail in ledger.events_for(campaign_id, engine=engine, seed=seed):
+        if detail and "descriptors" in detail:
+            tags[str(detail["candidate_id"])] = detail["descriptors"]
+    out: dict[str, Cell] = {}
+    for t in ledger.trials(campaign_id, engine=engine, seed=seed):
+        public = g3.get(t.candidate_id, (False, {}))[1].get("public", {})
+        cats = tuple(tags.get(t.candidate_id, {}).get("categories", ()))
+        out[t.candidate_id] = fmap.cell(descriptors(public, _years(t.timerange)), cats)
+    return out
