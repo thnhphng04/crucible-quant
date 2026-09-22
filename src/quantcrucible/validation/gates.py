@@ -84,6 +84,7 @@ class StrategyCandidate:
     island: str | None = None
     parents: tuple[str, ...] = ()  # strategy_hash of each parent (engine C-gp)
     mutation: str | None = None  # how this candidate was bred (engine C-gp), None if sampled
+    descriptors: Mapping[str, Any] | None = None  # e.g. {"categories": [...]} for the feature map
 
     @property
     def strategy_hash(self) -> str:
@@ -161,6 +162,8 @@ class GatePipeline:
         lineage: dict[str, Any] = {}
         if c.parents or c.mutation:
             lineage = {"parents": list(c.parents), "mutation": c.mutation}
+        if c.descriptors:
+            lineage["descriptors"] = dict(c.descriptors)
         ledger.log_event(self._event(c, Event.CANDIDATE_SUBMITTED, s_hash, lineage))
         results: list[GateResult] = []
         trial_id: int | None = None

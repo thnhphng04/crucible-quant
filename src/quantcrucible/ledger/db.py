@@ -430,13 +430,13 @@ class Ledger:
         rows = self._conn.execute(
             "SELECT id, campaign_id, candidate_id, engine, strategy_hash, params, universe,"
             " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id, seed,"
-            f" island FROM trials{where} ORDER BY id",
+            f" island, timerange FROM trials{where} ORDER BY id",
             args,
         )
         return [
             TrialRow(
                 int(r[0]), r[1], r[2], r[3], r[4], json.loads(r[5]), r[6], r[7], r[8],
-                float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15],
+                float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15], r[16],
             )
             for r in rows
         ]  # fmt: skip
@@ -488,6 +488,17 @@ class Ledger:
             (candidate_id, gate),
         )
         return [json.loads(r[0]) if r[0] else {} for r in rows]
+
+    def latest_gate_results(
+        self, campaign_id: str, gate: str
+    ) -> dict[str, tuple[bool, dict[str, Any]]]:
+        """candidate_id → (passed, detail) of its latest result at ``gate`` in one campaign."""
+        rows = self._conn.execute(
+            "SELECT candidate_id, passed, detail FROM gate_results WHERE campaign_id = ?"
+            " AND gate = ? ORDER BY id",
+            (campaign_id, gate),
+        )
+        return {r[0]: (bool(r[1]), json.loads(r[2]) if r[2] else {}) for r in rows}
 
     def passed_gate(self, campaign_id: str, gate: str) -> set[str]:
         """Candidate ids whose latest result at ``gate`` in ``campaign_id`` is a pass."""

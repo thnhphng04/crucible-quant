@@ -279,3 +279,21 @@ def test_base_currency_precision_below_the_size_precision() -> None:
     sells = [f.qty for f in res.fills if f.side == "SELL"]
     assert buys and sum(buys) == pytest.approx(sum(sells), abs=1e-12)  # flat again
     assert all(round(q, 6) == q for q in buys + sells)  # XRP's own 6 decimals
+
+
+def test_sortino_uses_downside_deviation() -> None:
+    import math
+
+    import numpy as np
+
+    from quantcrucible.execution.engine import BacktestResult
+
+    r = np.array([0.02, -0.01, 0.03, -0.02])
+    res = BacktestResult(
+        ts=np.array([], dtype="datetime64[ns]"), equity=np.array([1.0, 1.02]), returns=r,
+        fills=(), n_trades=0, avg_holding_bars=0.0, turnover=0.0, signals={}, denied_orders=0,
+        periods_per_year=365.0,
+    )  # fmt: skip
+    downside = math.sqrt((0.01**2 + 0.02**2) / 4)
+    assert res.sortino == pytest.approx(np.mean(r) / downside * math.sqrt(365.0))
+    assert "sortino_is" in res.public_metrics()

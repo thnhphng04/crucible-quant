@@ -45,6 +45,19 @@ from quantcrucible.validation.sandbox import SandboxRunner
 from quantcrucible.validation.statistical import max_trials_within
 
 DEFAULT_LOOKBACK = 400
+# Engine C's feature map (arch §3.1.3, P2-07): bounds fixed when a campaign opens, never
+# stretched by observed values. Provisional ranges for daily crypto; categories = the grammar's.
+FEATURE_MAP: dict[str, Any] = {
+    "bins": 16,
+    "bounds": {
+        "trades_per_year": [0.0, 150.0],
+        "max_drawdown": [0.0, 1.0],
+        "sharpe_is": [-1.0, 3.0],
+        "sortino_is": [-1.5, 4.5],
+        "total_return": [-1.0, 4.0],
+    },
+    "categories": ["trend", "momentum", "mean_reversion", "breakout"],
+}
 MAX_LEVERAGE = 1.0  # spot, cash account: gross exposure never above equity (ADR-0010)
 
 
@@ -69,6 +82,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "sizing": {"vol_span": VOL_SPAN, "max_leverage": MAX_LEVERAGE, "idm_cap": IDM_CAP},
         "pbo": {"n_splits": DEFAULT_SPLITS},
         "robustness": {"cost_multiplier": COST_MULTIPLIER, "max_sharpe_drop": MAX_SHARPE_DROP},
+        "feature_map": FEATURE_MAP,
     }
 
 
@@ -137,6 +151,7 @@ class Provenance:
     cell_id: str | None = None
     parents: tuple[str, ...] = ()
     mutation: str | None = None
+    descriptors: Mapping[str, Any] | None = None
     agent: str = "engine"
     model_used: str = "none"
     trial_source: TrialSource = "evolution"
@@ -172,7 +187,8 @@ def make_candidate(
     p = provenance
     return replace(
         candidate, run_id=p.run_id, engine=p.engine, seed=p.seed, island=p.island,
-        cell_id=p.cell_id, parents=p.parents, mutation=p.mutation, agent=p.agent,
+        cell_id=p.cell_id, parents=p.parents, mutation=p.mutation, descriptors=p.descriptors,
+        agent=p.agent,
         model_used=p.model_used, trial_source=p.trial_source,
     )  # fmt: skip
 

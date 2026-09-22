@@ -149,7 +149,12 @@ class InSampleGate:
             gate=self.id,
             value=sharpe,
             reason="; ".join(problems) or summary,
-            detail={"indicator_corr": corr, "denied_orders": out["denied_orders"]},
+            # `public` (IS-only, §3.3.2) is kept so an engine's archive rebuilds from the ledger
+            detail={
+                "indicator_corr": corr,
+                "denied_orders": out["denied_orders"],
+                "public": public,
+            },
             report=EvaluationReport.build(public=public),
             measurement=TrialMeasurement(sharpe, str(path)),
         )

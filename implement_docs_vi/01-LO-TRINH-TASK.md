@@ -241,11 +241,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** hạn mức theo (engine, seed) không bao giờ bị vượt khi nhiều worker chạy đồng thời; campaign `harness_test` không đóng băng được, nên không bao giờ claim được holdout (vẫn được dựng danh mục: phép so sánh §3.1.11 cần DSR danh mục của từng engine); mở campaign mà `trial_budget` cộng `N` của ledger vượt mức MinBTL cho phép với độ dài IS thì bị từ chối. Xong: `agent/scheduler.py` (hạn mức chia theo tỷ lệ engine rồi theo seed, mỗi lượt giữ chỗ được chốt là trial / không phải trial), schema ledger v6 `campaign_purposes` với trigger từ chối FROZEN cho campaign thử harness, `validation/run.py::_check_trial_budget`.
 - **Cần:** P2-02, P2-03.
 
-### ☐ P2-07 Feature map biên cố định + archive riêng từng engine
+### ✅ P2-07 Feature map biên cố định + archive riêng từng engine
 - **Kiến trúc:** §3.1.3, §3.1.11.
 - **File:** `agent/evolution/feature_map.py`, `agent/evolution/archive.py`, `config/lock.py` (biên nằm trong `derived`).
 - **Chi tiết:** 6 chiều, 16 bin, biên khóa; category lấy từ phân loại AST của cây DSL; archive dựng lại từ ledger và kho source chiến lược; mỗi engine một archive.
-- **Nghiệm thu khi:** biên chỉ lấy từ lock; giá trị ngoài khoảng rơi vào bin biên; dựng lại từ ledger cho đúng archive; các engine không bao giờ dùng chung archive ở chế độ `isolated`.
+- **Nghiệm thu khi:** biên chỉ lấy từ lock; giá trị ngoài khoảng rơi vào bin biên; dựng lại từ ledger cho đúng archive; các engine không bao giờ dùng chung archive ở chế độ `isolated`. Xong: `agent/evolution/feature_map.py` (biên lấy từ `derived.feature_map`, mặc định ở `validation/run.py::FEATURE_MAP`), `agent/evolution/archive.py` (theo (engine, seed), dựng từ trials + kết quả cổng + lineage); cổng ③ giờ giữ metric `public` trong detail và báo thêm `sortino_is`; category lấy từ genome (`grammar.categories`), ghi thành `descriptors` lúc submit.
 - **Cần:** P2-03.
 
 ### ☐ P2-08 Pipeline bất đồng bộ, tắt an toàn, thông lượng cổng ④

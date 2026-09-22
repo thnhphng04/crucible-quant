@@ -241,11 +241,11 @@ No agent code in this phase (P1).
 - **Accept when:** quotas per (engine, seed) are never exceeded under concurrent workers; a `harness_test` campaign cannot freeze, so it can never claim a holdout (it may build portfolios: the §3.1.11 comparison needs each engine's portfolio DSR); opening a campaign whose `trial_budget` plus the ledger's `N` exceeds what MinBTL allows for the IS length is refused. Done: `agent/scheduler.py` (quotas by engine share then seed, reservations settled as trial / not a trial), ledger schema v6 `campaign_purposes` with a trigger refusing FROZEN for a harness-test campaign, `validation/run.py::_check_trial_budget`.
 - **Needs:** P2-02, P2-03.
 
-### ☐ P2-07 Feature map with fixed bounds + per-engine archive
+### ✅ P2-07 Feature map with fixed bounds + per-engine archive
 - **Arch:** §3.1.3, §3.1.11.
 - **Files:** `agent/evolution/feature_map.py`, `agent/evolution/archive.py`, `config/lock.py` (bounds in `derived`).
 - **Details:** 6 dimensions, 16 bins, bounds locked; the category comes from an AST classification of the DSL tree; the archive is rebuilt from the ledger and the strategy archive; one archive per engine.
-- **Accept when:** bounds come only from the lock; out-of-range values land in the edge bin; rebuilding from the ledger reproduces the archive; engines never share an archive in `isolated` mode.
+- **Accept when:** bounds come only from the lock; out-of-range values land in the edge bin; rebuilding from the ledger reproduces the archive; engines never share an archive in `isolated` mode. Done: `agent/evolution/feature_map.py` (bounds from `derived.feature_map`, defaults in `validation/run.py::FEATURE_MAP`), `agent/evolution/archive.py` (per (engine, seed), from trials + gate results + lineage); gate ③ now keeps its `public` metrics in its detail and reports `sortino_is`; categories come from the genome (`grammar.categories`), recorded as `descriptors` at submission.
 - **Needs:** P2-03.
 
 ### ☐ P2-08 Async pipeline, safe shutdown, gate-④ throughput

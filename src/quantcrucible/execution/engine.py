@@ -55,6 +55,15 @@ class BacktestResult:
         return float(np.mean(r) / np.std(r, ddof=1) * math.sqrt(self.periods_per_year))
 
     @property
+    def sortino(self) -> float:
+        """Annualized mean over downside deviation (target 0); 0 without any losing bar."""
+        r = self.returns
+        downside = float(np.sqrt(np.mean(np.minimum(r, 0.0) ** 2))) if len(r) else 0.0
+        if len(r) < 2 or downside == 0.0:
+            return 0.0
+        return float(np.mean(r) / downside * math.sqrt(self.periods_per_year))
+
+    @property
     def max_drawdown(self) -> float:
         peak = np.maximum.accumulate(self.equity)
         return float(np.max(1.0 - self.equity / peak)) if len(self.equity) else 0.0
@@ -66,6 +75,7 @@ class BacktestResult:
     def public_metrics(self) -> dict[str, float]:
         return {
             "sharpe_is": self.sharpe,
+            "sortino_is": self.sortino,
             "max_drawdown": self.max_drawdown,
             "total_return": self.total_return,
             "n_trades": float(self.n_trades),

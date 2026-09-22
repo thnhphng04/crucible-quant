@@ -125,6 +125,7 @@ class TrialRow:
     cell_id: str | None
     seed: int = 0
     island: str | None = None
+    timerange: str = ""
 
 
 @dataclass(frozen=True, slots=True)

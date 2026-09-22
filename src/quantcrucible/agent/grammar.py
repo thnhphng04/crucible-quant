@@ -395,3 +395,27 @@ def render_genome(genome: Genome) -> tuple[str, dict[str, float | int]]:
     r = _Renderer(genome)
     body = r.body()
     return render(canonical_template(), {"joint": body}), r.params()
+
+
+# ── behavioural category (feature-map dimension, arch §3.1.3) ─────────────────────────────
+CATEGORIES = ("trend", "momentum", "mean_reversion", "breakout")
+
+
+def _clause_category(c: Clause) -> str:
+    if isinstance(c, Compare | Cross):
+        return "trend"
+    if isinstance(c, Slope):
+        return "momentum" if isinstance(c.series, Indicator) and c.series.op in OSC_OPS else "trend"
+    if isinstance(c, Threshold):
+        return "momentum" if c.op == ">" else "mean_reversion"
+    if isinstance(c, CrossLevel):
+        return "momentum" if c.up else "mean_reversion"
+    if isinstance(c, Distance):
+        return "trend" if c.op == ">" else "mean_reversion"
+    return "breakout" if c.up else "mean_reversion"
+
+
+def categories(genome: Genome) -> tuple[str, ...]:
+    """The strategy categories a genome's clauses belong to, in ``CATEGORIES`` order."""
+    found = {_clause_category(c) for c in genome.clauses()}
+    return tuple(c for c in CATEGORIES if c in found)
