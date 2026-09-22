@@ -279,9 +279,9 @@ No agent code in this phase (P1).
 - **Accept when:** island integration test — the parent comes from the island being processed; migrants are not duplicated at the destination; a migrant's children belong to the destination; an empty island yields no children; each parent's island is logged. Done: `agent/evolution/islands.py` (N = C + 1 islands, ring migration of the top 10% as `MIGRATION` audit events, populations rebuilt from the ledger), `agent/evolution/sampling.py` (Eq. 1, α = 0.5; the crossover mate drawn the same way).
 - **Needs:** P2-07, P2-11.
 
-### ☐ P2-13 Engine C-gp + phase-2 e2e
+### ✅ P2-13 Engine C-gp + phase-2 e2e
 - **Files:** `agent/engines/gp_search.py`, `agent/loop.py`, `tests/e2e/test_phase2.py`.
-- **Accept when:** on synthetic data, ≥ 150 generations run unattended, every `s_new` is in the ledger, the feature map is not collapsed, the island test passes.
+- **Accept when:** on synthetic data, ≥ 150 generations run unattended, every `s_new` is in the ledger, the feature map is not collapsed, the island test passes. Done: `agent/engines/gp_search.py` (state rebuilt from the ledger at every proposal: entries, genomes recorded with each submission, migrations, ranking), wired into `agent/run.py` (no separate `loop.py`); `tests/agent/test_gp_loop.py` runs 150 generations × 5 islands through the real pipeline and ledger with deterministic fake gates; `tests/e2e/test_phase2.py` runs C-gp and C-random through the real gates in docker.
 - **Needs:** P2-09, P2-12.
 
 ### ☐ P2-14 Monitoring + early stop

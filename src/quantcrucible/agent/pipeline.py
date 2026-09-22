@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from quantcrucible.agent.engines.random_search import Proposal
-from quantcrucible.agent.grammar import categories, signature
+from quantcrucible.agent.grammar import categories, genome_to_dict, signature
 from quantcrucible.agent.scheduler import Key, TrialScheduler
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.research_run import ResearchSession, submit
@@ -154,6 +154,7 @@ def session_evaluator(session: ResearchSession, run_label: str) -> Evaluate:
             descriptors={
                 "categories": list(categories(proposal.genome)),
                 "signature": list(signature(proposal.genome)),
+                "genome": genome_to_dict(proposal.genome),
             },
         )  # fmt: skip
         out = submit(s, proposal.source, candidate_id, params=proposal.params,

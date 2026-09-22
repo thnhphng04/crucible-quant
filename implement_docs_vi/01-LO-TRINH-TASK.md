@@ -279,9 +279,9 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** test tích hợp đảo — cha lấy từ đúng đảo đang xử lý; migrant không bị nhân bản ở đảo đích; con của migrant thuộc đảo đích; đảo rỗng không sinh con; đảo của từng cha được ghi log. Xong: `agent/evolution/islands.py` (N = C + 1 đảo, di cư top 10% theo vòng dưới dạng event audit `MIGRATION`, quần thể dựng lại từ ledger), `agent/evolution/sampling.py` (Eq. 1, α = 0,5; bạn lai chọn theo cùng cách).
 - **Cần:** P2-07, P2-11.
 
-### ☐ P2-13 Engine C-gp + e2e giai đoạn 2
+### ✅ P2-13 Engine C-gp + e2e giai đoạn 2
 - **File:** `agent/engines/gp_search.py`, `agent/loop.py`, `tests/e2e/test_phase2.py`.
-- **Nghiệm thu khi:** trên dữ liệu tổng hợp, ≥ 150 thế hệ tự chạy, mọi `s_new` có trong ledger, feature map không sụp, test đảo đạt.
+- **Nghiệm thu khi:** trên dữ liệu tổng hợp, ≥ 150 thế hệ tự chạy, mọi `s_new` có trong ledger, feature map không sụp, test đảo đạt. Xong: `agent/engines/gp_search.py` (trạng thái dựng lại từ ledger ở mỗi đề xuất: entry, genome ghi cùng mỗi lần submit, di cư, xếp hạng), nối vào `agent/run.py` (không cần `loop.py` riêng); `tests/agent/test_gp_loop.py` chạy 150 thế hệ × 5 đảo qua pipeline và ledger thật với các cổng giả tất định; `tests/e2e/test_phase2.py` chạy C-gp và C-random qua các cổng thật trong docker.
 - **Cần:** P2-09, P2-12.
 
 ### ☐ P2-14 Giám sát + dừng sớm

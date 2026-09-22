@@ -399,9 +399,16 @@ def render_genome(genome: Genome) -> tuple[str, dict[str, float | int]]:
 
 # ── behavioural category (feature-map dimension, arch §3.1.3) ─────────────────────────────
 CATEGORIES = ("trend", "momentum", "mean_reversion", "breakout")
+# clause types able to express each category — an island seeded with a category samples these
+CATEGORY_CLAUSES: dict[str, tuple[type, ...]] = {
+    "trend": (Compare, Cross, Distance, Slope),
+    "momentum": (Threshold, CrossLevel, Slope),
+    "mean_reversion": (Threshold, CrossLevel, Distance, Breakout),
+    "breakout": (Breakout,),
+}
 
 
-def _clause_category(c: Clause) -> str:
+def clause_category(c: Clause) -> str:
     if isinstance(c, Compare | Cross):
         return "trend"
     if isinstance(c, Slope):
@@ -417,7 +424,7 @@ def _clause_category(c: Clause) -> str:
 
 def categories(genome: Genome) -> tuple[str, ...]:
     """The strategy categories a genome's clauses belong to, in ``CATEGORIES`` order."""
-    found = {_clause_category(c) for c in genome.clauses()}
+    found = {clause_category(c) for c in genome.clauses()}
     return tuple(c for c in CATEGORIES if c in found)
 
 
@@ -446,3 +453,36 @@ def signature(genome: Genome) -> tuple[str, ...]:
     """The genome's clauses without their numbers, sorted — two strategies with the same
     signature differ only in parameter values or clause order."""
     return tuple(sorted(_clause_sig(c) for c in genome.clauses()))
+
+
+# ── serialization: a genome is recorded with its submission (the ledger is the only state) ──
+_NODES: dict[str, type] = {
+    t.__name__: t for t in (Param, Close, Indicator, *CLAUSE_TYPES, Combine, Genome)
+}
+
+
+def genome_to_dict(node: object) -> object:
+    """JSON-safe form of a genome (or any node of one); parameter objects shared by two nodes
+    are written twice and read back as two equal parameters — rendering is unchanged."""
+    if isinstance(node, tuple):
+        return [genome_to_dict(x) for x in node]
+    if type(node).__name__ in _NODES and not isinstance(node, type):
+        fields = {f: genome_to_dict(getattr(node, f)) for f in node.__dataclass_fields__}  # type: ignore[attr-defined]
+        return {"t": type(node).__name__, **fields}
+    return node
+
+
+def genome_from_dict(data: object) -> object:
+    if isinstance(data, list):
+        return tuple(genome_from_dict(x) for x in data)
+    if isinstance(data, dict) and "t" in data:
+        cls = _NODES[str(data["t"])]
+        return cls(**{k: genome_from_dict(v) for k, v in data.items() if k != "t"})
+    return data
+
+
+def load_genome(data: object) -> Genome:
+    g = genome_from_dict(data)
+    if not isinstance(g, Genome):
+        raise ValueError("not a serialized genome")
+    return g

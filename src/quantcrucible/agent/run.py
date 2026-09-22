@@ -12,7 +12,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
+from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.pipeline import (
     DEFAULT_WORKERS,
     Engine,
@@ -22,10 +24,11 @@ from quantcrucible.agent.pipeline import (
 )
 from quantcrucible.agent.scheduler import Key, TrialScheduler, quotas
 from quantcrucible.ledger.records import Event
+from quantcrucible.validation.pbo_gate import periods_per_year
 from quantcrucible.validation.research_run import ResearchSession
 
 ENGINE_SEED_BASE = {"random": 1, "gp": 2}  # distinct RNG streams per engine for the same seed
-RUNNABLE = ("random",)  # C-gp joins in P2-13
+RUNNABLE = ("random", "gp")
 
 
 class EvolveError(RuntimeError):
@@ -42,8 +45,15 @@ def _submitted(session: ResearchSession, key: Key) -> int:
     return sum(1 for event, _island, _detail in events if event == Event.CANDIDATE_SUBMITTED)
 
 
-def _engine(session: ResearchSession, key: Key) -> Engine:
+def _engine(session: ResearchSession, key: Key, run_label: str) -> Engine:
     engine, seed = key
+    if engine == "gp":
+        gp_settings = session.lock["research"].get("gp", {})
+        return GpSearch(
+            session.ledger, session.campaign_id, seed, engine_seed(engine, seed),
+            FeatureMap.from_lock(session.lock), periods_per_year(session.timeframe),
+            float(gp_settings.get("param_only_max", 0.30)), f"{run_label}-{engine}-s{seed}",
+        )  # fmt: skip
     if engine == "random":
         e = RandomSearch(seed=engine_seed(engine, seed))
         for _ in range(_submitted(session, key)):  # resume: replay what was already submitted
@@ -83,7 +93,7 @@ def evolve(
     }
     label = run_label or "run-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     pipeline = Pipeline(
-        {k: _engine(session, k) for k in limits},
+        {k: _engine(session, k, label) for k in limits},
         TrialScheduler(limits, measured),
         session_evaluator(session, label),
         workers,
