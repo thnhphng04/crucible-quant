@@ -248,11 +248,11 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** biên chỉ lấy từ lock; giá trị ngoài khoảng rơi vào bin biên; dựng lại từ ledger cho đúng archive; các engine không bao giờ dùng chung archive ở chế độ `isolated`. Xong: `agent/evolution/feature_map.py` (biên lấy từ `derived.feature_map`, mặc định ở `validation/run.py::FEATURE_MAP`), `agent/evolution/archive.py` (theo (engine, seed), dựng từ trials + kết quả cổng + lineage); cổng ③ giờ giữ metric `public` trong detail và báo thêm `sortino_is`; category lấy từ genome (`grammar.categories`), ghi thành `descriptors` lúc submit.
 - **Cần:** P2-03.
 
-### ☐ P2-08 Pipeline bất đồng bộ, tắt an toàn, thông lượng cổng ④
+### ✅ P2-08 Pipeline bất đồng bộ, tắt an toàn, thông lượng cổng ④
 - **Kiến trúc:** §3.1.8, O9, O14, [ADR-0004](adr/0004-sandbox-docker.md).
 - **File:** `agent/pipeline.py`, `validation/sandbox.py`.
 - **Chi tiết:** mỗi (engine, seed) một producer → hàng đợi prefetch → K slot đánh giá gọi `submit`; một luồng ghi ledger duy nhất; container sandbox gắn nhãn theo run và bị kill khi ngắt; đo thông lượng cổng ④ rồi cải thiện (chạy job lưới song song hoặc worker sống lâu) mà không rời NautilusTrader (P5).
-- **Nghiệm thu khi:** ngắt giữa chừng không để lại container `qc-sandbox` nào (test docker); không lỗi khóa ledger với K slot; thông lượng đo được ghi trong một ADR; O14 được đóng hoặc thu hẹp.
+- **Nghiệm thu khi:** ngắt giữa chừng không để lại container `qc-sandbox` nào (test docker); không lỗi khóa ledger với K slot; thông lượng đo được ghi trong một ADR; O14 được đóng hoặc thu hẹp. Xong: `agent/pipeline.py` (luồng điều phối + `workers` slot, mỗi slot một kết nối ledger — SQLite tuần tự hóa các lượt ghi), `SandboxRunner(label=…).kill_all()`, cửa sổ bar và sổ sách tầng Risk rẻ hơn (equity trùng từng bit, nhanh hơn ~40%); [ADR-0025](adr/0025-thong-luong-danh-gia-va-chay-dong-thoi.md).
 - **Cần:** P2-06.
 
 ### ☐ P2-09 CLI `evolve` + e2e cho C-random

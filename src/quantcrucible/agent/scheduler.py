@@ -44,7 +44,7 @@ class TrialScheduler:
         self._in_flight = dict.fromkeys(self._limits, 0)
         self._lock = threading.Lock()
 
-    def keys(self) -> list[Key]:
+    def quota_keys(self) -> list[Key]:
         return list(self._limits)
 
     def remaining(self, engine: str, seed: int) -> int:

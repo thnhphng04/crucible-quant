@@ -75,8 +75,9 @@ def _json(value: Any) -> str | None:
 
 
 class Ledger:
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection, path: str = ":memory:") -> None:
         self._conn = conn
+        self.path = path  # a worker thread opens its own connection to the same ledger
 
     @classmethod
     def open(cls, path: Path | str) -> Self:
@@ -84,6 +85,7 @@ class Ledger:
         conn = sqlite3.connect(str(path), isolation_level=None)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA recursive_triggers = ON")  # defence in depth; v2 triggers suffice
+        conn.execute("PRAGMA busy_timeout = 30000")  # evaluation slots write concurrently (P2-08)
         if str(path) != ":memory:":
             conn.execute("PRAGMA journal_mode = WAL")
         version = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -97,7 +99,7 @@ class Ledger:
         if version > SCHEMA_VERSION:
             conn.close()
             raise LedgerError(f"ledger schema v{version}, code expects v{SCHEMA_VERSION}")
-        return cls(conn)
+        return cls(conn, str(path))
 
     def close(self) -> None:
         self._conn.close()

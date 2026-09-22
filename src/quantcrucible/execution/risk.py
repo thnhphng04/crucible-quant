@@ -43,14 +43,15 @@ class RiskSettings:
 
 
 def _period_key(ts: np.datetime64, rebalance: str) -> tuple[int, int]:
-    t = pd.Timestamp(ts)
     if rebalance == "weekly":
-        iso = t.isocalendar()
+        iso = pd.Timestamp(ts).isocalendar()
         return (int(iso[0]), int(iso[1]))
+    months = int(np.datetime64(ts, "M").astype(np.int64))  # months since 1970-01 (no pandas)
+    year, month0 = divmod(months, 12)
     if rebalance == "monthly":
-        return (t.year, t.month)
+        return (1970 + year, month0 + 1)
     if rebalance == "quarterly":
-        return (t.year, (t.month - 1) // 3)
+        return (1970 + year, month0 // 3)
     raise ValueError(f"unknown rebalance schedule {rebalance!r}")
 
 
@@ -71,7 +72,9 @@ class RiskSizer:
         self._lot_step = (
             dict(lot_step) if isinstance(lot_step, Mapping) else dict.fromkeys(symbols, lot_step)
         )  # per symbol: each base currency has its own precision
-        self._closes: dict[str, pd.Series] = {}
+        # per symbol: the latest window's (close times, closes); a Series is built only when
+        # the book is rebalanced, not on every bar (P2-08)
+        self._closes: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         self._notional: dict[str, float] = dict.fromkeys(self._symbols, 0.0)
         self._period: tuple[int, int] | None = None
         self.idm = 1.0
@@ -79,9 +82,7 @@ class RiskSizer:
 
     def target(self, symbol: str, signal: Signal, window: Bars, equity: float) -> float:
         price = float(window.close[-1])
-        self._closes[symbol] = pd.Series(
-            window.close, index=pd.DatetimeIndex(window.ts.astype("datetime64[ns]"))
-        )
+        self._closes[symbol] = (window.ts, window.close)
         key = _period_key(window.ts[-1], self.settings.rebalance)
         if key != self._period:
             self._period = key
@@ -103,7 +104,11 @@ class RiskSizer:
         return qty
 
     def _returns(self) -> pd.DataFrame:
-        frame = pd.concat(self._closes, axis=1).sort_index().iloc[-(CORR_WINDOW + 1) :]
+        series = {
+            s: pd.Series(close, index=pd.DatetimeIndex(ts.astype("datetime64[ns]")))
+            for s, (ts, close) in self._closes.items()
+        }
+        frame = pd.concat(series, axis=1).sort_index().iloc[-(CORR_WINDOW + 1) :]
         return frame.pct_change(fill_method=None).iloc[1:]
 
     def _rebalance(self, equity: float) -> None:

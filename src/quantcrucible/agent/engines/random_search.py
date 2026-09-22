@@ -24,6 +24,7 @@ class Proposal:
     params: dict[str, float | int]
     parents: tuple[str, ...] = ()
     mutation: str | None = None
+    island: str | None = None
 
 
 class RandomSearch:

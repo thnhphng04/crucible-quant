@@ -30,6 +30,7 @@ from quantcrucible.ledger.records import Event
 from quantcrucible.validation.gates import GateResult
 
 IMAGE_REPO = "quantcrucible-sandbox"
+RUN_LABEL = "quantcrucible.run"
 DOCKERFILE = Path("docker") / "sandbox.Dockerfile"
 MAX_REPORT_BYTES = 64 * 2**20
 TIMEOUT = "timeout"
@@ -151,11 +152,15 @@ class SandboxRunner:
         limits: SandboxLimits | None = None,
         docker: str = "docker",
         work_root: Path | None = None,
+        label: str = "default",
     ) -> None:
         self.image = image
         self.limits = limits or SandboxLimits()
         self.docker = docker
         self.work_root = work_root or Path(tempfile.gettempdir()) / "quantcrucible-sandbox"
+        self.label = label  # every container of this runner carries it (kill_all, INV-69)
+        self._active: set[str] = set()
+        self._active_lock = threading.Lock()
 
     # ── host-side staging ────────────────────────────────────────────────
     def prepare(self, job: SandboxJob, job_dir: Path) -> None:
@@ -193,6 +198,7 @@ class SandboxRunner:
             "--ipc", "none",
             "-v", f"{(job_dir / 'in').resolve()}:/job/in:ro",
             "-v", f"{(job_dir / 'out').resolve()}:/job/out:rw",
+            "--label", f"{RUN_LABEL}={self.label}",
         ]  # fmt: skip
         if sys.platform != "win32":  # Linux host: run as the owner of the job folders
             cmd += ["--user", f"{os.getuid()}:{os.getgid()}"]
@@ -203,11 +209,29 @@ class SandboxRunner:
         self.work_root.mkdir(parents=True, exist_ok=True)
         job_dir = Path(tempfile.mkdtemp(prefix="job-", dir=self.work_root))
         name = f"qc-sandbox-{uuid.uuid4().hex[:12]}"
+        with self._active_lock:
+            self._active.add(name)
         try:
             self.prepare(job, job_dir)
             return self._run_container(name, job_dir, job.timeout_s or self.limits.timeout_s)
         finally:
+            with self._active_lock:
+                self._active.discard(name)
             shutil.rmtree(job_dir, ignore_errors=True)
+
+    def kill_all(self) -> int:
+        """Kill every container of this runner — the ones it started and any other carrying its
+        label (an interrupted host process does not stop Docker Desktop's containers)."""
+        with self._active_lock:
+            names = set(self._active)
+        listed = subprocess.run(
+            [self.docker, "ps", "-q", "--filter", f"label={RUN_LABEL}={self.label}"],
+            capture_output=True, text=True, check=False,
+        )  # fmt: skip
+        targets = sorted(names | set(listed.stdout.split()))
+        if targets:
+            subprocess.run([self.docker, "kill", *targets], capture_output=True, check=False)
+        return len(targets)
 
     def _run_container(self, name: str, job_dir: Path, timeout_s: float) -> SandboxResult:
         lim = self.limits

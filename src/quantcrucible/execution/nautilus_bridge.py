@@ -223,9 +223,11 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
         self._sizer = sizer
         self._lookback = lookback
         self._record = log
-        self._history: dict[str, list[tuple[int, float, float, float, float, float]]] = {
-            s: [] for s in instruments
-        }
+        # per symbol: OHLCV rows and close times (ns) in growing buffers; a bar's window is a
+        # view of the last `lookback` rows — no copy per bar (P2-08, O14)
+        self._history: dict[str, np.ndarray] = {s: np.empty((1024, 5)) for s in instruments}
+        self._ts: dict[str, np.ndarray] = {s: np.empty(1024, dtype=np.int64) for s in instruments}
+        self._n: dict[str, int] = dict.fromkeys(instruments, 0)
         self._last_close: dict[str, float] = {}
 
     def _equity(self) -> float:
@@ -244,21 +246,30 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
             self.subscribe_bars(bt)
 
     def _window(self, symbol: str) -> Bars:
-        rows = self._history[symbol][-self._lookback :]
-        arr = np.array(rows, dtype=np.float64)
-        ts = np.array([r[0] for r in rows], dtype=np.int64).astype("datetime64[ns]")
+        n = self._n[symbol]
+        arr = self._history[symbol][max(0, n - self._lookback) : n]
+        ts = self._ts[symbol][max(0, n - self._lookback) : n].view("datetime64[ns]")
         return Bars(
             symbol, self._timeframe, ts,
-            arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4], arr[:, 5],
+            arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4],
         )  # fmt: skip
+
+    def _append(self, symbol: str, ts: int, row: tuple[float, ...]) -> None:
+        n = self._n[symbol]
+        if n == len(self._ts[symbol]):  # grow ×2; earlier windows keep their own (old) arrays
+            self._history[symbol] = np.concatenate((self._history[symbol], np.empty((n, 5))))
+            self._ts[symbol] = np.concatenate((self._ts[symbol], np.empty(n, dtype=np.int64)))
+        self._history[symbol][n] = row
+        self._ts[symbol][n] = ts
+        self._n[symbol] = n + 1
 
     def on_bar(self, bar: Bar) -> None:
         symbol = self._by_type[str(bar.bar_type)]
         self._record.bars_seen += 1
         close = float(bar.close)
-        self._history[symbol].append(
-            (bar.ts_event, float(bar.open), float(bar.high), float(bar.low), close,
-             float(bar.volume))
+        self._append(
+            symbol, int(bar.ts_event),
+            (float(bar.open), float(bar.high), float(bar.low), close, float(bar.volume)),
         )  # fmt: skip
         self._last_close[symbol] = close
         window = self._window(symbol)

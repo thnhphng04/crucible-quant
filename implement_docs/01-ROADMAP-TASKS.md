@@ -248,11 +248,11 @@ No agent code in this phase (P1).
 - **Accept when:** bounds come only from the lock; out-of-range values land in the edge bin; rebuilding from the ledger reproduces the archive; engines never share an archive in `isolated` mode. Done: `agent/evolution/feature_map.py` (bounds from `derived.feature_map`, defaults in `validation/run.py::FEATURE_MAP`), `agent/evolution/archive.py` (per (engine, seed), from trials + gate results + lineage); gate ③ now keeps its `public` metrics in its detail and reports `sortino_is`; categories come from the genome (`grammar.categories`), recorded as `descriptors` at submission.
 - **Needs:** P2-03.
 
-### ☐ P2-08 Async pipeline, safe shutdown, gate-④ throughput
+### ✅ P2-08 Async pipeline, safe shutdown, gate-④ throughput
 - **Arch:** §3.1.8, O9, O14, [ADR-0004](adr/0004-docker-sandbox.md).
 - **Files:** `agent/pipeline.py`, `validation/sandbox.py`.
 - **Details:** one producer per (engine, seed) → prefetch queue → K evaluation slots calling `submit`; a single ledger writer; sandbox containers labelled per run and killed on interrupt; gate-④ throughput measured, then improved (parallel grid jobs or a long-lived worker) without leaving NautilusTrader (P5).
-- **Accept when:** an interrupt leaves no `qc-sandbox` container (docker test); no ledger lock errors under K slots; measured throughput recorded in an ADR; O14 closed or narrowed.
+- **Accept when:** an interrupt leaves no `qc-sandbox` container (docker test); no ledger lock errors under K slots; measured throughput recorded in an ADR; O14 closed or narrowed. Done: `agent/pipeline.py` (orchestrating thread + `workers` slots, each with its own ledger connection — SQLite serializes the writes), `SandboxRunner(label=…).kill_all()`, cheaper bar windows and Risk-layer bookkeeping (bit-identical equity, ~40% faster); [ADR-0025](adr/0025-evaluation-throughput-and-concurrency.md).
 - **Needs:** P2-06.
 
 ### ☐ P2-09 CLI `evolve` + e2e for C-random
