@@ -29,6 +29,8 @@ TABLES = [
     "holdout_access",
     "holdout_claims",
     "campaign_abandonments",
+    "calibration_runs",
+    "calibration_finishes",
 ]
 
 
@@ -74,6 +76,8 @@ def _populate_every_table(lg: Ledger) -> None:
         PortfolioVariant(portfolio_hash="p1", campaign_id="c1", rule_config={"k": 20},
                          members=[{"h": "x", "w": 1.0}])
     )  # fmt: skip
+    lg.start_calibration("c1", "cand", "h-cand", 5)
+    lg.finish_calibration("c1", "cand", "finished", 5, 5, 0)
     lg.transition("c1", "FROZEN")
     now = datetime.now(UTC)
     lg.claim_holdout("c1", "p1", "2025-09-21/2026-09-21", "hl")
@@ -371,3 +375,78 @@ def test_only_an_open_campaign_can_be_abandoned(ledger: Ledger) -> None:
     ledger.transition("c1", "FROZEN")
     with pytest.raises(LedgerError, match="OPEN"):
         ledger.abandon_campaign("c1", "too late: frozen")
+
+
+def test_calibration_runs_once_per_strategy(ledger: Ledger) -> None:
+    """ADR-0017 amendment 2: one run per candidate and per strategy code in a campaign; the
+    finish never claims more attempts than the registered budget; only while OPEN."""
+    ledger.start_calibration("c1", "a", "h1", 3)
+    with pytest.raises(LedgerError, match="already calibrated"):
+        ledger.start_calibration("c1", "a", "h1", 3)
+    with pytest.raises(LedgerError, match="already calibrated"):
+        ledger.start_calibration("c1", "b", "h1", 3)  # same code, other id
+    with pytest.raises(LedgerError, match="budget"):
+        ledger.finish_calibration("c1", "a", "finished", 4, 4, 0)
+    ledger.finish_calibration("c1", "a", "finished", 3, 2, 1)
+    run = ledger.calibration_run("c1", strategy_hash="h1")
+    assert run is not None and (run.candidate_id, run.budget, run.outcome) == ("a", 3, "finished")
+    ledger.transition("c1", "FROZEN")
+    with pytest.raises(LedgerError, match="OPEN"):
+        ledger.start_calibration("c1", "c", "h2", 3)
+
+
+def _as_v3(ledger_path: Path) -> None:
+    raw = sqlite3.connect(ledger_path, isolation_level=None)
+    for t in ("calibration_finishes", "calibration_runs"):
+        for trig in [r[0] for r in raw.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?", (t,)
+        )]:  # fmt: skip
+            raw.execute(f"DROP TRIGGER {trig}")
+        raw.execute(f"DROP TABLE {t}")
+    raw.execute("PRAGMA user_version = 3")  # what a v3 ledger looked like
+    raw.close()
+
+
+def test_v3_calibrations_are_carried_over(ledger: Ledger, ledger_path: Path) -> None:
+    """A run finished before v4 is known from its audit event: it cannot run a second time."""
+    ledger.log_event(_event(Event.CALIBRATION_FINISHED, strategy_hash="h1",
+                            detail={"candidate_id": "a", "attempts": 50, "trials": 47,
+                                    "errors": 3, "log": []}))  # fmt: skip
+    ledger.close()
+    _as_v3(ledger_path)
+    lg = Ledger.open(ledger_path)
+    run = lg.calibration_run("c1", "a")
+    assert run is not None and (run.budget, run.outcome, run.attempts) == (50, "finished", 50)
+    with pytest.raises(LedgerError, match="already calibrated"):
+        lg.start_calibration("c1", "a", "h1", 50)
+
+
+def test_older_calibrations_are_carried_over_from_their_rows(
+    ledger: Ledger, ledger_path: Path
+) -> None:
+    """Runs from before the audit event existed (the first real campaign): 3 attempts, 2
+    measured + 1 error, then the confirmation — all under run 'calib-a'."""
+
+    def calib(sharpe: float, candidate: str) -> TrialRecord:
+        return dataclasses.replace(
+            _trial(sharpe, candidate), run_id="calib-a", source="param_opt", strategy_hash="h-a"
+        )
+
+    for i, measured in enumerate([True, False, True]):
+        tid = ledger.record_trial(calib(0.5, f"a-opt{i:03d}")) if measured else None
+        ledger.record_gate_result(
+            GateResultRecord(campaign_id="c1", candidate_id=f"a-opt{i:03d}", gate="g3_is",
+                             passed=measured, reason="x", trial_id=tid)
+        )  # fmt: skip
+    ledger.record_trial(calib(0.6, "a"))  # the confirmation
+    ledger.close()
+    _as_v3(ledger_path)
+    lg = Ledger.open(ledger_path)
+    run = lg.calibration_run("c1", "a")
+    assert run is not None and (run.strategy_hash, run.budget, run.outcome) == (
+        "h-a",
+        3,
+        "finished",
+    )
+    with pytest.raises(LedgerError, match="already calibrated"):
+        lg.start_calibration("c1", "other-id", "h-a", 3)

@@ -11,7 +11,11 @@ import pytest
 
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
-from quantcrucible.validation.calibration import CalibrationError, calibrate
+from quantcrucible.validation.calibration import (
+    CalibrationError,
+    CalibrationRefused,
+    calibrate,
+)
 from quantcrucible.validation.gates import G3_IS, G4_PBO, GateContext, GatePipeline, GateResult
 from quantcrucible.validation.is_gates import InSampleGate
 from quantcrucible.validation.pbo_gate import PboGate
@@ -179,4 +183,83 @@ def test_an_error_after_output_is_not_silently_exempt(ledger: Ledger, tmp_path: 
         calibrate(cand(), c, budget=5, full_pipeline=FULL, measure=GatePipeline([LeakyFailure()]))
     (event,) = [d for e, d in ledger.event_details("c1") if e == Event.CALIBRATION_FINISHED]
     assert event is not None and event["log"][0]["outcome"] == "error_after_output"
+    assert ledger.trials("c1") == []
+
+
+# ── once per strategy per campaign, fixed budget (review 2, ADR-0017 amendment 2) ──────────
+def test_a_second_calibration_is_refused(ledger: Ledger, tmp_path: Path) -> None:
+    """The reviewer's case: budget 1 twice gave N_raw 2 → 4 and reused `x-opt000`."""
+    c = ctx(ledger, tmp_path, Runner())
+    calibrate(cand(), c, budget=1, full_pipeline=FULL)
+    assert ledger.trial_stats().n_raw == 2
+    with pytest.raises(CalibrationRefused, match="already calibrated"):
+        calibrate(cand(), c, budget=1, full_pipeline=FULL)
+    with pytest.raises(CalibrationRefused, match="already calibrated"):
+        calibrate(cand(), c, budget=5, full_pipeline=FULL)  # a bigger budget changes nothing
+    assert ledger.trial_stats().n_raw == 2
+    ids = [r.candidate_id for r in ledger.trials("c1")]
+    assert ids.count("x-opt000") == 1
+    run = ledger.calibration_run("c1", "x")
+    assert run is not None and (run.budget, run.outcome, run.attempts) == (1, "finished", 1)
+
+
+def test_the_same_code_under_another_id_is_refused(ledger: Ledger, tmp_path: Path) -> None:
+    c = ctx(ledger, tmp_path, Runner())
+    calibrate(cand(), c, budget=1, full_pipeline=FULL)
+    other = cand()
+    other = type(other)(**{**{f: getattr(other, f) for f in other.__dataclass_fields__},
+                           "candidate_id": "y"})  # fmt: skip
+    with pytest.raises(CalibrationRefused, match="already calibrated"):
+        calibrate(other, c, budget=1, full_pipeline=FULL)
+    assert not [r for r in ledger.trials("c1") if r.candidate_id.startswith("y")]
+
+
+class Crash(BaseException):
+    """The process dies (e.g. killed) — not a gate failure, nothing is recorded for the call."""
+
+
+class CrashingRunner(Runner):
+    def __init__(self, crash_on_call: int) -> None:
+        super().__init__()
+        self.calls, self.crash_on_call = 0, crash_on_call
+
+    def run(self, job: SandboxJob) -> SandboxResult:
+        self.calls += 1
+        if self.calls == self.crash_on_call:
+            raise Crash
+        return super().run(job)
+
+
+def test_a_technical_retry_is_allowed_only_if_nothing_was_measured(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    with pytest.raises(Crash):
+        calibrate(cand(), ctx(ledger, tmp_path, CrashingRunner(1)), budget=3, full_pipeline=FULL)
+    assert ledger.trials("c1") == [] and ledger.calibration_attempts_recorded("c1", "x") == 0
+    with pytest.raises(CalibrationRefused, match="same run"):  # a retry cannot change the budget
+        calibrate(cand(), ctx(ledger, tmp_path, Runner()), budget=4, full_pipeline=FULL)
+    result = calibrate(cand(), ctx(ledger, tmp_path, Runner()), budget=3, full_pipeline=FULL)
+    assert result.evaluations == 3 and ledger.trial_stats().n_raw == 4
+    started = [d for e, d in ledger.event_details("c1") if e == Event.CALIBRATION_STARTED]
+    assert [d["technical_retry"] for d in started if d] == [False, True]
+
+
+def test_an_interrupted_search_is_not_resumed(ledger: Ledger, tmp_path: Path) -> None:
+    """Attempts were measured before the crash: running again would search beyond what was
+    seen — further optimization, refused."""
+    with pytest.raises(Crash):
+        calibrate(cand(), ctx(ledger, tmp_path, CrashingRunner(3)), budget=5, full_pipeline=FULL)
+    n = ledger.trial_stats().n_raw
+    assert n == 2
+    with pytest.raises(CalibrationRefused, match="interrupted after 2"):
+        calibrate(cand(), ctx(ledger, tmp_path, Runner()), budget=5, full_pipeline=FULL)
+    assert ledger.trial_stats().n_raw == n
+
+
+def test_a_stopped_calibration_is_not_rerun(ledger: Ledger, tmp_path: Path) -> None:
+    c = ctx(ledger, tmp_path, Runner())
+    with pytest.raises(CalibrationError, match="classify"):
+        calibrate(cand(), c, budget=5, full_pipeline=FULL, measure=GatePipeline([LeakyFailure()]))
+    with pytest.raises(CalibrationRefused, match="stopped"):
+        calibrate(cand(), c, budget=5, full_pipeline=FULL)
     assert ledger.trials("c1") == []

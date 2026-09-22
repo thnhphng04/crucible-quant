@@ -6,9 +6,10 @@ Input: every trial of the campaign whose candidate passed gate ④. Then:
    highest *selection score* (PSR against the campaign's deflated benchmark SR₀(N_eff, V[SR]);
    a ranking only — DSR as a gate exists for the consolidated portfolio alone, §3.1.6).
 2. **Correlation filter** — representatives in score order; drop one whose IS returns have
-   |ρ| > ``max_corr`` with any strategy already accepted.
+   |ρ| > ``max_corr`` with any strategy already accepted (ρ pairwise, on the pair's shared days).
 3. **Size cap** — at most ``max_strategies``.
-4. **Weights** — naive risk parity: the same vol budget each, w ∝ 1/σ (never optimized on Sharpe).
+4. **Weights** — naive risk parity: the same vol budget each, w ∝ 1/σ (never optimized on Sharpe),
+   on the members' common window — a candidate that was not selected never changes it.
 5. **Rebalancing** — back to the weights on the ``rebalance`` schedule.
 6. **Freeze** — ``portfolio_hash`` = SHA256 of the members (strategy hash + params + weight) and
    the rule. Every distinct build is a ``portfolio_variants`` row, and each counts in ``N`` at ⑤.
@@ -192,20 +193,24 @@ def build_portfolio(
     for t in ordered:
         reps.setdefault(t.cell_id or f"_own:{t.id}", t)
     step1 = sorted(reps.values(), key=lambda t: (-score[t.id], t.id))
-    # 2. correlation filter, in score order
-    frame = pd.concat({t.id: returns[t.id] for t in step1}, axis=1, join="inner")
-    if len(frame) < MIN_COMMON_OBS:
-        raise ValueError(f"only {len(frame)} common observations across the candidates")
-    corr = frame.corr().to_numpy(dtype=np.float64)
+    # 2. correlation filter, in score order. ρ is pairwise, on each pair's own shared days, so a
+    # candidate that is dropped never shapes what the members are measured on (ADR-0013); a pair
+    # with too few shared days has no measurable ρ, and the lower-ranked one is dropped.
+    everyone = pd.concat({t.id: returns[t.id] for t in step1}, axis=1, join="outer")
+    corr = everyone.corr(min_periods=MIN_COMMON_OBS).to_numpy(dtype=np.float64)
     pos = {t.id: i for i, t in enumerate(step1)}
     accepted: list[TrialRow] = []
     for t in step1:
-        if all(abs(corr[pos[t.id], pos[a.id]]) <= rule.max_corr for a in accepted):
+        rho = [corr[pos[t.id], pos[a.id]] for a in accepted]
+        if all(abs(r) <= rule.max_corr for r in rho):  # NaN (too little overlap) fails
             accepted.append(t)
     # 3. size cap
     chosen = accepted[: rule.max_strategies]
-    # 4. naive risk parity
-    vols = frame[[t.id for t in chosen]].std(ddof=1).to_numpy(dtype=np.float64)
+    # 4. naive risk parity — on the members' common window only
+    frame = pd.concat({t.id: returns[t.id] for t in chosen}, axis=1, join="inner")
+    if len(frame) < MIN_COMMON_OBS:
+        raise ValueError(f"only {len(frame)} common observations across the members")
+    vols = frame.std(ddof=1).to_numpy(dtype=np.float64)
     inv = np.where(vols > 0, 1.0 / np.where(vols > 0, vols, 1.0), 0.0)
     if not inv.sum() > 0:
         raise ValueError("every selected strategy has zero IS volatility")
@@ -218,7 +223,7 @@ def build_portfolio(
         for t, w in zip(chosen, weights, strict=True)
     )  # fmt: skip
     # 5. rebalanced consolidated returns
-    combined = combine(frame[[t.id for t in chosen]], weights, rule.rebalance)
+    combined = combine(frame, weights, rule.rebalance)
     steps = {
         "eligible": [t.candidate_id for t in ordered],
         "representatives": [t.candidate_id for t in step1],
@@ -230,9 +235,27 @@ def build_portfolio(
 
 def record_variant(ledger: Ledger, portfolio: Portfolio, results_dir: Path) -> bool:
     """Step 6: write the variant (and its IS returns) once. Returns False if this exact
-    portfolio — same members, weights and rule — was already recorded (not a new selection)."""
+    portfolio — same members, weights and rule — was already recorded (not a new selection).
+
+    A recorded hash must carry the same returns as its artifact: the gates never evaluate data
+    other than what the variant stored (review 2, ADR-0013)."""
     p_hash = portfolio.portfolio_hash
-    if any(v.portfolio_hash == p_hash for v in ledger.portfolio_variants()):
+    recorded = [v for v in ledger.portfolio_variants() if v.portfolio_hash == p_hash]
+    if recorded:
+        stored = load_returns(recorded[0].returns_path or "")
+        same = (
+            len(stored) == len(portfolio.returns)
+            and np.array_equal(
+                stored.index.to_numpy(dtype="datetime64[ns]"),
+                portfolio.returns.index.to_numpy(dtype="datetime64[ns]"),
+            )
+            and np.allclose(stored.to_numpy(), portfolio.returns.to_numpy(), rtol=0.0, atol=1e-12)
+        )
+        if not same:
+            raise ValueError(
+                f"portfolio {p_hash[:12]}… differs from its recorded artifact "
+                f"({len(stored)} vs {len(portfolio.returns)} observations): refusing to evaluate"
+            )
         return False
     campaign = ledger.campaign(portfolio.campaign_id)
     if campaign is None or campaign.status != "OPEN":

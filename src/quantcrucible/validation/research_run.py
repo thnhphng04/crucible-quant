@@ -24,10 +24,11 @@ from quantcrucible.validation.calibration import (
     CalibrationResult,
     calibrate,
     calibration_settings,
+    check_allowed,
 )
 from quantcrucible.validation.gates import GateContext, PipelineOutcome, StrategyCandidate
 from quantcrucible.validation.pbo_gate import periods_per_year
-from quantcrucible.validation.portfolio import Portfolio, PortfolioRule, build_and_record
+from quantcrucible.validation.portfolio import Member, Portfolio, PortfolioRule, build_and_record
 from quantcrucible.validation.portfolio_dsr import DsrGate, PortfolioOutcome, PortfolioPipeline
 from quantcrucible.validation.robustness import RobustnessGate
 from quantcrucible.validation.run import candidate_pipeline, make_candidate
@@ -83,22 +84,28 @@ def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOu
 
 
 def calibrate_members(session: ResearchSession, portfolio: Portfolio) -> list[CalibrationResult]:
-    """Step 5b for every member, from its archived source and its trial's parameters."""
+    """Step 5b for every member, from its archived source and its trial's parameters. Every
+    member is checked against the once-per-campaign rule before any of them runs: a refusal
+    (:class:`CalibrationRefused`) leaves nothing half-done."""
     enabled, budget = calibration_settings(session.lock)
     if not enabled:
         return []
-    results: list[CalibrationResult] = []
-    for m in portfolio.members:
-        candidate = StrategyCandidate(
-            candidate_id=m.candidate_id, source=session.archive.get(m.strategy_hash),
-            params=dict(m.params), universe=m.universe, timeframe=m.timeframe,
-            timerange=_timerange(session.is_data), run_id=f"calib-{m.candidate_id}",
-            campaign_id=session.campaign_id,
-            evolve_scope=str(session.lock["research"].get("evolve_scope", "joint")),
-            trial_source="param_opt",
-        )  # fmt: skip
-        results.append(calibrate(candidate, session.context(), budget, candidate_pipeline()))
-    return results
+    candidates = [_member_candidate(session, m) for m in portfolio.members]
+    ctx = session.context()
+    for c in candidates:
+        check_allowed(ctx, c, budget)
+    return [calibrate(c, session.context(), budget, candidate_pipeline()) for c in candidates]
+
+
+def _member_candidate(session: ResearchSession, m: Member) -> StrategyCandidate:
+    return StrategyCandidate(
+        candidate_id=m.candidate_id, source=session.archive.get(m.strategy_hash),
+        params=dict(m.params), universe=m.universe, timeframe=m.timeframe,
+        timerange=_timerange(session.is_data), run_id=f"calib-{m.candidate_id}",
+        campaign_id=session.campaign_id,
+        evolve_scope=str(session.lock["research"].get("evolve_scope", "joint")),
+        trial_source="param_opt",
+    )  # fmt: skip
 
 
 def _timerange(is_data: Mapping[str, Bars]) -> str:

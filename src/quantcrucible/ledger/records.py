@@ -36,6 +36,19 @@ class Event(StrEnum):
     HOLDOUT_EVALUATION_FAILED = "HOLDOUT_EVALUATION_FAILED"  # error type only; still consumed
     CAMPAIGN_ABANDONED = "CAMPAIGN_ABANDONED"  # detail: reason (ADR-0019)
     CALIBRATION_FINISHED = "CALIBRATION_FINISHED"  # detail: every attempt (ADR-0017 amendment)
+    CALIBRATION_STARTED = "CALIBRATION_STARTED"  # detail: budget, technical retry or not
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationRun:
+    """A registered calibration run (ADR-0017 amendment 2); ``outcome`` None: never finished."""
+
+    campaign_id: str
+    candidate_id: str
+    strategy_hash: str
+    budget: int
+    outcome: str | None
+    attempts: int | None
 
 
 @dataclass(frozen=True, slots=True)

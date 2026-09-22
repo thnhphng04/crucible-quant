@@ -1,13 +1,14 @@
 """Calibration — §3.2.1 step 5b (Architecture §3.3.1 "optimizer off in the loop", §4.1, ADR-0017).
 
 Runs **once**, before the freeze, for each strategy selected into the portfolio: Optuna (TPE,
-seeded) searches the strategy's TUNABLE bounds with a fixed budget. Every evaluation goes
-through :class:`GatePipeline` straight to gate ③. An attempt whose returns were measured is a
-``trials`` row with ``source='param_opt'`` whatever its verdict (no hidden trials, MadEvolve X2),
-and raises ``N``; an attempt that failed before anything was measured (e.g. the strategy raised
-in the sandbox) has no Sharpe and no returns, so it cannot be a trial (§4.1) — it is recorded as an
-error, never given a made-up Sharpe. Every attempt, measured or not, is listed in one
-``CALIBRATION_FINISHED`` audit event (ADR-0017 amendment).
+seeded) searches the strategy's TUNABLE bounds with a fixed budget. The ledger enforces it
+(``calibration_runs``): a second run is refused; only a run that measured nothing is retried.
+Every evaluation goes through :class:`GatePipeline` straight to gate ③. An attempt whose returns
+were measured is a ``trials`` row with ``source='param_opt'`` whatever its verdict (no hidden
+trials, MadEvolve X2), and raises ``N``; an attempt that failed before anything was measured
+(e.g. the strategy raised in the sandbox) has no Sharpe and no returns, so it cannot be a trial
+(§4.1) — it is recorded as an error, never given a made-up Sharpe. Every attempt, measured or
+not, is listed in one ``CALIBRATION_FINISHED`` audit event (ADR-0017 amendment).
 
 The best passing parameters are then re-submitted under the **same candidate id** through the
 full candidate pipeline ①a → ④: PBO is recomputed (the calibration rows are now ledger variants
@@ -43,6 +44,10 @@ FAILED_SCORE = -10.0  # Optuna's objective for a rejected or failed attempt — 
 
 class CalibrationError(RuntimeError):
     """Calibration stopped: an attempt needs a human to classify it (ADR-0022)."""
+
+
+class CalibrationRefused(CalibrationError):
+    """Calibration may not run: it runs once per strategy per campaign (ADR-0017 amendment 2)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +115,8 @@ def calibrate(
     if not tunables:
         raise ValueError("nothing to calibrate: the strategy declares no TUNABLE")
     measure = measure or GatePipeline([InSampleGate()])
+    retry = _register(ctx, candidate, budget)
+    _log(ctx, candidate, Event.CALIBRATION_STARTED, {"budget": budget, "technical_retry": retry})
     scored: list[tuple[float, dict[str, float | int]]] = []
     attempts: list[Attempt] = []
 
@@ -151,6 +158,11 @@ def calibrate(
     study.optimize(objective, n_trials=budget)
     _log_attempts(ctx, candidate, attempts)
     unclassified = [a.attempt_id for a in attempts if a.outcome == "error_after_output"]
+    n_errors = sum(a.outcome.startswith("error") for a in attempts)
+    ctx.ledger.finish_calibration(
+        candidate.campaign_id, candidate.candidate_id, "stopped" if unclassified else "finished",
+        len(attempts), len(attempts) - n_errors, n_errors,
+    )  # fmt: skip
     if unclassified:
         raise CalibrationError(
             f"{unclassified}: a performance number was produced without a measurement — "
@@ -168,22 +180,63 @@ def calibrate(
     return CalibrationResult(candidate.candidate_id, tuple(attempts), best, best_sharpe, outcome)
 
 
-def _log_attempts(ctx: GateContext, c: StrategyCandidate, attempts: list[Attempt]) -> None:
-    """One audit event that accounts for every attempt: B = trials + errors."""
-    n_errors = sum(a.outcome.startswith("error") for a in attempts)
+def _register(ctx: GateContext, c: StrategyCandidate, budget: int) -> bool:
+    retry = check_allowed(ctx, c, budget)
+    if not retry:
+        ctx.ledger.start_calibration(c.campaign_id, c.candidate_id, c.strategy_hash, budget)
+    return retry
+
+
+def check_allowed(ctx: GateContext, c: StrategyCandidate, budget: int) -> bool:
+    """Once per strategy per campaign, with a fixed budget (§3.2.1 5b). Returns True for a
+    technical retry: a registered run that never finished and recorded no attempt result —
+    nothing was measured, so running it again searches no further. Anything else is refused:
+    more search after seeing results would spend budget the rule does not allow."""
+    prior = ctx.ledger.calibration_run(c.campaign_id, c.candidate_id, c.strategy_hash)
+    if prior is None:
+        return False
+    where = f"{prior.candidate_id!r} (strategy {prior.strategy_hash[:12]}…) in {c.campaign_id}"
+    if prior.outcome is not None:
+        raise CalibrationRefused(
+            f"{where} was already calibrated ({prior.outcome}: {prior.attempts} of "
+            f"{prior.budget} attempts): calibration runs once per strategy per campaign"
+        )
+    if (prior.candidate_id, prior.strategy_hash, prior.budget) != (
+        c.candidate_id,
+        c.strategy_hash,
+        budget,
+    ):
+        raise CalibrationRefused(
+            f"an unfinished calibration of {where} has budget {prior.budget}: a retry must be the "
+            "same run (same candidate, code and budget)"
+        )
+    recorded = ctx.ledger.calibration_attempts_recorded(c.campaign_id, c.candidate_id)
+    if recorded:
+        raise CalibrationRefused(
+            f"the calibration of {where} was interrupted after {recorded} attempt result(s) were "
+            "recorded: running it again would search further — a human decides"
+        )
+    return True
+
+
+def _log(ctx: GateContext, c: StrategyCandidate, event: Event, detail: dict[str, object]) -> None:
     ctx.ledger.log_event(
         GenerationEvent(
             run_id=f"calib-{c.candidate_id}", campaign_id=c.campaign_id, engine=c.engine,
-            seed=c.seed, agent=c.agent, model_used=c.model_used,
-            event=Event.CALIBRATION_FINISHED, evolve_scope=c.evolve_scope,
-            strategy_hash=c.strategy_hash,
-            detail={
-                "candidate_id": c.candidate_id, "attempts": len(attempts),
-                "trials": len(attempts) - n_errors, "errors": n_errors,
-                "log": [a.as_dict() for a in attempts],
-            },
+            seed=c.seed, agent=c.agent, model_used=c.model_used, event=event,
+            evolve_scope=c.evolve_scope, strategy_hash=c.strategy_hash,
+            detail={"candidate_id": c.candidate_id, **detail},
         )
     )  # fmt: skip
+
+
+def _log_attempts(ctx: GateContext, c: StrategyCandidate, attempts: list[Attempt]) -> None:
+    """One audit event that accounts for every attempt: B = trials + errors."""
+    n_errors = sum(a.outcome.startswith("error") for a in attempts)
+    _log(ctx, c, Event.CALIBRATION_FINISHED, {
+        "attempts": len(attempts), "trials": len(attempts) - n_errors, "errors": n_errors,
+        "log": [a.as_dict() for a in attempts],
+    })  # fmt: skip
 
 
 def calibration_settings(lock: Mapping[str, object]) -> tuple[bool, int]:

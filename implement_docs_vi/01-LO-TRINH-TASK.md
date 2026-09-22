@@ -137,7 +137,7 @@ Không có code agent trong giai đoạn này (P1).
 
 ## Giai đoạn 1 — Tầng validation đầy đủ + Risk & Sizing (2–3 tuần)
 
-> **Cổng giai đoạn (kiến trúc §7):** chiến lược viết tay vượt mọi cổng; ledger tách đúng audit/trials; tính được `N_eff` + `V[SR]`; DSR/PBO khớp ví dụ số trong các paper gốc; test ½ size đạt.
+> **Cổng giai đoạn (kiến trúc §7):** chiến lược viết tay vượt mọi cổng; ledger tách đúng audit/trials; tính được `N_eff` + `V[SR]`; DSR/PBO khớp ví dụ số trong các paper gốc; test ½ size đạt. (DSR được test với một ví dụ số đã công bố; PBO với một ví dụ tự tính theo định nghĩa và `purgedcv`, không phải ví dụ đã công bố — O18.)
 
 ### ✅ P1-01 Kiểm chứng `purgedcv` (task đầu tiên của GĐ 1)
 - **Kiến trúc:** ghi chú §6, 07-VALIDATION-LAYER §7.

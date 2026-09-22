@@ -17,6 +17,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from quantcrucible.ledger.records import (
+    CalibrationRun,
     Campaign,
     CampaignStatus,
     GateResultRecord,
@@ -35,6 +36,7 @@ MIGRATIONS = (
     "schema.sql",
     "migration_002_no_replace.sql",
     "migration_003_claims_and_abandon.sql",
+    "migration_004_calibration_runs.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
@@ -271,6 +273,63 @@ class Ledger:
             " WHERE r.id = (SELECT MAX(id) FROM clustering_runs) GROUP BY r.id"
         ).fetchone()
         return None if row is None else (int(row[0]), int(row[1]))
+
+    # ── calibration runs (§3.2.1 5b, ADR-0017) ──────────────────────────────────────────
+    def start_calibration(
+        self,
+        campaign_id: str,
+        candidate_id: str,
+        strategy_hash: str,
+        budget: int,
+        at: datetime | None = None,
+    ) -> None:
+        """Register a calibration run before its first attempt. Refused if the candidate or the
+        same strategy code was already calibrated in this campaign."""
+        self._insert(
+            "INSERT INTO calibration_runs VALUES (?, ?, ?, ?, ?)",
+            (campaign_id, candidate_id, strategy_hash, budget, _ts(at or utc_now())),
+        )
+
+    def finish_calibration(
+        self,
+        campaign_id: str,
+        candidate_id: str,
+        outcome: str,
+        attempts: int,
+        trials: int,
+        errors: int,
+        at: datetime | None = None,
+    ) -> None:
+        self._insert(
+            "INSERT INTO calibration_finishes VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (campaign_id, candidate_id, _ts(at or utc_now()), outcome, attempts, trials, errors),
+        )
+
+    def calibration_run(
+        self, campaign_id: str, candidate_id: str | None = None, strategy_hash: str | None = None
+    ) -> CalibrationRun | None:
+        """The run registered in ``campaign_id`` for this candidate or this strategy code."""
+        row = self._conn.execute(
+            "SELECT r.candidate_id, r.strategy_hash, r.budget, f.outcome, f.attempts"
+            " FROM calibration_runs r LEFT JOIN calibration_finishes f"
+            "   ON f.campaign_id = r.campaign_id AND f.candidate_id = r.candidate_id"
+            " WHERE r.campaign_id = ? AND (r.candidate_id = ? OR r.strategy_hash = ?)"
+            " ORDER BY r.started_at LIMIT 1",
+            (campaign_id, candidate_id, strategy_hash),
+        ).fetchone()
+        if row is None:
+            return None
+        return CalibrationRun(campaign_id, row[0], row[1], int(row[2]), row[3], row[4])
+
+    def calibration_attempts_recorded(self, campaign_id: str, candidate_id: str) -> int:
+        """Gate results written by this candidate's calibration attempts (ids ``<id>-optNNN``)."""
+        prefix = f"{candidate_id}-opt"
+        (n,) = self._conn.execute(
+            "SELECT COUNT(*) FROM gate_results WHERE campaign_id = ?"
+            " AND substr(candidate_id, 1, ?) = ?",
+            (campaign_id, len(prefix), prefix),
+        ).fetchone()
+        return int(n)
 
     # ── portfolio + holdout (§3.2.1, §4.2) ──────────────────────────────────────────────
     def record_portfolio_variant(self, v: PortfolioVariant) -> None:

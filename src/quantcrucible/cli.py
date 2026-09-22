@@ -170,6 +170,7 @@ def validate(strategy: Path, params: str | None, config: Path, root: Path) -> in
 def portfolio(config: Path, root: Path, calibrate: bool) -> int:
     """Build the portfolio by the locked rule, then ⑤ → ⑥′; with ``--calibrate``, step 5b for
     each member first and a rebuild after (a new variant)."""
+    from quantcrucible.validation.calibration import CalibrationError
     from quantcrucible.validation.research_run import calibrate_members, evaluate_portfolio
 
     session = _session(config, root)
@@ -178,7 +179,11 @@ def portfolio(config: Path, root: Path, calibrate: bool) -> int:
         return 2
     built, outcome = evaluate_portfolio(session)
     if calibrate:
-        results = calibrate_members(session, built)
+        try:
+            results = calibrate_members(session, built)
+        except CalibrationError as e:
+            sys.stderr.write(f"calibration refused: {e}\n")
+            return 2
         for c in results:
             sys.stdout.write(
                 f"calibrated {c.candidate_id}: {c.evaluations} attempts = {c.n_trials} trials"

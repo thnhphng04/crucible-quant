@@ -137,7 +137,7 @@ No agent code in this phase (P1).
 
 ## Phase 1 — Full validation layer + Risk & Sizing (2–3 weeks)
 
-> **Phase gate (arch §7):** the hand-written strategy clears every gate; the ledger separates audit/trials correctly; `N_eff` + `V[SR]` are computable; DSR/PBO match the numerical examples in the original papers; the ½-size test passes.
+> **Phase gate (arch §7):** the hand-written strategy clears every gate; the ledger separates audit/trials correctly; `N_eff` + `V[SR]` are computable; DSR/PBO match the numerical examples in the original papers; the ½-size test passes. (DSR is tested against a published numerical example; PBO against a hand-computed example from the definition and `purgedcv`, not a published one — O18.)
 
 ### ✅ P1-01 Verify `purgedcv` (first task of phase 1)
 - **Arch:** §6 note, 07-VALIDATION-LAYER §7.

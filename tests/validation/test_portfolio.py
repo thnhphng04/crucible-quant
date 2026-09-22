@@ -21,6 +21,7 @@ from quantcrucible.validation.portfolio import (
     eligible_trials,
     load_returns,
     portfolio_hash,
+    record_variant,
 )
 
 T = 400
@@ -188,6 +189,78 @@ def test_rule_change_is_new_variant(ledger: Ledger, tmp_path: Path) -> None:
     (v1, v2) = ledger.portfolio_variants("c1")
     assert v1.rule_config["max_corr"] == 0.5 and v2.rule_config["max_corr"] == 0.99
     assert Path(v1.returns_path or "").is_file()
+
+
+def test_a_dropped_candidate_does_not_change_the_portfolio(ledger: Ledger, tmp_path: Path) -> None:
+    """Review 2, HIGH: a candidate the correlation filter drops — here with only 100 days of
+    history — must not truncate the members' window. Same hash ⇒ same returns, same Sharpe."""
+    base = noise(1, mean=0.003)
+    add(ledger, tmp_path, "best", base)
+    res = tmp_path / "res"
+    before = build_and_record(ledger, "c1", PortfolioRule(), 365, res)
+    short_twin = base[:100] * 0.9 + np.random.default_rng(9).normal(0, 0.002, 100) - 0.0005
+    add(ledger, tmp_path, "twin", short_twin)
+    after = build_and_record(ledger, "c1", PortfolioRule(), 365, res)
+    assert names(after) == ["best"] and after.steps["decorrelated"] == ["best"]
+    assert after.portfolio_hash == before.portfolio_hash
+    assert len(after.returns) == len(before.returns) == T
+    pd.testing.assert_series_equal(after.returns, before.returns)
+    assert after.sharpe_is == before.sharpe_is
+    (variant,) = ledger.portfolio_variants("c1")
+    pd.testing.assert_series_equal(
+        load_returns(variant.returns_path or ""), after.returns, check_names=False, check_freq=False
+    )
+
+
+def test_member_weights_use_the_members_window_only(ledger: Ledger, tmp_path: Path) -> None:
+    """Weights and returns come from the chosen members' common window, not from the window
+    shared with every candidate."""
+    calm, wild = noise(1, vol=0.01), noise(2, vol=0.02)
+    add(ledger, tmp_path, "calm", calm)
+    add(ledger, tmp_path, "wild", wild)
+    add(ledger, tmp_path, "short", noise(3, mean=-0.002)[:60], passed_g4=True)
+    p = build(ledger, PortfolioRule(max_strategies=2))
+    assert sorted(names(p)) == ["calm", "wild"] and len(p.returns) == T  # type: ignore[attr-defined]
+    w = {m.candidate_id: m.weight for m in p.members}  # type: ignore[attr-defined]
+    assert w["calm"] / w["wild"] == pytest.approx(np.std(wild, ddof=1) / np.std(calm, ddof=1))
+
+
+def test_candidates_with_too_little_overlap_are_not_accepted(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """|ρ| cannot be measured on fewer than MIN_COMMON_OBS shared days: the lower-ranked one is
+    not shown to be uncorrelated, so it is dropped (conservative)."""
+    add(ledger, tmp_path, "long", noise(1, mean=0.003))
+    path = tmp_path / "late.parquet"
+    late = noise(2, mean=0.001)[:40]
+    ts = pd.date_range(TS[T - 20], periods=40, freq="D")  # 20 days shared with "long"
+    pd.DataFrame({"ts": ts, "ret": late}).to_parquet(path, index=False)
+    tid = ledger.record_trial(
+        TrialRecord(
+            run_id="r", campaign_id="c1", candidate_id="late", engine="manual", seed=0,
+            strategy_hash="h-late", params={"p": 1}, universe="X", timeframe="1d", timerange="t",
+            source="manual", sharpe_is=0.1, returns_path=str(path), verdict="PASS",
+        )
+    )  # fmt: skip
+    ledger.record_gate_result(
+        GateResultRecord(campaign_id="c1", candidate_id="late", gate=G4_PBO, passed=True,
+                         reason="x", trial_id=tid)
+    )  # fmt: skip
+    p = build(ledger)
+    assert names(p) == ["long"] and len(p.returns) == T  # type: ignore[attr-defined]
+
+
+def test_a_recorded_hash_must_match_its_artifact(ledger: Ledger, tmp_path: Path) -> None:
+    """Same hash, different returns ⇒ refused: gate ⑤ never evaluates data other than the
+    variant's stored artifact."""
+    add(ledger, tmp_path, "best", noise(1, mean=0.003))
+    res = tmp_path / "res"
+    p = build_and_record(ledger, "c1", PortfolioRule(), 365, res)
+    assert record_variant(ledger, p, res) is False  # identical: fine, not a new variant
+    shifted = replace(p, returns=p.returns.iloc[:100])
+    with pytest.raises(ValueError, match="artifact"):
+        record_variant(ledger, shifted, res)
+    assert ledger.total_portfolio_variants() == 1
 
 
 def test_nothing_eligible_raises(ledger: Ledger, tmp_path: Path) -> None:

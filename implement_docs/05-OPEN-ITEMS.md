@@ -10,6 +10,7 @@ Close an item by recording the answer (an ADR if it's a decision) and moving the
 | O13 | Module-wise template: how named blocks `entry` / `exit` / `regime` map onto `indicators()` / `signal()` | Module-wise evolution (D16 ≠ `joint`) | Phase 2 | The parser and `evolve_scope` hashing already support named blocks (P0-05); the phase-0 template has one `joint` block |
 | O14 | Gate ④ grid = M full NautilusTrader backtests per candidate (seconds each) — too slow for the phase-2 loop | Phase-2 throughput | Phase 2 | Options: parallel sandbox containers; a vectorized coarse backtester for the grid only (must match NautilusTrader on a reference set) |
 | O15 | Gate ④ "variants the refinement loop tried" with different code cannot be re-run: `trials` stores `strategy_hash`, not source | Full §3.2 configuration set in the loop | Phase 2 | Needs the source archive of every measured candidate (agent archive); phase 1 uses same-hash parameter variants only (ADR-0011) |
+| O18 | The phase-1 gate (arch §7) asks DSR/PBO to match the papers' numerical examples. DSR does; PBO is checked by a hand-computed example from the definition in Bailey et al. (2017) and against `purgedcv` — not against a published numerical example | The PBO part of the phase-1 gate wording | User / phase 2 | Options: find a published worked PBO example to use as a fixture; or accept definition + agreement with an independent implementation for PBO (an arch §7 wording change — the user's call) |
 
 ## Closed
 
