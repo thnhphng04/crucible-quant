@@ -25,3 +25,7 @@ P1-01…P1-11 xây từng gate và từng bước riêng lẻ. Cổng phase (§7
 
 - **Điều phối nằm trong CLI:** loại — test e2e khi đó sẽ kiểm việc phân tích tham số dòng lệnh thay vì quy trình, và vòng lặp agent của phase 2 cần cùng các hàm này.
 - **E2E trên dữ liệu nghiên cứu thật:** loại — chậm, cần mạng, và việc một chiến lược viết tay có qua trên thị trường thật hay không là một kết quả nghiên cứu, không phải một tính chất của harness.
+
+## Sửa đổi — RSI momentum v2 (2026-09-22)
+
+- `core/zoo/rsi_momentum_v2.py` chỉ giao dịch khi ATR và stop hữu hạn và > 0; với `n < 14`, v1 vào lệnh long với stop NaN trước khi ATR(14) có giá trị. v1 được giữ nguyên: trial, artifact và source đã lưu (theo `strategy_hash`) của nó là lịch sử của lần chạy thật. v2 là một chiến lược mới (hash mới); nó chưa được nộp. Test: `tests/core/strategy/test_zoo_rsi.py`.

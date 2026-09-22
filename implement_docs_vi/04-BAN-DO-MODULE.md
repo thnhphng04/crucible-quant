@@ -23,7 +23,7 @@ TradingProject/
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
 │   │   │                          tunable
 │   │   ├── sizing/                vol_target, position_sizer                           §3.4    P1-06
-│   │   └── zoo/                   chiến lược viết tay (ema, sma, rsi); tập so độ       §3.1.6  P1-12
+│   │   └── zoo/                   viết tay (ema, sma, rsi v1+v2); tập so độ           §3.1.6  P1-12
 │   │                              giống AST                                                    GĐ 2
 │   ├── data/                      protocol DataSource, nguồn ccxt/Stooq, store,        §6.1    P0-09
 │   │                              holdout_split

@@ -23,7 +23,7 @@ TradingProject/
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
 │   │   │                          tunable
 │   │   ├── sizing/                vol_target, position_sizer                           §3.4    P1-06
-│   │   └── zoo/                   hand-written strategies (ema, sma, rsi); AST         §3.1.6  P1-12
+│   │   └── zoo/                   hand-written (ema, sma, rsi v1+v2); AST            §3.1.6  P1-12
 │   │                              similarity set                                               phase 2
 │   ├── data/                      DataSource protocol, ccxt/Stooq sources, store,      §6.1    P0-09
 │   │                              holdout_split

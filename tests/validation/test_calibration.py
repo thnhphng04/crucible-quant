@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.ledger.records import Event
 from quantcrucible.validation.calibration import calibrate
 from quantcrucible.validation.gates import G3_IS, G4_PBO, GateContext, GatePipeline
 from quantcrucible.validation.is_gates import InSampleGate
@@ -109,3 +110,52 @@ def test_budget_and_tunables_required(ledger: Ledger, tmp_path: Path) -> None:
                          "source": ZOO.replace("# TUNABLE", "# NOTE")})  # fmt: skip
     with pytest.raises(ValueError, match="TUNABLE"):
         calibrate(bare, ctx(ledger, tmp_path, Runner()), budget=3, full_pipeline=FULL)
+
+
+class FailingRunner(Runner):
+    """Backtests with ``fast`` below ``crash_below`` fail inside the sandbox (as a strategy
+    emitting a NaN stop does): nothing is measured."""
+
+    def __init__(self, crash_below: int) -> None:
+        super().__init__()
+        self.crash_below = crash_below
+
+    def run(self, job: SandboxJob) -> SandboxResult:
+        if job.kind == "backtest" and float(job.params["fast"]) < self.crash_below:
+            report = {
+                "ok": False,
+                "error_type": "ValueError",
+                "error": "ValueError: stop_distance must be finite and > 0, got nan",
+            }
+            return SandboxResult(False, report, "", "", 1, False, None, 0.1)  # fmt: skip
+        return super().run(job)
+
+
+def test_every_attempt_is_accounted_for(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0017 amendment: B attempts = trials (measured) + errors (nothing measured). Errors get
+    no trials row and no Sharpe; every attempt is traceable in one audit event."""
+    budget = 20
+    result = calibrate(
+        cand(), ctx(ledger, tmp_path, FailingRunner(crash_below=20)), budget=budget,
+        full_pipeline=FULL,
+    )  # fmt: skip
+    errors = [a for a in result.attempts if a.outcome == "error"]
+    measured = [a for a in result.attempts if a.outcome != "error"]
+    assert len(result.attempts) == budget and errors and measured
+    assert all(a.trial_id is None and a.sharpe_is is None for a in errors)
+    assert all("stop_distance" in (a.reason or "") for a in errors)
+    assert all(a.trial_id is not None and a.sharpe_is is not None for a in measured)
+    rows = [r for r in ledger.trials("c1") if r.candidate_id.startswith("x-opt")]
+    assert sorted(r.id for r in rows) == sorted(a.trial_id for a in measured if a.trial_id)
+    sharpes = [r.sharpe_is for r in ledger.trials("c1")]
+    stats = ledger.trial_stats()
+    assert stats.n_raw == len(measured) + 1  # + the confirmation run
+    assert stats.var_sr == pytest.approx(np.var(sharpes))  # V[SR] from measured trials only
+    (event,) = [d for e, d in ledger.event_details("c1") if e == Event.CALIBRATION_FINISHED]
+    assert event is not None
+    assert (event["attempts"], event["trials"], event["errors"]) == (
+        budget,
+        len(measured),
+        len(errors),
+    )
+    assert [a["attempt_id"] for a in event["log"]] == [a.attempt_id for a in result.attempts]

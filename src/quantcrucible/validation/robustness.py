@@ -25,7 +25,7 @@ from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.is_gates import backtest_options
 from quantcrucible.validation.portfolio import Member, Portfolio, combine, load_returns
-from quantcrucible.validation.portfolio_dsr import G6P_ROBUSTNESS
+from quantcrucible.validation.portfolio_dsr import G6P_ROBUSTNESS, dsr_counts, n_breakdown
 from quantcrucible.validation.sandbox import JobRunner, SandboxJob
 from quantcrucible.validation.statistical import portfolio_dsr
 
@@ -119,14 +119,16 @@ class RobustnessGate:
         )  # fmt: skip
         if not sharpe_stressed > 0:
             problems.append(f"Sharpe {sharpe_stressed:.2f} with costs × {mult:g} is not > 0")
+        counts = n_breakdown(ctx.ledger, ctx.ledger.total_portfolio_variants())
         if not dsr.dsr_n_eff >= dsr_min:
-            problems.append(f"DSR {dsr.dsr_n_eff:.3f} with costs × {mult:g} < {dsr_min:g}")
+            problems.append(f"costs × {mult:g}: {dsr_counts(dsr, counts)} — below {dsr_min:g}")
 
         # ── second data source ───────────────────────────────────────────────────────
         second: Mapping[str, Bars] | None = ctx.services.get("second_is_data")
         detail: dict[str, Any] = {
             "cost_multiplier": mult, "sharpe_stressed": sharpe_stressed,
             "dsr_stressed_n_eff": dsr.dsr_n_eff, "dsr_stressed_n_raw": dsr.dsr_n_raw,
+            "n_eff": dsr.n_eff, "n_raw": dsr.n_raw, **counts,
         }  # fmt: skip
         if not second:
             problems.append("no second-source data (research.data.second_exchange)")
@@ -151,7 +153,7 @@ class RobustnessGate:
                         f"(drop {drop:.0%} > {max_drop:.0%})"
                     )
         summary = (
-            f"costs × {mult:g}: Sharpe {sharpe_stressed:.2f}, DSR {dsr.dsr_n_eff:.3f}; "
+            f"costs × {mult:g}: Sharpe {sharpe_stressed:.2f}, {dsr_counts(dsr, counts)}; "
             f"second source drop {detail.get('sharpe_drop', float('nan')):.0%}"
         )
         return GateResult(

@@ -180,7 +180,10 @@ def portfolio(config: Path, root: Path, calibrate: bool) -> int:
     if calibrate:
         results = calibrate_members(session, built)
         for c in results:
-            sys.stdout.write(f"calibrated {c.candidate_id}: {c.evaluations} evaluations\n")
+            sys.stdout.write(
+                f"calibrated {c.candidate_id}: {c.evaluations} attempts = {c.n_trials} trials"
+                f" + {c.n_errors} errors (nothing measured, no trial)\n"
+            )
         if results:
             built, outcome = evaluate_portfolio(session)
     sys.stdout.write(f"campaign {session.campaign_id} · portfolio {built.portfolio_hash}\n")

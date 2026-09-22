@@ -122,3 +122,31 @@ def test_no_per_cell_dsr_api() -> None:
     assert callers == {"validation/statistical.py"}
     source = (SRC / "validation" / "statistical.py").read_text(encoding="utf-8")
     assert "cell" not in source.split("def portfolio_dsr", 1)[1].split('"""', 1)[0]
+
+
+def test_both_counts_and_the_clusters_are_reported(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0014 amendment: DSR at N_eff and at N_raw side by side, with how N_eff was formed,
+    so a large gap between the two is visible in the result itself."""
+    p = strong_portfolio(ledger, tmp_path)
+    base = np.random.default_rng(7).normal(0.001, 0.01, T)
+    for i in range(12):  # near copies of one series: ONC puts them in one cluster
+        rets = base + np.random.default_rng(100 + i).normal(0, 0.0005, T)
+        path = tmp_path / f"c{i}.parquet"
+        pd.DataFrame({"ts": pd.date_range("2020-01-01", periods=T), "ret": rets}).to_parquet(path)
+        ledger.record_trial(
+            TrialRecord(
+                run_id="r", campaign_id="c1", candidate_id=f"c{i}", engine="manual", seed=i,
+                strategy_hash="hc", params={"i": i}, universe="X", timeframe="1d", timerange="t",
+                source="param_opt", sharpe_is=1.0 + 0.01 * i, returns_path=str(path),
+                verdict="PASS",
+            )
+        )  # fmt: skip
+    result = check(ledger, p)
+    d = result.detail
+    assert d is not None
+    assert d["n_eff"] == d["n_clusters"] + d["n_unclustered"] + d["n_variants"]
+    assert d["n_raw"] == d["n_trials"] + d["n_variants"] == 15
+    assert d["n_clusters"] < d["n_clustered_trials"]  # the copies were merged
+    assert f"{d['dsr_n_eff']:.3f} at N_eff={d['n_eff']}" in result.reason
+    assert f"{d['dsr_n_raw']:.3f} at N_raw={d['n_raw']}" in result.reason
+    assert f"{d['n_clusters']} clusters of {d['n_clustered_trials']} trials" in result.reason

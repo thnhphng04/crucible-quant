@@ -61,7 +61,7 @@ def test_ema_crossover_passes(ctx: GateContext) -> None:
     assert result.passed, result.reason
 
 
-@pytest.mark.parametrize("name", ["ema_crossover", "sma_trend", "rsi_momentum"])
+@pytest.mark.parametrize("name", ["ema_crossover", "sma_trend", "rsi_momentum", "rsi_momentum_v2"])
 def test_every_zoo_strategy_passes(ctx: GateContext, name: str) -> None:
     """The hand-written strategies of the phase-1 run (P1-12) are valid template instances."""
     source = files("quantcrucible.core.zoo").joinpath(f"{name}.py").read_text("utf-8")

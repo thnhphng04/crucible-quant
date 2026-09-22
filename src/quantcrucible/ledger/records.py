@@ -35,6 +35,7 @@ class Event(StrEnum):
     HOLDOUT_CLAIMED = "HOLDOUT_CLAIMED"  # the one-time right to evaluate is taken (ADR-0016)
     HOLDOUT_EVALUATION_FAILED = "HOLDOUT_EVALUATION_FAILED"  # error type only; still consumed
     CAMPAIGN_ABANDONED = "CAMPAIGN_ABANDONED"  # detail: reason (ADR-0019)
+    CALIBRATION_FINISHED = "CALIBRATION_FINISHED"  # detail: every attempt (ADR-0017 amendment)
 
 
 @dataclass(frozen=True, slots=True)

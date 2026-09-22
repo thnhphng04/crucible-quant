@@ -30,3 +30,11 @@ Bước 5b chạy Optuna một lần, trước khi đóng băng, cho mỗi chi�
 
 - Bước xác nhận dùng lại `candidate_id` gốc, nên trước đây nó ghi đè file returns của trial gốc (lỗi 1). Nay artifact được ghi một lần cho mỗi lần đo (sửa đổi ADR-0013); returns của trial gốc giữ nguyên như lúc đo.
 - **Chính sách khi bước xác nhận thất bại:** ứng viên rời danh mục ở lần xây kế tiếp. Quay về trial trước calibration sẽ là chọn, sau khi đã biết kết quả, lần đo nào trông tốt hơn trong hai lần — một bước chọn ẩn.
+
+## Sửa đổi — lần chạy dữ liệu thật đầu tiên (2026-09-22)
+
+- **Lần thử, lần lỗi, trial.** Calibration của RSI momentum có 50 lần thử Optuna: 47 lần đo được ở ③ (47 trial `param_opt`) và 3 lần lỗi trong sandbox trước khi đo được gì (`stop_distance = NaN` trong giai đoạn khởi động chỉ báo). Vậy "ngân sách B ⇒ B + 1 dòng" chỉ đúng khi không có lần thử nào lỗi: B lần thử = trial đo được + lần lỗi, cộng một trial xác nhận. `CalibrationResult` nay liệt kê mọi `Attempt` (id, tham số, kết cục `passed` / `rejected` / `error`, trial id, Sharpe, lý do), và một sự kiện audit `CALIBRATION_FINISHED` ghi đủ cả B lần kèm ba con số đếm.
+- **Không Sharpe giả.** Một lần lỗi không có returns và không có Sharpe, nên không có dòng `trials` (§4.1 đòi cả hai). Optuna nhận `FAILED_SCORE` để định hướng tìm kiếm; con số đó không bao giờ được lưu như một Sharpe.
+- **Truy vết lần chạy thật** (chạy trước khi có sự kiện này): cả 50 id lần thử `…-opt000` tới `…-opt049` đều có trong `gate_results` ở ③ — 47 có trial id, 3 không có và kèm lỗi — và trong 50 sự kiện audit `CANDIDATE_SUBMITTED`.
+- **Ảnh hưởng lên N và V[SR], đo chứ không giả định.** V[SR] không thể chứa một lần lỗi (không có giá trị). N hiện không tính nó (§4.1). Nếu đếm 3 lần lỗi vào N, mỗi lần một cụm riêng, hai biến thể của campaign đó sẽ đổi như sau: RSI `778e…` DSR 0,999 → 0,998 tại N_eff (4 → 7), 0,986 → 0,985 tại N_raw; SMA `d7bd…` **0,963 → 0,936** tại N_eff — dưới `dsr_min` — và 0,792 → 0,788 tại N_raw. Quy tắc đếm vì vậy có thể đảo kết quả gate ⑤; đây là câu hỏi mức kiến trúc (§4.1), để mở thành O17.
+- Test: `tests/validation/test_calibration.py::test_every_attempt_is_accounted_for`.

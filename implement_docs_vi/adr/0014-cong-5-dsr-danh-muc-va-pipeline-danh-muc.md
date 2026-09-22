@@ -28,3 +28,4 @@ Từ ⑤ trở đi đối tượng được kiểm tra là một danh mục, th�
 ## Sửa đổi — review commit d765668
 
 - Mọi kết quả ⑤/⑥′ còn lưu `ledger_snapshot` — số trial và số biến thể danh mục trên toàn ledger lúc lần chạy bắt đầu (`Ledger.snapshot()`). DSR giảm khi một trong hai tăng, nên một kết quả chỉ còn hiệu lực khi snapshot chưa đổi; bước đóng băng kiểm tra điều này (sửa đổi ADR-0016, lỗi 3).
+- **Hai con số đặt cạnh nhau** (2026-09-22): quy tắc qua gate không đổi (DSR tại `N_eff` ≥ `dsr_min`), nhưng mọi kết quả ⑤ — và DSR khi stress của ⑥′ — nay đọc là `DSR a at N_eff=x, b at N_raw=y [N_eff = k clusters of m trials + u unclustered + v variants; N_eff/N_raw = r]`, và `detail` mang cùng các con số đó. Ở lần chạy thật N_eff = 4 so với N_raw = 54 (r = 0,07); chênh lệch lớn như vậy phải thấy được ngay chỗ đọc kết quả. Test: `tests/validation/test_portfolio_dsr.py::test_both_counts_and_the_clusters_are_reported`.

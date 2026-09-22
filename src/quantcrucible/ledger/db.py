@@ -254,6 +254,15 @@ class Ledger:
             raise LedgerError(str(e)) from e
         return int(run or 0)
 
+    def latest_clustering(self) -> tuple[int, int] | None:
+        """(trials covered, distinct clusters) of the latest N_eff clustering run."""
+        row = self._conn.execute(
+            "SELECT r.n_trials, COUNT(DISTINCT c.cluster_id) FROM clustering_runs r"
+            " LEFT JOIN trial_clusters c ON c.clustering_run = r.id"
+            " WHERE r.id = (SELECT MAX(id) FROM clustering_runs) GROUP BY r.id"
+        ).fetchone()
+        return None if row is None else (int(row[0]), int(row[1]))
+
     # ── portfolio + holdout (§3.2.1, §4.2) ──────────────────────────────────────────────
     def record_portfolio_variant(self, v: PortfolioVariant) -> None:
         self._insert(

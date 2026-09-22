@@ -30,3 +30,11 @@ Step 5b runs Optuna once, before the freeze, for each selected strategy with a f
 
 - The confirmation re-uses the original `candidate_id`, so it used to overwrite the original trial's returns file (finding 1). Artifacts are now written once per measurement (ADR-0013 amendment); the original trial's returns stay as measured.
 - **Policy when the confirmation fails:** the candidate leaves the portfolio at the next build. Falling back to the pre-calibration trial would select, after the fact, whichever of the two measurements looks better — a hidden selection step.
+
+## Amendment — first real-data run (2026-09-22)
+
+- **Attempts, errors, trials.** The calibration of RSI momentum made 50 Optuna attempts: 47 were measured at ③ (47 `param_opt` trials) and 3 failed inside the sandbox before anything was measured (`stop_distance = NaN` during the indicator warm-up). So "budget B ⇒ B + 1 rows" holds only when no attempt fails: B attempts = measured trials + errors, plus one confirmation trial. `CalibrationResult` now lists every `Attempt` (id, params, outcome `passed` / `rejected` / `error`, trial id, Sharpe, reason), and one `CALIBRATION_FINISHED` audit event records all B of them with the three counts.
+- **No made-up Sharpe.** An error has no returns and no Sharpe, so it has no `trials` row (§4.1 requires both). Optuna gets `FAILED_SCORE` to steer its search; that number is never stored as a Sharpe.
+- **Traceability of the real run** (it predates the event): all 50 attempt ids `…-opt000` to `…-opt049` are in `gate_results` at ③ — 47 with a trial id, 3 without and with the error — and in 50 `CANDIDATE_SUBMITTED` audit events.
+- **Effect on N and V[SR], measured, not assumed.** V[SR] cannot include an error (there is no value). N does not include it today (§4.1). Counting the 3 errors in N, each as its own cluster, would move the two variants of that campaign as follows: RSI `778e…` DSR 0.999 → 0.998 at N_eff (4 → 7), 0.986 → 0.985 at N_raw; SMA `d7bd…` **0.963 → 0.936** at N_eff — below `dsr_min` — and 0.792 → 0.788 at N_raw. The counting rule can therefore flip gate ⑤; it is an architecture-level question (§4.1), left open as O17.
+- Tests: `tests/validation/test_calibration.py::test_every_attempt_is_accounted_for`.

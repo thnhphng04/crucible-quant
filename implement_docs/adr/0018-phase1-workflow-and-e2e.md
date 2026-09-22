@@ -25,3 +25,7 @@ P1-01…P1-11 built each gate and step on its own. The phase gate (§7) asks for
 
 - **Orchestration inside the CLI:** rejected — the e2e test would then exercise argument parsing rather than the workflow, and phase 2's agent loop needs the same functions.
 - **E2E on the real research data:** rejected — slow, needs the network, and whether a hand-written strategy passes on a real market is a research result, not a harness property.
+
+## Amendment — RSI momentum v2 (2026-09-22)
+
+- `core/zoo/rsi_momentum_v2.py` trades only when ATR and the stop are finite and > 0; with `n < 14` v1 went long with a NaN stop before ATR(14) existed. v1 is kept unchanged: its trials, artifacts and archived source (by `strategy_hash`) are the history of the real run. v2 is a new strategy (new hash); it has not been submitted. Tests: `tests/core/strategy/test_zoo_rsi.py`.

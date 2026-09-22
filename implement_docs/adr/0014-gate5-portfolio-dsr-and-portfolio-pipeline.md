@@ -28,3 +28,4 @@ From ⑤ on the object under test is a portfolio, which the candidate `GatePipel
 ## Amendment — review of d765668
 
 - Every ⑤/⑥′ result also stores `ledger_snapshot` — the ledger-wide counts of trials and portfolio variants when the run started (`Ledger.snapshot()`). DSR falls as either grows, so a result is current only while the snapshot is unchanged; the freeze checks it (ADR-0016 amendment, finding 3).
+- **Both counts, side by side** (2026-09-22): the pass rule is unchanged (DSR at `N_eff` ≥ `dsr_min`), but every ⑤ result — and ⑥′'s stressed DSR — now reads `DSR a at N_eff=x, b at N_raw=y [N_eff = k clusters of m trials + u unclustered + v variants; N_eff/N_raw = r]`, and `detail` carries the same counts. On the real run N_eff = 4 against N_raw = 54 (r = 0.07); a gap that large must be visible where the result is read. Test: `tests/validation/test_portfolio_dsr.py::test_both_counts_and_the_clusters_are_reported`.

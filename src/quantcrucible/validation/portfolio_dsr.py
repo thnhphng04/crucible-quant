@@ -19,11 +19,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import GateResultRecord
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.n_eff import update_n_eff
 from quantcrucible.validation.portfolio import Portfolio
-from quantcrucible.validation.statistical import portfolio_dsr
+from quantcrucible.validation.statistical import DsrReport, portfolio_dsr
 
 G5_DSR = "g5_dsr"
 G6P_ROBUSTNESS = "g6p_robustness"
@@ -85,6 +86,28 @@ class PortfolioPipeline:
         return PortfolioOutcome(p_hash, True, tuple(results))
 
 
+def n_breakdown(ledger: Ledger, n_variants: int) -> dict[str, int]:
+    """How the two counts are formed: N_raw = trials + variants; N_eff = clusters of the latest
+    clustering run + trials it did not cover + variants (ADR-0014 amendment)."""
+    n_trials = ledger.trial_stats().n_raw
+    covered, clusters = ledger.latest_clustering() or (0, 0)
+    return {
+        "n_trials": n_trials, "n_clusters": clusters, "n_clustered_trials": covered,
+        "n_unclustered": n_trials - covered, "n_variants": n_variants,
+    }  # fmt: skip
+
+
+def dsr_counts(report: DsrReport, b: dict[str, int]) -> str:
+    """Both DSRs side by side, with the make-up of N_eff: a large gap must be visible."""
+    return (
+        f"DSR {report.dsr_n_eff:.3f} at N_eff={report.n_eff}, "
+        f"{report.dsr_n_raw:.3f} at N_raw={report.n_raw} "
+        f"[N_eff = {b['n_clusters']} clusters of {b['n_clustered_trials']} trials"
+        f" + {b['n_unclustered']} unclustered + {b['n_variants']} variants;"
+        f" N_eff/N_raw = {report.n_eff / report.n_raw:.2f}]"
+    )
+
+
 class DsrGate:
     """Gate ⑤: DSR(N_eff) of the consolidated portfolio ≥ ``gates.dsr_min``; DSR(N_raw) is
     always reported next to it (§4.1)."""
@@ -101,10 +124,8 @@ class DsrGate:
             ctx.ledger.total_portfolio_variants(),
             portfolio.periods_per_year,
         )
-        reason = (
-            f"DSR {report.dsr_n_eff:.3f} at N_eff={report.n_eff} "
-            f"(N_raw={report.n_raw}: {report.dsr_n_raw:.3f}); min {dsr_min:g}"
-        )
+        counts = n_breakdown(ctx.ledger, ctx.ledger.total_portfolio_variants())
+        reason = f"{dsr_counts(report, counts)}; min {dsr_min:g} (at N_eff)"
         return GateResult(
             passed=report.dsr_n_eff >= dsr_min,
             gate=self.id,
@@ -117,6 +138,6 @@ class DsrGate:
                 "sr_benchmark_n_raw": report.sr_benchmark_n_raw,
                 "sr": report.moments.sr, "skew": report.moments.skew,
                 "kurtosis": report.moments.kurtosis, "n_obs": report.moments.n_obs,
-                "clustering_run": clustering.run_id,
+                "clustering_run": clustering.run_id, **counts,
             },
         )  # fmt: skip
