@@ -107,8 +107,9 @@ def open_campaign(
     )
     _make_read_only(lock_path)
     return ledger.open_campaign(
-        campaign_id, holdout_range, sha256_file(lock_path), holdout_lock_hash
-    )
+        campaign_id, holdout_range, sha256_file(lock_path), holdout_lock_hash,
+        purpose=cfg.research.campaign.purpose, trial_budget=cfg.research.campaign.trial_budget,
+    )  # fmt: skip
 
 
 def assert_lock_matches(

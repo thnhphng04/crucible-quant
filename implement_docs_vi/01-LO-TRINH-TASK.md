@@ -235,10 +235,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** 1.000 mẫu liên tiếp qua ①a (property test); cùng seed cho cùng chuỗi; mọi loại clause đều được sinh; C-random không đọc được metric (test API + import). Xong: `agent/grammar.py` (genome có kiểu: 7 loại clause trên chuỗi giá và oscillator, and/or, stop theo ATR; renderer), `agent/engines/random_search.py`; `tests/agent/engines/test_random_search.py`. Chưa có take-profit cho tới O19.
 - **Cần:** P2-04.
 
-### ☐ P2-06 Scheduler ngân sách trial + campaign thử harness
+### ✅ P2-06 Scheduler ngân sách trial + campaign thử harness
 - **Kiến trúc:** §3.1.11 (ngân sách), §4.1, cổng ② (MinBTL).
 - **File:** `agent/scheduler.py`, `validation/run.py`, `validation/portfolio.py`, `validation/freeze.py`.
-- **Nghiệm thu khi:** hạn mức theo (engine, seed) không bao giờ bị vượt khi nhiều worker chạy đồng thời; campaign `harness_test` không dựng được danh mục, không đóng băng, không claim holdout; mở campaign mà `trial_budget` cộng `N` của ledger vượt mức MinBTL cho phép với độ dài IS thì bị từ chối.
+- **Nghiệm thu khi:** hạn mức theo (engine, seed) không bao giờ bị vượt khi nhiều worker chạy đồng thời; campaign `harness_test` không đóng băng được, nên không bao giờ claim được holdout (vẫn được dựng danh mục: phép so sánh §3.1.11 cần DSR danh mục của từng engine); mở campaign mà `trial_budget` cộng `N` của ledger vượt mức MinBTL cho phép với độ dài IS thì bị từ chối. Xong: `agent/scheduler.py` (hạn mức chia theo tỷ lệ engine rồi theo seed, mỗi lượt giữ chỗ được chốt là trial / không phải trial), schema ledger v6 `campaign_purposes` với trigger từ chối FROZEN cho campaign thử harness, `validation/run.py::_check_trial_budget`.
 - **Cần:** P2-02, P2-03.
 
 ### ☐ P2-07 Feature map biên cố định + archive riêng từng engine

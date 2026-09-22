@@ -235,10 +235,10 @@ No agent code in this phase (P1).
 - **Accept when:** 1,000 consecutive samples pass ①a (property test); the same seed gives the same sequence; every clause type is produced; C-random cannot read metrics (API + import test). Done: `agent/grammar.py` (typed genome: 7 clause types over price series and oscillators, and/or, ATR stop; renderer), `agent/engines/random_search.py`; `tests/agent/engines/test_random_search.py`. No take-profit until O19.
 - **Needs:** P2-04.
 
-### ☐ P2-06 Trial-budget scheduler + harness-test campaign
+### ✅ P2-06 Trial-budget scheduler + harness-test campaign
 - **Arch:** §3.1.11 (budget), §4.1, gate ② (MinBTL).
 - **Files:** `agent/scheduler.py`, `validation/run.py`, `validation/portfolio.py`, `validation/freeze.py`.
-- **Accept when:** quotas per (engine, seed) are never exceeded under concurrent workers; a `harness_test` campaign cannot build a portfolio, freeze or claim a holdout; opening a campaign whose `trial_budget` plus the ledger's `N` exceeds what MinBTL allows for the IS length is refused.
+- **Accept when:** quotas per (engine, seed) are never exceeded under concurrent workers; a `harness_test` campaign cannot freeze, so it can never claim a holdout (it may build portfolios: the §3.1.11 comparison needs each engine's portfolio DSR); opening a campaign whose `trial_budget` plus the ledger's `N` exceeds what MinBTL allows for the IS length is refused. Done: `agent/scheduler.py` (quotas by engine share then seed, reservations settled as trial / not a trial), ledger schema v6 `campaign_purposes` with a trigger refusing FROZEN for a harness-test campaign, `validation/run.py::_check_trial_budget`.
 - **Needs:** P2-02, P2-03.
 
 ### ☐ P2-07 Feature map with fixed bounds + per-engine archive

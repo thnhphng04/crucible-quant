@@ -19,6 +19,7 @@ from typing import Any, Self
 from quantcrucible.ledger.records import (
     CalibrationRun,
     Campaign,
+    CampaignPurpose,
     CampaignStatus,
     GateResultRecord,
     GenerationEvent,
@@ -38,6 +39,7 @@ MIGRATIONS = (
     "migration_003_claims_and_abandon.sql",
     "migration_004_calibration_runs.sql",
     "migration_005_island.sql",
+    "migration_006_campaign_purposes.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 # Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
@@ -126,13 +128,33 @@ class Ledger:
         lock_hash: str,
         holdout_lock_hash: str | None = None,
         started_at: datetime | None = None,
+        purpose: CampaignPurpose = "research",
+        trial_budget: int | None = None,
     ) -> Campaign:
         started = started_at or utc_now()
-        self._insert(
-            "INSERT INTO campaigns VALUES (?, ?, ?, ?, ?, 'OPEN')",
-            (campaign_id, _ts(started), holdout_range, lock_hash, holdout_lock_hash),
-        )
+        self._conn.execute("BEGIN")
+        try:
+            self._insert(
+                "INSERT INTO campaigns VALUES (?, ?, ?, ?, ?, 'OPEN')",
+                (campaign_id, _ts(started), holdout_range, lock_hash, holdout_lock_hash),
+            )
+            self._insert(
+                "INSERT INTO campaign_purposes VALUES (?, ?, ?)",
+                (campaign_id, purpose, trial_budget),
+            )
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
         return Campaign(campaign_id, started, holdout_range, lock_hash, holdout_lock_hash, "OPEN")
+
+    def campaign_purpose(self, campaign_id: str) -> tuple[CampaignPurpose, int | None]:
+        """(purpose, trial budget); a campaign opened before v6 is ``("research", None)``."""
+        row = self._conn.execute(
+            "SELECT purpose, trial_budget FROM campaign_purposes WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchone()
+        return ("research", None) if row is None else (row[0], row[1])
 
     def campaign(self, campaign_id: str) -> Campaign | None:
         row = self._conn.execute(

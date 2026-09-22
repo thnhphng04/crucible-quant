@@ -73,8 +73,8 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | ID | Bất biến | Kiến trúc | Cơ chế | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
 | INV-60 | Mọi ứng viên của engine đều được đánh giá qua `submit` → `GatePipeline`; không engine nào gọi thẳng backtester | P2, §3.1.11 | Lint (agent không được import execution/sandbox) + Code | `lint-imports`, `tests/e2e/test_phase2_random.py::test_every_candidate_has_ledger_rows` | P2-09 | ☐ |
-| INV-61 | Hạn mức trial của mỗi (engine, seed) không bao giờ bị vượt | §3.1.11 | Code | `tests/agent/test_scheduler.py::test_quota_never_exceeded_concurrently` | P2-06 | ☐ |
-| INV-62 | Campaign thử harness không bao giờ dựng danh mục, đóng băng hay claim holdout | §3.1.11, P6 | Code | `tests/validation/test_run.py::test_harness_test_campaign_cannot_freeze` | P2-06 | ☐ |
+| INV-61 | Hạn mức trial của mỗi (engine, seed) không bao giờ bị vượt | §3.1.11 | Code | `tests/agent/test_scheduler.py::test_quota_never_exceeded_concurrently`, `::test_existing_trials_count_against_the_quota` | P2-06 | ✅ |
+| INV-62 | Campaign thử harness không bao giờ bị đóng băng, nên không bao giờ claim hay mở holdout | §3.1.11, P6 | DB (`campaign_purposes` + trigger) | `tests/validation/test_run.py::test_harness_test_campaign_cannot_freeze`, `tests/ledger/test_db.py::test_harness_test_campaign_is_never_frozen` | P2-06 | ✅ |
 | INV-63 | Biên bin của feature map chỉ lấy từ lock của campaign | §3.1.3 | Code | `tests/agent/evolution/test_feature_map.py::test_bounds_only_from_lock` | P2-07 | ☐ |
 | INV-64 | Không chiến lược nào so một chuỗi theo thang giá với hằng số (bất biến theo thang giá) | §3.1.6, §3.1.11 | Code (cổng ①a) | `tests/validation/test_guardrail.py::test_price_vs_constant_rejected`, `::test_scale_invariant_rules_pass`, `::test_stop_must_be_in_price_units` | P2-04 | ✅ |
 | INV-65 | C-random không đọc kết quả nào | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ✅ |

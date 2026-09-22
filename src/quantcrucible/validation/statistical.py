@@ -46,6 +46,21 @@ def min_btl_years(n_trials: int, target_sharpe: float) -> float:
     return (expected_max_sharpe(n_trials) / target_sharpe) ** 2
 
 
+def max_trials_within(years: float, target_sharpe: float) -> int:
+    """The largest N whose MinBTL at ``target_sharpe`` fits in ``years`` of data (0 if none)."""
+    if min_btl_years(1, target_sharpe) > years:
+        return 0
+    lo, hi = 1, 2
+    while min_btl_years(hi, target_sharpe) <= years:
+        lo, hi = hi, hi * 2
+        if hi > 10**15:  # expected_max_sharpe grows like sqrt(2 ln N): effectively unbounded
+            return hi
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        lo, hi = (mid, hi) if min_btl_years(mid, target_sharpe) <= years else (lo, mid)
+    return lo
+
+
 @dataclass(frozen=True, slots=True)
 class SharpeMoments:
     """Per-observation Sharpe ratio plus the moments PSR corrects for.

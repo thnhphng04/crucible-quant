@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any, Literal
 
 CampaignStatus = Literal["OPEN", "FROZEN", "BURNED", "ABANDONED"]  # ABANDONED: ADR-0019
+CampaignPurpose = Literal["research", "harness_test"]  # harness_test: never frozen (§3.1.11)
 TrialSource = Literal["evolution", "param_opt", "manual"]
 
 

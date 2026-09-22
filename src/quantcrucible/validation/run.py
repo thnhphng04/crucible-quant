@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,11 +37,12 @@ from quantcrucible.validation.gates import (
     strategy_hash,
 )
 from quantcrucible.validation.guardrail import DynamicGuardrail, StaticGuardrail
-from quantcrucible.validation.is_gates import InSampleGate, MinBtlGate
+from quantcrucible.validation.is_gates import DAYS_PER_YEAR, InSampleGate, MinBtlGate
 from quantcrucible.validation.pbo import DEFAULT_SPLITS
 from quantcrucible.validation.pbo_gate import PboGate
 from quantcrucible.validation.robustness import COST_MULTIPLIER, MAX_SHARPE_DROP
 from quantcrucible.validation.sandbox import SandboxRunner
+from quantcrucible.validation.statistical import max_trials_within
 
 DEFAULT_LOOKBACK = 400
 MAX_LEVERAGE = 1.0  # spot, cash account: gross exposure never above equity (ADR-0010)
@@ -90,6 +91,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
         )
     holdout_lock = root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # range + hashes only: no prices
+    _check_trial_budget(cfg, ledger, str(manifest["range"]))
     base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     campaign_id, n = base, 1
     while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
@@ -102,6 +104,25 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
         derived=derived_settings(cfg.research.evolve_scope),
     )  # fmt: skip
     return campaign_id
+
+
+def _check_trial_budget(cfg: UserConfig, ledger: Ledger, holdout_range: str) -> None:
+    """Refuse a campaign whose trial budget, on top of the ledger's N (N never resets), needs
+    more IS history than there is before the holdout (gate ② at the locked target Sharpe)."""
+    budget = cfg.research.campaign.trial_budget
+    if budget is None:
+        return
+    is_end = date.fromisoformat(holdout_range[:10])
+    years = (is_end - cfg.research.data.start).days / DAYS_PER_YEAR
+    target = cfg.research.minbtl_target_sharpe
+    allowed = max_trials_within(years, target)
+    n_now = ledger.trial_stats().n_eff
+    if n_now + budget > allowed:
+        raise CampaignNotOpened(
+            f"trial_budget {budget} + N {n_now} already in the ledger exceeds what MinBTL allows "
+            f"for {years:.1f} years of IS data at target Sharpe {target:g} ({allowed} trials): "
+            "lower the budget or the number of seeds"
+        )
 
 
 @dataclass(frozen=True, slots=True)
