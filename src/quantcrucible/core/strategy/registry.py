@@ -11,6 +11,7 @@ Gate ①a allows calls to ``ind.<name>`` only for names listed in :data:`INDICAT
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -171,15 +172,41 @@ class _Indicators:
 
 ind = _Indicators()
 
-# name → how it is called: "series" f(array, n), "bars" f(bars, n), "predicate" f(view, view|float)
-INDICATORS: dict[str, IndicatorKind] = {
-    "sma": "series",
-    "ema": "series",
-    "rolling_max": "series",
-    "rolling_min": "series",
-    "zscore": "series",
-    "rsi": "series",
-    "atr": "bars",
-    "cross_up": "predicate",
-    "cross_down": "predicate",
+IndicatorOutput = Literal["same", "dimensionless", "price", "bool"]
+
+
+@dataclass(frozen=True, slots=True)
+class OpSpec:
+    """What the typed DSL knows about one indicator (arch §3.1.11, P2-04).
+
+    ``output`` is its unit: ``same`` as the input series, ``dimensionless`` (bounded or
+    normalized), ``price`` (price units whatever the input) or ``bool`` (predicates).
+    ``period`` is the default range of its period argument, ``value_range`` the typical range
+    of a dimensionless output (where thresholds are drawn), ``warmup(n)`` the number of bars
+    until the first finite value.
+    """
+
+    kind: IndicatorKind
+    output: IndicatorOutput
+    period: tuple[int, int] | None = None
+    value_range: tuple[float, float] | None = None
+    warmup_extra: int = 0
+
+    def warmup(self, n: int) -> int:
+        return n + self.warmup_extra
+
+
+OPS: dict[str, OpSpec] = {
+    "sma": OpSpec("series", "same", (2, 300)),
+    "ema": OpSpec("series", "same", (2, 300)),
+    "rolling_max": OpSpec("series", "same", (2, 300)),
+    "rolling_min": OpSpec("series", "same", (2, 300)),
+    "zscore": OpSpec("series", "dimensionless", (5, 300), (-3.0, 3.0)),
+    "rsi": OpSpec("series", "dimensionless", (2, 100), (0.0, 100.0), warmup_extra=1),
+    "atr": OpSpec("bars", "price", (2, 100)),
+    "cross_up": OpSpec("predicate", "bool"),
+    "cross_down": OpSpec("predicate", "bool"),
 }
+
+# name → how it is called: "series" f(array, n), "bars" f(bars, n), "predicate" f(view, view|float)
+INDICATORS: dict[str, IndicatorKind] = {name: spec.kind for name, spec in OPS.items()}

@@ -174,3 +174,78 @@ def test_malicious_snippets(ctx: GateContext, indicators: str, signal: str, frag
     assert not result.passed
     assert result.event == Event.AST_REJECT
     assert fragment in result.reason, result.reason
+
+
+# ── scale invariance (arch §3.1.6, §3.1.11 rule 2) — INV-64 ─────────────────────────────────
+PRICE_IND = """
+    def indicators(self, bars: Bars) -> Features:
+        return {
+            "c": bars.close, "m": ind.sma(bars.close, self.p.n), "atr": ind.atr(bars, 14),
+            "r": ind.rsi(bars.close, self.p.n), "z": ind.zscore(bars.close, self.p.n),
+            "v": bars.volume,
+        }
+"""
+
+
+def sig(expr: str, stop: str = 'self.p.k * x["atr"]') -> str:
+    return (
+        SIG
+        + f"        if {expr}:\n            return Signal('long', 1.0, {stop})\n"
+        + ("        return Signal('flat', 0.0, 0.0)\n")
+    )
+
+
+SCALE_REJECTED = [
+    ('x["c"] > self.p.k', "price"),
+    ('x["m"] < self.p.k', "price"),
+    ('x["c"] - x["m"] > self.p.k', "price"),
+    ('x["atr"] > self.p.k', "price"),
+    ('x["c"] > x["r"]', "price"),
+    ('x["c"] > x["v"]', "volume"),
+    ('x["r"] + x["c"] > self.p.k', "adds"),
+    ('ind.cross_up(x["c"], self.p.k)', "price"),
+    ('max(x["c"], x["r"]) > 1', "price"),
+]
+
+
+@pytest.mark.parametrize(("expr", "fragment"), SCALE_REJECTED)
+def test_price_vs_constant_rejected(ctx: GateContext, expr: str, fragment: str) -> None:
+    src = render(canonical_template(), {"joint": TUNABLES + PRICE_IND + sig(expr)})
+    result = run(ctx, src, PARAMS)
+    assert not result.passed and result.event == Event.AST_REJECT, result.reason
+    assert "scale" in result.reason and fragment in result.reason, result.reason
+
+
+SCALE_OK = [
+    'x["c"] > x["m"]',
+    'x["c"] / x["m"] > self.p.k',
+    '(x["c"] - x["m"]) / x["atr"] > self.p.k',
+    'x["r"] > self.p.k',
+    'x["z"] < -self.p.k',
+    'x["atr"] > 0 and x["atr"] - x["atr"] == 0',
+    'x["c"] - x["m"] > self.p.k * x["atr"]',
+    'ind.cross_up(x["c"], x["m"])',
+    'ind.cross_up(x["r"], self.p.k)',
+    'max(x["c"], x["m"]) > x["c"].ago(1)',
+    'abs(x["c"] - x["m"]) < x["atr"]',
+    'x["v"] > x["v"].ago(1)',
+]
+
+
+@pytest.mark.parametrize("expr", SCALE_OK)
+def test_scale_invariant_rules_pass(ctx: GateContext, expr: str) -> None:
+    src = render(canonical_template(), {"joint": TUNABLES + PRICE_IND + sig(expr)})
+    result = run(ctx, src, PARAMS)
+    assert result.passed, result.reason
+
+
+@pytest.mark.parametrize(
+    ("stop", "fragment"),
+    [("self.p.k", "stop_distance"), ('x["r"]', "stop_distance"), ('x["c"] * x["c"]', "price²")],
+)
+def test_stop_must_be_in_price_units(ctx: GateContext, stop: str, fragment: str) -> None:
+    src = render(
+        canonical_template(), {"joint": TUNABLES + PRICE_IND + sig('x["r"] > self.p.k', stop)}
+    )
+    result = run(ctx, src, PARAMS)
+    assert not result.passed and fragment in result.reason, result.reason

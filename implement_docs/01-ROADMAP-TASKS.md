@@ -222,10 +222,10 @@ No agent code in this phase (P1).
 - **Accept when:** provenance round-trips to both tables; migration 4 → 5 runs on a v4 database; the append-only triggers still hold.
 - **Needs:** P2-01.
 
-### ☐ P2-04 Typed DSL + scale invariance at gate ①a
+### ✅ P2-04 Typed DSL + scale invariance at gate ①a
 - **Arch:** §3.1.6, §3.3.1 rule 3, §3.1.11 rule 2.
 - **Files:** `core/strategy/registry.py` (`OpSpec`: input/output types, parameter kinds and bounds, warm-up), `validation/guardrail.py`, `agent/dsl.py`.
-- **Accept when:** test first — comparing a price-scale series (e.g. `bars.close`) with a constant or a TUNABLE is `AST_REJECT`; every zoo strategy still passes ①a; type-inference unit tests.
+- **Accept when:** test first — comparing a price-scale series (e.g. `bars.close`) with a constant or a TUNABLE is `AST_REJECT`; every zoo strategy still passes ①a; type-inference unit tests. Done: scale invariance is a unit (dimension) check in `core/strategy/dims.py`, run by gate ①a after the structural whitelist; `OPS` in the registry carries each operator's output unit, period range, value range and warm-up (no separate `agent/dsl.py`).
 - **Needs:** P2-01.
 
 ### ☐ P2-05 Grammar sampler + renderer = engine C-random

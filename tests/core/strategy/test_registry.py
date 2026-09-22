@@ -114,3 +114,26 @@ def test_short_input_is_all_nan() -> None:
     bars = bars_from_close([1.0, 2.0])
     for name in SERIES:
         assert np.isnan(_compute(name, bars, 5)).all()
+
+
+# ── OpSpec metadata (typed DSL, arch §3.1.11) ─────────────────────────────────────────────────
+@pytest.mark.parametrize("name", SERIES)
+def test_warmup_matches_first_valid_value(name: str) -> None:
+    """The declared warm-up is exactly where the indicator becomes finite on clean data —
+    the generator relies on it to emit its readiness guard."""
+    spec = registry.OPS[name]
+    bars = make_bars(300, seed=3)
+    for n in (2, 5, 14, 30):
+        values = _compute(name, bars, n)
+        first = int(np.argmax(np.isfinite(values)))
+        assert first == spec.warmup(n) - 1, (name, n, first)
+
+
+def test_every_indicator_has_a_spec() -> None:
+    assert set(registry.OPS) == set(INDICATORS)
+    for name, spec in registry.OPS.items():
+        assert spec.kind == INDICATORS[name]
+        if spec.kind != "predicate":
+            assert spec.period is not None and 1 < spec.period[0] < spec.period[1]
+        if spec.output == "dimensionless":
+            assert spec.value_range is not None

@@ -222,10 +222,10 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** provenance ghi đúng vào cả hai bảng; migration 4 → 5 chạy được trên DB v4; các trigger append-only vẫn giữ.
 - **Cần:** P2-01.
 
-### ☐ P2-04 DSL có kiểu + bất biến theo thang giá ở cổng ①a
+### ✅ P2-04 DSL có kiểu + bất biến theo thang giá ở cổng ①a
 - **Kiến trúc:** §3.1.6, §3.3.1 luật 3, §3.1.11 luật 2.
 - **File:** `core/strategy/registry.py` (`OpSpec`: kiểu vào/ra, loại tham số và biên, warm-up), `validation/guardrail.py`, `agent/dsl.py`.
-- **Nghiệm thu khi:** test trước — so một chuỗi theo thang giá (vd `bars.close`) với hằng số hoặc TUNABLE là `AST_REJECT`; mọi chiến lược trong zoo vẫn qua ①a; unit test suy luận kiểu.
+- **Nghiệm thu khi:** test trước — so một chuỗi theo thang giá (vd `bars.close`) với hằng số hoặc TUNABLE là `AST_REJECT`; mọi chiến lược trong zoo vẫn qua ①a; unit test suy luận kiểu. Xong: bất biến theo thang giá là một phép kiểm tra đơn vị (thứ nguyên) trong `core/strategy/dims.py`, cổng ①a chạy nó sau whitelist cấu trúc; `OPS` trong registry mang đơn vị đầu ra, khoảng chu kỳ, khoảng giá trị và warm-up của từng toán tử (không cần `agent/dsl.py` riêng).
 - **Cần:** P2-01.
 
 ### ☐ P2-05 Bộ lấy mẫu văn phạm + renderer = engine C-random
