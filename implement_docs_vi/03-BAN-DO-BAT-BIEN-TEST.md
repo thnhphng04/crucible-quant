@@ -84,5 +84,9 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-69 | Run bị ngắt không để lại container sandbox nào | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
 | INV-70 | Giao thức so sánh được khóa trước trial đầu tiên của lần chạy | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
 | INV-71 | Các slot đánh giá đẩy mọi (engine, seed) tiến cùng nhau, nên một lần chạy dở dang vẫn so sánh được ngang bằng | §3.1.11, ADR-0027 | Code | `tests/agent/test_pipeline.py::test_the_slots_are_shared_fairly_between_engines_and_seeds` | P2-15 | ✅ |
+| INV-72 | Mỗi campaign chỉ có một lượt evolve tại một thời điểm: hai lượt sẽ tiêu cùng một hạn mức hai lần | §3.1.11, §4.1 | OS (khóa file) | `tests/agent/test_runlock.py::test_a_second_run_of_the_same_campaign_is_refused`, `::test_evolve_refuses_while_another_run_holds_the_campaign` | P2-15 | ✅ |
+| INV-73 | Không phát quyết định engine trước khi cả hai arm dùng hết hạn mức, và không phát từ arm bị dừng sớm | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_report_before_the_quotas_are_used_is_progress_only`, `::test_an_unfinished_or_stopped_run_yields_no_engine_decision` | P2-15 | ✅ |
+| INV-74 | Một campaign chỉ được báo cáo theo đúng giao thức mà nó đã khóa | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_campaign_is_only_reported_under_the_protocol_it_locked` | P2-15 | ✅ |
+| INV-75 | Con render ra đúng code của cha thì tính vào `param_only_max`, bất kể toán tử nào tạo ra nó | D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_a_structural_child_that_only_moved_numbers_counts_as_parameter_only` | P2-15 | ✅ |
 
 Hoãn cùng engine A/B (D19): không key `private` nào xuất hiện trong prompt đã log (§3.3.2); ngưỡng của cổng drift ⓪ được áp dụng đúng như đã khóa (§3.1.7).

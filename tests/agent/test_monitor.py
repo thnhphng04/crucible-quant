@@ -8,10 +8,12 @@ from quantcrucible.agent.engines.random_search import Proposal, RandomSearch
 from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.monitor import (
     EarlyStop,
+    already_stopped,
     checkpoints,
     engine_report,
     record_checkpoint,
     record_holder,
+    stopped_keys,
 )
 from quantcrucible.agent.pipeline import Outcome, Pipeline
 from quantcrucible.agent.scheduler import Key, TrialScheduler
@@ -69,6 +71,31 @@ def test_checkpoints_only_every_n_trials(ledger: Ledger) -> None:
     stop(("gp", 0), 25)
     assert len(checkpoints(ledger, "c1", "gp", 0)) == 1
     assert record_checkpoint(ledger, "c1", "random", 0, "run") is None  # no trial yet
+
+
+def test_a_stopped_engine_stays_stopped_after_a_restart(ledger: Ledger) -> None:
+    """The stop decision lives in the ledger's checkpoints, not in the run that made it: a new
+    run must not hand the engine one more trial before deciding again."""
+    stop = EarlyStop(ledger, "c1", "run", every=1)
+    for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2)]):
+        _trial(ledger, f"x{k}", is_sr, [oos, oos, oos])
+        stop(("gp", 0), k + 1)
+    assert already_stopped(ledger, "c1", ("gp", 0))
+    assert not already_stopped(ledger, "c1", ("random", 0))
+
+    proposed: list[Key] = []
+
+    def evaluate(key: Key, p: Proposal, cid: str) -> Outcome:
+        proposed.append(key)
+        return Outcome(cid, True, True)
+
+    limits = {("gp", 0): 5, ("random", 0): 5}
+    stats = Pipeline(
+        {k: RandomSearch(seed=i) for i, k in enumerate(limits)}, TrialScheduler(limits),
+        evaluate, 1, "t2", stopped=stopped_keys(ledger, "c1", limits),
+    ).run()  # fmt: skip
+    assert ("gp", 0) not in proposed and stats.stopped == {("gp", 0)}
+    assert stats.trials[("random", 0)] == 5
 
 
 def test_engine_report(ledger: Ledger) -> None:

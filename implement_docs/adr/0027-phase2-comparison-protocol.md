@@ -24,3 +24,12 @@
 
 - **A t-test on seed means:** rejected for now — with 3 seeds it has little power and hides the arch's plain "beyond the spread" rule.
 - **Protocol only in an ADR file:** rejected — a file cannot prove it predates the run; the ledger's append order can.
+
+## Amendment — protocol v2 (2026-09-23)
+
+The first run of v1 exposed two holes, both found before any result was read.
+
+1. **Completeness was implicit.** `decide` ran on whatever the ledger held, so a campaign that had evaluated 3 of 600 trials — all of them GP's — reported `gp_beats_random`. v2 adds `complete`: every (engine, seed) of both arms must have used its whole quota, and with `>= 3` seeds, or the report shows progress under the outcome `incomplete` and withholds the decision. An arm the monitor stopped for IS→OOS divergence gives `stopped_early`: the divergence is the finding, and no engine decision comes out of that campaign.
+2. **The locked hash did not bind.** The report recomputed the hash from the code and never compared it with the campaign's `PROTOCOL_LOCKED` event, so editing `PROTOCOL` silently re-interpreted an older campaign. The report and `evolve` now refuse a campaign whose locked hash differs from the code's (`assert_protocol_is_the_locked_one`), and `lock_protocol` refuses to lock a second, different protocol.
+
+Both fixes only tighten the rule, but v2 changes the hash, so campaign `c-20260922-181850` (locked under v1) cannot run under it. Its 121 trials stay in `N`, as every trial does, and the comparison starts again in a new campaign. Two further defects fixed in the same pass affected what the run measured: the evaluation slots were spent on the first (engine, seed) alone (INV-71), and the two arms' portfolio DSRs were computed at different variant counts because each was recorded before the next was built — both arms are now deflated against one snapshot.

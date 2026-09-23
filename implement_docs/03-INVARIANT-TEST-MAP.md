@@ -84,5 +84,9 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-69 | An interrupted run leaves no sandbox container | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
 | INV-70 | The comparison protocol is locked before the run's first trial | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
 | INV-71 | The evaluation slots advance every (engine, seed) together, so a partial run compares like with like | §3.1.11, ADR-0027 | Code | `tests/agent/test_pipeline.py::test_the_slots_are_shared_fairly_between_engines_and_seeds` | P2-15 | ✅ |
+| INV-72 | One evolve run per campaign at a time: two runs would spend the same quota twice | §3.1.11, §4.1 | OS (file lock) | `tests/agent/test_runlock.py::test_a_second_run_of_the_same_campaign_is_refused`, `::test_evolve_refuses_while_another_run_holds_the_campaign` | P2-15 | ✅ |
+| INV-73 | No engine decision before both arms used their quota, and none from an early-stopped arm | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_report_before_the_quotas_are_used_is_progress_only`, `::test_an_unfinished_or_stopped_run_yields_no_engine_decision` | P2-15 | ✅ |
+| INV-74 | A campaign is reported only under the protocol it locked | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_campaign_is_only_reported_under_the_protocol_it_locked` | P2-15 | ✅ |
+| INV-75 | A child that renders to its parent's code counts against `param_only_max`, whatever operator made it | D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_a_structural_child_that_only_moved_numbers_counts_as_parameter_only` | P2-15 | ✅ |
 
 Deferred with engines A/B (D19): `private` keys absent from every logged prompt (§3.3.2); drift gate ⓪ thresholds applied as locked (§3.1.7).

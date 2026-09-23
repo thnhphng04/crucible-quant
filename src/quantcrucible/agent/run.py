@@ -16,7 +16,7 @@ from quantcrucible.agent.compare import ProtocolError, assert_protocol_predates_
 from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
 from quantcrucible.agent.evolution.feature_map import FeatureMap
-from quantcrucible.agent.monitor import EarlyStop
+from quantcrucible.agent.monitor import EarlyStop, stopped_keys
 from quantcrucible.agent.pipeline import (
     DEFAULT_WORKERS,
     Engine,
@@ -24,6 +24,7 @@ from quantcrucible.agent.pipeline import (
     RunStats,
     session_evaluator,
 )
+from quantcrucible.agent.runlock import RunLockError, campaign_run_lock
 from quantcrucible.agent.scheduler import Key, TrialScheduler, quotas
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.pbo_gate import periods_per_year
@@ -96,10 +97,20 @@ def evolve(
             assert_protocol_predates_trials(session.ledger, session.campaign_id)
         except ProtocolError as e:
             raise EvolveError(str(e)) from e
-    measured = {
+    label = run_label or "run-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    try:  # INV-72: the scheduler only sees the workers of its own run
+        with campaign_run_lock(session.ledger.path, session.campaign_id, label):
+            return _run_locked(session, limits, workers, label)
+    except RunLockError as e:
+        raise EvolveError(str(e)) from e
+
+
+def _run_locked(
+    session: ResearchSession, limits: dict[Key, int], workers: int, label: str
+) -> RunStats:
+    measured = {  # read under the lock: no other run is adding trials meanwhile
         k: len(session.ledger.trials(session.campaign_id, engine=k[0], seed=k[1])) for k in limits
     }
-    label = run_label or "run-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     pipeline = Pipeline(
         {k: _engine(session, k, label) for k in limits},
         TrialScheduler(limits, measured),
@@ -108,5 +119,6 @@ def evolve(
         label,
         on_abort=getattr(session.sandbox, "kill_all", None),
         monitor=EarlyStop(session.ledger, session.campaign_id, label),
+        stopped=stopped_keys(session.ledger, session.campaign_id, limits),
     )
     return pipeline.run()

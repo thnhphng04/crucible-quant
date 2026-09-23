@@ -17,6 +17,7 @@ A child is never an optimizer step: each evaluated child is one trial (§3.3.1).
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import numpy as np
@@ -41,6 +42,7 @@ from quantcrucible.agent.grammar import (
     sample_clause,
     sample_level,
 )
+from quantcrucible.validation.gates import strategy_hash
 
 MutationKind = Literal["param", "point", "subtree", "crossover"]
 STRUCTURAL: tuple[MutationKind, ...] = ("point", "subtree", "crossover")
@@ -51,6 +53,16 @@ LEVEL_STEP = 0.1  # a level or multiplier moves by N(0, 10%) of its range
 
 class OperatorFailed(RuntimeError):
     """No valid child from this operator (e.g. the TUNABLE budget would be exceeded)."""
+
+
+def changed_params_only(source: str, parents: Sequence[str]) -> bool:
+    """Whether this child renders to its first parent's code, so only TUNABLE values moved.
+
+    Judged by the rendered code, not by the operator that was drawn: ``subtree`` may replace an
+    indicator with the same indicator at another period, which the template carries as a TUNABLE.
+    Such a child is a variant of the parent's code for gate ④, so it counts against
+    ``param_only_max`` (D20, INV-66) whatever its label says."""
+    return bool(parents) and strategy_hash(source) == parents[0]
 
 
 def choose_kind(

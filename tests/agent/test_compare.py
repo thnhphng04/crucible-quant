@@ -62,6 +62,21 @@ def test_protocol_predates_first_trial(ledger: Ledger, tmp_path: Path) -> None:
         assert_protocol_predates_trials(ledger, "c1")
 
 
+def test_a_campaign_is_only_reported_under_the_protocol_it_locked(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """INV-70: the locked hash binds. Changing PROTOCOL in the code does not re-interpret a
+    campaign that ran under the old one."""
+    lock_protocol(ledger, "c1")
+    monkeypatch.setitem(PROTOCOL, "beats", "mean(gp) > mean(random)")
+    with pytest.raises(ProtocolError, match="locked protocol"):
+        assert_protocol_predates_trials(ledger, "c1")
+    with pytest.raises(ProtocolError, match="another protocol"):
+        lock_protocol(ledger, "c1")
+    with pytest.raises(ProtocolError, match="locked protocol"):
+        compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
+
+
 def test_the_protocol_is_recorded_once_before_anything_runs(tmp_path: Path) -> None:
     lg = Ledger.open(tmp_path / "ok.db")
     lg.open_campaign("c1", "2024-01-01/2025-01-01", lock_hash="h")
@@ -88,14 +103,44 @@ def test_decision_rule(gp: list[float], rnd: list[float], outcome: str) -> None:
     assert d["outcome"] == outcome and d["action"] == PROTOCOL["decision"][outcome]
 
 
-def test_report_from_the_ledger(ledger: Ledger, tmp_path: Path) -> None:
-    lock_protocol(ledger, "c1")
+def test_an_unfinished_or_stopped_run_yields_no_engine_decision() -> None:
+    """A landslide measured at different budgets is not a result (protocol v2)."""
+    landslide = {"gp": [40.0, 41.0, 39.0], "random": [0.0, 0.0, 0.0]}
+    assert decide(landslide)["outcome"] == "gp_beats_random"
+    half = decide(landslide, unfinished=["random-s0", "random-s1", "random-s2"])
+    assert half["outcome"] == "incomplete" and half["unfinished"][0] == "random-s0"
+    halted = decide(landslide, unfinished=["random-s0"], stopped=["gp-s2"])
+    assert halted["outcome"] == "stopped_early" and halted["stopped_early"] == ["gp-s2"]
+
+
+def _fill(ledger: Ledger, per_unit: int, gp_pass: int, random_pass: int) -> None:
     for seed in range(3):
-        for k in range(4):
-            _candidate(ledger, f"g{seed}{k}", "gp", seed, 1.0 + k, ["trend"], g4_pass=k < 2)
-            _candidate(ledger, f"r{seed}{k}", "random", seed, 1.0 + k, ["trend"], g4_pass=k < 1)
+        for k in range(per_unit):
+            _candidate(ledger, f"g{seed}{k}", "gp", seed, 1.0 + k, ["trend"], g4_pass=k < gp_pass)
+            _candidate(ledger, f"r{seed}{k}", "random", seed, 1.0 + k, ["trend"],
+                       g4_pass=k < random_pass)  # fmt: skip
+
+
+def test_report_from_the_ledger(ledger: Ledger, tmp_path: Path) -> None:
+    """The campaign's budget is 60 over 2 arms x 3 seeds, so a unit is done at 10 trials."""
+    lock_protocol(ledger, "c1")
+    _fill(ledger, per_unit=10, gp_pass=5, random_pass=2)
     report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
     assert [r["trial_efficiency"] for r in report["per_seed"]["gp"]] == [50.0] * 3
-    assert [r["trial_efficiency"] for r in report["per_seed"]["random"]] == [25.0] * 3
+    assert [r["trial_efficiency"] for r in report["per_seed"]["random"]] == [20.0] * 3
+    assert report["completeness"]["unfinished"] == []
+    assert report["completeness"]["per_unit"]["gp-s0"] == {"trials": 10, "quota": 10}
     assert report["decision"]["outcome"] == "gp_beats_random"
     assert report["protocol_sha256"] == protocol_hash()
+
+
+def test_a_report_before_the_quotas_are_used_is_progress_only(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """INV-73: 4 of 10 trials per unit, none of them random's — the arms are not comparable."""
+    lock_protocol(ledger, "c1")
+    _fill(ledger, per_unit=4, gp_pass=2, random_pass=0)
+    report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
+    assert report["decision"]["outcome"] == "incomplete"
+    assert len(report["completeness"]["unfinished"]) == 6
+    assert report["per_seed"]["gp"][0]["trial_efficiency"] == 50.0  # progress is still shown

@@ -293,7 +293,7 @@ No agent code in this phase (P1).
 ### ◐ P2-15 Comparison protocol + the real run
 - **Arch:** §3.1.11 (comparison, decision rule).
 - **Details:** an ADR locked before running (metrics, seed-spread definition, `trial_budget`, quotas); a read-only comparison report; one harness-test campaign on real IS data: C-gp and C-random × 3 seeds.
-- **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule. Done so far: [ADR-0027](adr/0027-phase2-comparison-protocol.md), `agent/compare.py` (protocol locked as a `PROTOCOL_LOCKED` audit event before any trial; `cli compare --lock` / `cli compare`), `config/user.yaml` set for the run (harness_test, 600 trials). Remaining: the run itself (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — needs Docker, ≈ 10–15 h.
+- **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule. Done so far: [ADR-0027](adr/0027-phase2-comparison-protocol.md) with its v2 amendment, `agent/compare.py` (protocol locked as a `PROTOCOL_LOCKED` audit event before any trial and binding on the report; completeness before any decision; both arms' DSR at one snapshot), `agent/runlock.py` (INV-72), fair slot sharing (INV-71), `config/user.yaml` set for the run (harness_test, 600 trials). A first run under protocol v1 was stopped after 121 trials (campaign `c-20260922-181850`): the slots never left `gp-s0`, and the review that followed found six more defects. Its trials stay in `N`. Remaining: the run itself on a fresh campaign (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — needs Docker, ≈ 18 h at the measured 110 s/trial.
 - **Needs:** P2-13, P2-14.
 
 ---

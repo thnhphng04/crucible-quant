@@ -293,7 +293,7 @@ Không có code agent trong giai đoạn này (P1).
 ### ◐ P2-15 Giao thức so sánh + lần chạy thật
 - **Kiến trúc:** §3.1.11 (so sánh, quy tắc quyết định).
 - **Chi tiết:** một ADR khóa trước khi chạy (chỉ số, định nghĩa độ dao động giữa các seed, `trial_budget`, hạn mức); báo cáo so sánh chỉ đọc; một campaign thử harness trên dữ liệu IS thật: C-gp và C-random × 3 seed.
-- **Nghiệm thu khi:** ADR có trước trial đầu tiên của lần chạy (đối chiếu với ledger); báo cáo áp đúng quy tắc quyết định. Đã xong: [ADR-0027](adr/0027-giao-thuc-so-sanh-giai-doan-2.md), `agent/compare.py` (giao thức khóa bằng event audit `PROTOCOL_LOCKED` trước mọi trial; `cli compare --lock` / `cli compare`), `config/user.yaml` đặt cho lần chạy (harness_test, 600 trial). Còn lại: chính lần chạy (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — cần Docker, ≈ 10–15 giờ.
+- **Nghiệm thu khi:** ADR có trước trial đầu tiên của lần chạy (đối chiếu với ledger); báo cáo áp đúng quy tắc quyết định. Đã xong: [ADR-0027](adr/0027-giao-thuc-so-sanh-giai-doan-2.md) cùng phần bổ sung v2, `agent/compare.py` (giao thức khóa bằng event audit `PROTOCOL_LOCKED` trước mọi trial và ràng buộc báo cáo; kiểm tra chạy xong trước mọi quyết định; DSR hai arm trên cùng một ảnh chụp), `agent/runlock.py` (INV-72), chia slot công bằng (INV-71), `config/user.yaml` đặt cho lần chạy (harness_test, 600 trial). Lần chạy đầu theo giao thức v1 đã dừng sau 121 trial (campaign `c-20260922-181850`): các slot không bao giờ rời `gp-s0`, và đợt review sau đó tìm thêm sáu lỗi. Số trial đó vẫn nằm trong `N`. Còn lại: chính lần chạy trên một campaign mới (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — cần Docker, ≈ 18 giờ theo tốc độ đo được 110 giây/trial.
 - **Cần:** P2-13, P2-14.
 
 ---

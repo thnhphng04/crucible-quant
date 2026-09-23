@@ -17,6 +17,7 @@ is never involved (INV-47).
 from __future__ import annotations
 
 import statistics
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -76,6 +77,18 @@ def record_checkpoint(
         )
     )  # fmt: skip
     return DegradationPoint(cid, is_sharpe, oos)
+
+
+def already_stopped(ledger: Ledger, campaign_id: str, key: Key) -> bool:
+    """Whether the checkpoints in the ledger already condemn this (engine, seed). The stop
+    decision is derived state like everything else, so a restart honours it before proposing
+    (without this, every restart of a stopped engine costs one more trial)."""
+    engine, seed = key
+    return is_oos_diverging(checkpoints(ledger, campaign_id, engine, seed))
+
+
+def stopped_keys(ledger: Ledger, campaign_id: str, keys: Iterable[Key]) -> set[Key]:
+    return {k for k in keys if already_stopped(ledger, campaign_id, k)}
 
 
 @dataclass

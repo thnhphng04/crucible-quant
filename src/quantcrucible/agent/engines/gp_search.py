@@ -39,6 +39,7 @@ from quantcrucible.agent.evolution.operators import (
     MutationKind,
     OperatorFailed,
     breed,
+    changed_params_only,
     choose_kind,
 )
 from quantcrucible.agent.evolution.ranking import RankContext, scores
@@ -106,13 +107,15 @@ class GpSearch:
         self.seen: set[tuple[str, tuple[tuple[str, float | int], ...]]] = set()
         for _event, _island, detail in self._submissions():
             self.proposals += 1
-            if detail.get("mutation"):
-                self.children += 1
-                self.param_only += detail["mutation"] == "param"
             genome = detail.get("descriptors", {}).get("genome")
+            source = None
             if genome is not None:
                 source, params = render_genome(load_genome(genome))
                 self.seen.add((source, tuple(sorted(params.items()))))
+            if detail.get("mutation"):
+                self.children += 1
+                parents = tuple(str(p) for p in detail.get("parents", ()))
+                self.param_only += source is not None and changed_params_only(source, parents)
 
     # ── ledger state ────────────────────────────────────────────────────────────────────
     def _submissions(self) -> list[tuple[str, str | None, Mapping[str, Any]]]:
@@ -194,6 +197,6 @@ class GpSearch:
             self.proposals += 1
             if proposal.mutation is not None:
                 self.children += 1
-                self.param_only += proposal.mutation == "param"
+                self.param_only += changed_params_only(proposal.source, proposal.parents)
             return proposal
         raise RuntimeError(f"island {island}: no new proposal after {MAX_TRIES} tries")

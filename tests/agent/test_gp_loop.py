@@ -19,7 +19,14 @@ from quantcrucible.agent.engines.random_search import Proposal
 from quantcrucible.agent.evolution.archive import trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.evolution.islands import island_names, migrations
-from quantcrucible.agent.grammar import categories, genome_to_dict, signature
+from quantcrucible.agent.evolution.operators import changed_params_only
+from quantcrucible.agent.grammar import (
+    categories,
+    genome_to_dict,
+    load_genome,
+    render_genome,
+    signature,
+)
 from quantcrucible.agent.pipeline import Outcome, Pipeline
 from quantcrucible.agent.scheduler import Key, TrialScheduler
 from quantcrucible.ledger.db import Ledger
@@ -149,7 +156,13 @@ def test_evolution_actually_happens_on_every_island(loop: tuple[Ledger, GpSearch
     )  # fmt: skip
     assert {"param", "point", "subtree", "crossover"} <= set(kinds)
     bred = sum(v for k, v in kinds.items() if k)
-    assert kinds["param"] <= 0.30 * bred + 1  # INV-66 over the run
+    param_only = sum(
+        changed_params_only(render_genome(load_genome(d["descriptors"]["genome"]))[0],
+                            [str(p) for p in d.get("parents", ())])
+        for e, _i, d in ledger.events_for("c1", engine="gp", seed=0)
+        if e == Event.CANDIDATE_SUBMITTED and d and d.get("mutation")
+    )  # fmt: skip
+    assert param_only <= 0.30 * bred + 1  # INV-66 over the run, counted by what changed
     assert len(migrations(ledger, "c1", "gp", 0)) >= GENERATIONS // 10 - 1
 
 

@@ -128,12 +128,18 @@ class DegradationPoint:
     oos_median_sharpe: float
 
 
+FLAT_SLOPE = 1e-9  # a fitted slope this small is arithmetic noise, not a moving line
+
+
 def is_oos_diverging(points: Sequence[DegradationPoint], min_points: int = 3) -> bool:
     """The p-hacking signal of §3.2: the IS record line rises while the same strategies' CPCV-OOS
-    median is flat or falling (OLS slopes over the checkpoints). Needs ``min_points``."""
+    median is flat or falling (OLS slopes over the checkpoints). Needs ``min_points``.
+
+    A line that does not move has a fitted slope of ~1e-17 whose sign is meaningless, so both
+    slopes are read against ``FLAT_SLOPE``: an IS line that stands still never diverges."""
     if len(points) < min_points:
         return False
     x = np.arange(len(points), dtype=np.float64)
     is_slope = float(np.polyfit(x, [p.is_sharpe for p in points], 1)[0])
     oos_slope = float(np.polyfit(x, [p.oos_median_sharpe for p in points], 1)[0])
-    return is_slope > 0 and oos_slope <= 0
+    return is_slope > FLAT_SLOPE and oos_slope <= FLAT_SLOPE

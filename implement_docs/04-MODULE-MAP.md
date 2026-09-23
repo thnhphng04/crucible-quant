@@ -51,7 +51,7 @@ TradingProject/
 │   │   ├── loop.py, data_agent.py, research_agent.py, coding_team.py, evaluation_team.py
 │   │   ├── evolution/             feature_map, islands, sampling, archive
 │   │   ├── engines/               quantevolve, simple_loop, random_search              §3.1.11
-│   │   ├── dsl.py, drift.py, patcher.py, pipeline.py, routing.py, scheduler.py, insights.py
+│   │   ├── dsl.py, drift.py, patcher.py, pipeline.py, routing.py, runlock.py, scheduler.py, insights.py
 │   │   └── prompts/
 │   ├── holdout/                   evaluator_proc.py (own process), campaign.py         §4.2    P1-10
 │   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py, risk.py §3.5 P0-10, P1-06

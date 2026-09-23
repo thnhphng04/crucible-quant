@@ -13,6 +13,7 @@ from quantcrucible.agent.evolution.operators import (
     MutationKind,
     OperatorFailed,
     breed,
+    changed_params_only,
     choose_kind,
     mutate_param,
 )
@@ -86,6 +87,25 @@ def test_structural_children_change_the_code() -> None:
                 continue
             changed += strategy_hash(render_genome(child)[0]) != strategy_hash(render_genome(g)[0])
     assert changed >= 50
+
+
+def test_a_structural_child_that_only_moved_numbers_counts_as_parameter_only() -> None:
+    """INV-66 is about what changed, not about the label: `point` and `subtree` can swap an
+    indicator for the same indicator at another period, which the template carries as a TUNABLE.
+    Counting the label lets such children past `param_only_max`."""
+    rng = np.random.default_rng(11)
+    labelled_structural = 0
+    for p in (RandomSearch(seed=5).next() for _ in range(60)):
+        parents = (strategy_hash(p.source),)
+        assert changed_params_only(render_genome(mutate_param(p.genome, rng))[0], parents)
+        assert not changed_params_only(render_genome(p.genome)[0], ())  # a fresh genome has none
+        for kind in ("point", "subtree"):
+            try:
+                child = breed(kind, p.genome, rng, CFG)
+            except OperatorFailed:
+                continue
+            labelled_structural += changed_params_only(render_genome(child)[0], parents)
+    assert labelled_structural > 0, "no structural child kept its parent's code: widen the search"
 
 
 def test_param_only_cap() -> None:

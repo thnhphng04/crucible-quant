@@ -15,7 +15,7 @@ from __future__ import annotations
 import itertools
 import threading
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
 from typing import Protocol
@@ -71,6 +71,7 @@ class Pipeline:
         max_attempts_per_trial: int = 50,
         on_abort: Callable[[], object] | None = None,
         monitor: Callable[[Key, int], bool] | None = None,
+        stopped: Iterable[Key] = (),
     ) -> None:
         if workers < 1:
             raise ValueError("workers must be >= 1")
@@ -82,6 +83,7 @@ class Pipeline:
         self.max_attempts_per_trial = max_attempts_per_trial
         self.on_abort = on_abort
         self.monitor = monitor  # (key, trials in the ledger) → stop this (engine, seed)?
+        self.stopped = set(stopped)  # already stopped before this run started (from the ledger)
         self._counter = itertools.count(1)
         self._lock = threading.Lock()
 
@@ -102,7 +104,7 @@ class Pipeline:
         return stats.proposed.get(key, 0) >= self.max_attempts_per_trial * (trials + 1)
 
     def run(self) -> RunStats:
-        stats = RunStats()
+        stats = RunStats(stopped=set(self.stopped))
         keys = [k for k in self.scheduler.quota_keys() if k in self.engines]
         in_flight: dict[Future[Outcome], tuple[Key, Proposal]] = {}
         pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="qc-eval")

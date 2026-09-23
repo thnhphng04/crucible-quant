@@ -24,3 +24,12 @@
 
 - **Kiểm định t trên trung bình các seed:** tạm không chọn — với 3 seed nó có độ mạnh thấp và che mất quy tắc "vượt độ dao động" đơn giản của kiến trúc.
 - **Chỉ ghi giao thức trong file ADR:** không chọn — một file không chứng minh được nó có trước lần chạy; thứ tự append của ledger thì chứng minh được.
+
+## Bổ sung — giao thức v2 (2026-09-23)
+
+Lần chạy đầu của v1 để lộ hai lỗ hổng, cả hai đều được phát hiện trước khi đọc bất kỳ kết quả nào.
+
+1. **Điều kiện "chạy xong" chỉ là ngầm định.** `decide` chạy trên bất cứ thứ gì ledger có, nên một campaign mới đánh giá 3 trong 600 trial — toàn bộ đều của GP — vẫn báo `gp_beats_random`. v2 thêm `complete`: mọi (engine, seed) của cả hai arm phải dùng hết hạn mức, với `>= 3` seed, nếu không báo cáo chỉ hiện tiến độ dưới kết quả `incomplete` và không phát quyết định. Arm bị monitor dừng vì phân kỳ IS→OOS cho kết quả `stopped_early`: chính sự phân kỳ là phát hiện, và campaign đó không sinh ra quyết định chọn engine.
+2. **Hash đã khóa chưa ràng buộc gì.** Báo cáo tính lại hash từ code và không bao giờ đối chiếu với sự kiện `PROTOCOL_LOCKED` của campaign, nên sửa `PROTOCOL` là lặng lẽ diễn giải lại một campaign cũ. Giờ báo cáo và `evolve` từ chối campaign có hash đã khóa khác với hash trong code (`assert_protocol_is_the_locked_one`), còn `lock_protocol` từ chối khóa một giao thức thứ hai khác đi.
+
+Cả hai sửa đổi chỉ làm luật chặt hơn, nhưng v2 đổi hash, nên campaign `c-20260922-181850` (khóa theo v1) không chạy tiếp dưới v2 được. 121 trial của nó vẫn nằm trong `N`, như mọi trial, và phép so sánh bắt đầu lại trong một campaign mới. Hai lỗi nữa sửa trong cùng đợt ảnh hưởng tới thứ mà lần chạy đo được: các slot đánh giá bị dồn hết cho một (engine, seed) đầu danh sách (INV-71), và DSR danh mục của hai arm được tính ở số biến thể khác nhau vì arm trước được ghi trước khi arm sau được dựng — giờ cả hai arm deflate theo cùng một ảnh chụp.
