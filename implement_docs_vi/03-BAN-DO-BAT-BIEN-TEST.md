@@ -83,5 +83,6 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-68 | Điểm xếp hạng của engine chỉ đọc metric `public` | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
 | INV-69 | Run bị ngắt không để lại container sandbox nào | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
 | INV-70 | Giao thức so sánh được khóa trước trial đầu tiên của lần chạy | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
+| INV-71 | Các slot đánh giá đẩy mọi (engine, seed) tiến cùng nhau, nên một lần chạy dở dang vẫn so sánh được ngang bằng | §3.1.11, ADR-0027 | Code | `tests/agent/test_pipeline.py::test_the_slots_are_shared_fairly_between_engines_and_seeds` | P2-15 | ✅ |
 
 Hoãn cùng engine A/B (D19): không key `private` nào xuất hiện trong prompt đã log (§3.3.2); ngưỡng của cổng drift ⓪ được áp dụng đúng như đã khóa (§3.1.7).

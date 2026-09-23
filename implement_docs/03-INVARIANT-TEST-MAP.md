@@ -83,5 +83,6 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-68 | Engine ranking reads `public` metrics only | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
 | INV-69 | An interrupted run leaves no sandbox container | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
 | INV-70 | The comparison protocol is locked before the run's first trial | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
+| INV-71 | The evaluation slots advance every (engine, seed) together, so a partial run compares like with like | §3.1.11, ADR-0027 | Code | `tests/agent/test_pipeline.py::test_the_slots_are_shared_fairly_between_engines_and_seeds` | P2-15 | ✅ |
 
 Deferred with engines A/B (D19): `private` keys absent from every logged prompt (§3.3.2); drift gate ⓪ thresholds applied as locked (§3.1.7).

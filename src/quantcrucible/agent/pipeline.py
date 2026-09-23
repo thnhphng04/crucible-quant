@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import itertools
 import threading
+from collections import Counter
 from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
@@ -90,6 +91,11 @@ class Pipeline:
         engine, seed = key
         return f"{self.run_label}-{engine}-s{seed}-{n:06d}"
 
+    def _fill_order(self, keys: list[Key], busy: Counter[Key], stats: RunStats) -> list[Key]:
+        """Least-proposed first, then least-busy: the slots are shared between the (engine, seed)
+        arms instead of being spent on whichever comes first (ADR-0027 compares at equal quota)."""
+        return sorted(keys, key=lambda k: (stats.proposed.get(k, 0), busy[k], keys.index(k)))
+
     def _starved(self, key: Key, stats: RunStats) -> bool:
         """Too many proposals per trial: the engine's candidates keep failing before gate ③."""
         trials = stats.trials.get(key, 0)
@@ -103,7 +109,8 @@ class Pipeline:
         try:
             while True:
                 progressed = False
-                for key in keys:
+                busy = Counter(k for k, _p in in_flight.values())
+                for key in self._fill_order(keys, busy, stats):
                     if len(in_flight) >= self.workers:
                         break
                     if key in stats.starved or key in stats.stopped:

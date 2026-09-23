@@ -38,6 +38,28 @@ def test_quotas_are_used_exactly_under_concurrent_slots() -> None:
     assert not stats.starved
 
 
+def test_the_slots_are_shared_fairly_between_engines_and_seeds() -> None:
+    """Every (engine, seed) advances together, so an interrupted run still compares like with
+    like: a fixed scan order would spend the whole run on the first key (ADR-0027)."""
+    order: list[tuple[int, Key]] = []
+    lock = threading.Lock()
+
+    def evaluate(key: Key, p: Proposal, cid: str) -> Outcome:
+        with lock:
+            order.append((int(cid.rsplit("-", 1)[1]), key))
+        time.sleep(random.random() / 200)
+        return Outcome(cid, True, True)
+
+    limits = {("gp", 0): 30, ("gp", 1): 30, ("random", 0): 30, ("random", 1): 30}
+    workers = 4
+    Pipeline(_engines(list(limits)), TrialScheduler(limits), evaluate, workers, "t").run()
+    dispatched: Counter[Key] = Counter()
+    for _n, key in sorted(order):
+        dispatched[key] += 1
+        assert max(dispatched.values()) - min(dispatched[k] for k in limits) <= workers + 1
+    assert dict(dispatched) == limits
+
+
 def test_an_engine_whose_candidates_never_reach_gate_3_is_stopped() -> None:
     """No infinite loop: a (engine, seed) that only produces pre-③ failures is marked starved."""
     pipe = Pipeline(
