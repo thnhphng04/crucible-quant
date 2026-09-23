@@ -188,15 +188,32 @@ class GpSearch:
             for m in plan_migration(pops, score):
                 record_migration(self.ledger, self.campaign_id, ENGINE, self.seed, self.run_id, m)
             pops, score, genomes = self._state()
-        for _ in range(MAX_TRIES):
-            proposal = self._bred(island, pops[island], score, genomes) or self._fresh(island)
-            key = (proposal.source, tuple(sorted(proposal.params.items())))
-            if key in self.seen:
-                continue
-            self.seen.add(key)
-            self.proposals += 1
-            if proposal.mutation is not None:
-                self.children += 1
-                self.param_only += changed_params_only(proposal.source, proposal.parents)
-            return proposal
+        for attempt in range(MAX_TRIES):
+            proposal = (
+                self._fresh(island)  # last resorts: a fresh genome is never a capped child
+                if attempt >= MAX_TRIES - 2
+                else self._bred(island, pops[island], score, genomes) or self._fresh(island)
+            )
+            accepted = self._accept(proposal)
+            if accepted is not None:
+                return accepted
         raise RuntimeError(f"island {island}: no new proposal after {MAX_TRIES} tries")
+
+    def _accept(self, proposal: Proposal) -> Proposal | None:
+        """Take this proposal unless it repeats one already made, or unless it is a child that
+        renders to its parent's code while the parameter-only share is already at the cap
+        (D20, INV-75). The drawn operator is not evidence: only the rendered child is."""
+        key = (proposal.source, tuple(sorted(proposal.params.items())))
+        if key in self.seen:
+            return None
+        param_only = proposal.mutation is not None and changed_params_only(
+            proposal.source, proposal.parents
+        )
+        if param_only and self.param_only + 1 > self.param_only_max * (self.children + 1):
+            return None
+        self.seen.add(key)
+        self.proposals += 1
+        if proposal.mutation is not None:
+            self.children += 1
+            self.param_only += param_only
+        return proposal
