@@ -29,11 +29,21 @@ from typing import Any
 
 from quantcrucible.agent.evolution.archive import trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap, cell_id
-from quantcrucible.agent.monitor import CHECKPOINT_EVERY, MonitorMode, engine_report
+from quantcrucible.agent.monitor import (
+    CHECKPOINT_EVERY,
+    MonitorMode,
+    engine_report,
+    warned_keys,
+)
 from quantcrucible.agent.scheduler import quotas
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
-from quantcrucible.validation.cpcv import DegradationPoint, is_oos_diverging
+from quantcrucible.validation.cpcv import (
+    DEFAULT_DIVERGENCE,
+    DegradationPoint,
+    DivergenceRule,
+    is_oos_diverging,
+)
 from quantcrucible.validation.gates import G4_PBO
 from quantcrucible.validation.n_eff import update_n_eff
 from quantcrucible.validation.pbo_gate import periods_per_year
@@ -77,7 +87,6 @@ PROTOCOL: dict[str, Any] = {
     "monitor": {
         "mode": "warn",
         "signal": "is_oos_diverging over DEGRADATION_CHECKPOINT points",
-        "min_points": 3,
         "checkpoint_every": CHECKPOINT_EVERY,
         "note": "recorded as DEGRADATION_WARNING and reported; never stops an arm and never "
         "enters the decision (ADR-0028)",
@@ -103,20 +112,35 @@ class ProtocolError(RuntimeError):
     """The comparison protocol is missing or was locked too late."""
 
 
-def monitor_fingerprint() -> str:
-    """What the divergence signal actually decides, on the fixed shapes of ``MONITOR_SCENARIOS``.
+def monitor_fingerprint(rule: DivergenceRule = DEFAULT_DIVERGENCE) -> str:
+    """What the divergence signal decides on the fixed shapes of ``MONITOR_SCENARIOS``.
 
-    The protocol can only name ``is_oos_diverging`` as a string, so a changed threshold or a
-    rewritten rule would otherwise leave the locked hash untouched (ADR-0028). Measuring the
-    verdicts instead of the source keeps renames, formatting and docstrings out of the hash.
+    A **secondary** check only: the thresholds themselves are hashed as data (``monitor.rule``),
+    which is what binds a campaign. The fingerprint catches a rewrite that keeps the same
+    thresholds but changes the arithmetic, on the shapes it covers — and only those, so it can
+    never be the lock (ADR-0028 amendment).
     """
-    verdicts = [is_oos_diverging(points) for points in MONITOR_SCENARIOS]
+    verdicts = [is_oos_diverging(points, rule) for points in MONITOR_SCENARIOS]
     return hashlib.sha256(json.dumps(verdicts).encode()).hexdigest()
 
 
 def protocol() -> dict[str, Any]:
-    """The protocol as it is locked and compared: the dict plus the monitor's measured behaviour."""
-    return {**PROTOCOL, "monitor_fingerprint": monitor_fingerprint()}
+    """The protocol as it is locked and compared: the dict, the divergence rule the monitor will
+    actually run with, and the fingerprint of that rule's behaviour."""
+    monitor = {**PROTOCOL["monitor"], "rule": dataclasses.asdict(DEFAULT_DIVERGENCE)}
+    return {
+        **PROTOCOL,
+        "monitor": monitor,
+        "monitor_fingerprint": monitor_fingerprint(DEFAULT_DIVERGENCE),
+    }
+
+
+def divergence_rule(ledger: Ledger, campaign_id: str) -> DivergenceRule:
+    """The rule this campaign locked, so the monitor is read with the thresholds the campaign was
+    run under. A campaign with no protocol keeps the code's default."""
+    locked = (locked_protocol(ledger, campaign_id) or {}).get("protocol", {})
+    raw = locked.get("monitor", {}).get("rule")
+    return DivergenceRule.from_locked(raw) if raw else DEFAULT_DIVERGENCE
 
 
 def protocol_hash(p: dict[str, Any] | None = None) -> str:
@@ -302,16 +326,17 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     ledger, cid = session.ledger, session.campaign_id
     assert_protocol_predates_trials(ledger, cid)
     fmap = FeatureMap.from_lock(session.lock)
+    rule = divergence_rule(ledger, cid)  # the campaign is read with the rule it locked
     per_seed = {
-        arm: [engine_report(ledger, cid, arm, s, fmap) for s in range(seeds)]
+        arm: [engine_report(ledger, cid, arm, s, fmap, rule) for s in range(seeds)]
         for arm in PROTOCOL["arms"]
     }
     efficiency = {arm: [r["trial_efficiency"] for r in rows] for arm, rows in per_seed.items()}
     completeness = _completeness(session, seeds)
-    warnings = [
-        f"{arm}-s{s}" for arm, rows in per_seed.items()
-        for s, r in enumerate(rows) if r["diverging"]
-    ]  # fmt: skip
+    # from the ledger, not from the current curve: a warning is an event that happened, and an
+    # arm whose OOS later recovers must not drop out of the report (ADR-0028 amendment)
+    keys = [(arm, s) for arm in PROTOCOL["arms"] for s in range(seeds)]
+    warnings = sorted(f"{arm}-s{s}" for arm, s in warned_keys(ledger, cid, keys))
     out: dict[str, Any] = {
         "campaign": cid,
         "protocol_sha256": protocol_hash(),

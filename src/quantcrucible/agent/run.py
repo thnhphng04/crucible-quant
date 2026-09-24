@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from quantcrucible.agent.compare import (
     ProtocolError,
     assert_protocol_predates_trials,
+    divergence_rule,
     monitor_mode,
 )
 from quantcrucible.agent.engines.gp_search import GpSearch
@@ -116,6 +117,7 @@ def _run_locked(
         k: len(session.ledger.trials(session.campaign_id, engine=k[0], seed=k[1])) for k in limits
     }
     mode = monitor_mode(session.ledger, session.campaign_id)
+    rule = divergence_rule(session.ledger, session.campaign_id)
     pipeline = Pipeline(
         {k: _engine(session, k, label) for k in limits},
         TrialScheduler(limits, measured),
@@ -123,8 +125,10 @@ def _run_locked(
         workers,
         label,
         on_abort=getattr(session.sandbox, "kill_all", None),
-        monitor=EarlyStop(session.ledger, session.campaign_id, label, mode=mode),
+        monitor=EarlyStop(session.ledger, session.campaign_id, label, mode=mode, rule=rule),
         # ADR-0028: in warn mode nothing was stopped, so nothing is restored as stopped either
-        stopped=stopped_keys(session.ledger, session.campaign_id, limits) if mode == "stop" else (),
+        stopped=stopped_keys(session.ledger, session.campaign_id, limits, rule)
+        if mode == "stop"
+        else (),
     )
     return pipeline.run()

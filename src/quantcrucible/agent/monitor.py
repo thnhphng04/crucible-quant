@@ -28,7 +28,12 @@ from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.scheduler import Key
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
-from quantcrucible.validation.cpcv import DegradationPoint, is_oos_diverging
+from quantcrucible.validation.cpcv import (
+    DEFAULT_DIVERGENCE,
+    DegradationPoint,
+    DivergenceRule,
+    is_oos_diverging,
+)
 from quantcrucible.validation.gates import G3_IS, G4_PBO
 
 CHECKPOINT_EVERY = 25  # trials of one (engine, seed) between two checkpoints
@@ -108,16 +113,23 @@ def warned_keys(ledger: Ledger, campaign_id: str, keys: Iterable[Key]) -> set[Ke
     return {k for k in keys if already_warned(ledger, campaign_id, k)}
 
 
-def already_stopped(ledger: Ledger, campaign_id: str, key: Key) -> bool:
+def already_stopped(
+    ledger: Ledger, campaign_id: str, key: Key, rule: DivergenceRule = DEFAULT_DIVERGENCE
+) -> bool:
     """Whether the checkpoints in the ledger already condemn this (engine, seed). The stop
     decision is derived state like everything else, so a restart honours it before proposing
     (without this, every restart of a stopped engine costs one more trial)."""
     engine, seed = key
-    return is_oos_diverging(checkpoints(ledger, campaign_id, engine, seed))
+    return is_oos_diverging(checkpoints(ledger, campaign_id, engine, seed), rule)
 
 
-def stopped_keys(ledger: Ledger, campaign_id: str, keys: Iterable[Key]) -> set[Key]:
-    return {k for k in keys if already_stopped(ledger, campaign_id, k)}
+def stopped_keys(
+    ledger: Ledger,
+    campaign_id: str,
+    keys: Iterable[Key],
+    rule: DivergenceRule = DEFAULT_DIVERGENCE,
+) -> set[Key]:
+    return {k for k in keys if already_stopped(ledger, campaign_id, k, rule)}
 
 
 @dataclass
@@ -135,6 +147,7 @@ class EarlyStop:
     run_id: str
     every: int = CHECKPOINT_EVERY
     mode: MonitorMode = "stop"
+    rule: DivergenceRule = DEFAULT_DIVERGENCE
 
     def __post_init__(self) -> None:
         self._last: dict[Key, int] = {}
@@ -146,7 +159,8 @@ class EarlyStop:
             return False
         self._last[key] = trials_in_ledger
         record_checkpoint(self.ledger, self.campaign_id, engine, seed, self.run_id)
-        diverging = is_oos_diverging(checkpoints(self.ledger, self.campaign_id, engine, seed))
+        points = checkpoints(self.ledger, self.campaign_id, engine, seed)
+        diverging = is_oos_diverging(points, self.rule)
         if diverging and self.mode == "warn":
             if not already_warned(self.ledger, self.campaign_id, key):
                 record_warning(self.ledger, self.campaign_id, engine, seed, self.run_id)
@@ -155,7 +169,12 @@ class EarlyStop:
 
 
 def engine_report(
-    ledger: Ledger, campaign_id: str, engine: str, seed: int, fmap: FeatureMap
+    ledger: Ledger,
+    campaign_id: str,
+    engine: str,
+    seed: int,
+    fmap: FeatureMap,
+    rule: DivergenceRule = DEFAULT_DIVERGENCE,
 ) -> dict[str, Any]:
     trials = ledger.trials(campaign_id, engine=engine, seed=seed)
     g4 = ledger.latest_gate_results(campaign_id, G4_PBO)
@@ -176,5 +195,5 @@ def engine_report(
         "archive_cells": len({e.cell for e in entries}),
         "search_cells": len(set(trial_cells(ledger, campaign_id, engine, seed, fmap).values())),
         "proposals_per_trial": submitted / len(trials) if trials else None,
-        "diverging": is_oos_diverging(checkpoints(ledger, campaign_id, engine, seed)),
+        "diverging": is_oos_diverging(checkpoints(ledger, campaign_id, engine, seed), rule),
     }

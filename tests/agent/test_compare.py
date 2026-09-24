@@ -1,10 +1,12 @@
 """Phase-2 comparison protocol and report (arch §3.1.11, ADR-0027, P2-15) — INV-70."""
 
+import dataclasses
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from quantcrucible.agent import compare as compare_module
 from quantcrucible.agent.compare import (
     MONITOR_SCENARIOS,
     PROTOCOL,
@@ -12,16 +14,22 @@ from quantcrucible.agent.compare import (
     assert_protocol_predates_trials,
     compare,
     decide,
+    divergence_rule,
     lock_protocol,
     monitor_fingerprint,
     protocol,
     protocol_hash,
 )
+from quantcrucible.agent.monitor import EarlyStop
 from quantcrucible.agent.run import EvolveError, evolve
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
-from quantcrucible.validation import cpcv
-from quantcrucible.validation.cpcv import is_oos_diverging
+from quantcrucible.validation.cpcv import (
+    DEFAULT_DIVERGENCE,
+    DegradationPoint,
+    DivergenceRule,
+    is_oos_diverging,
+)
 from quantcrucible.validation.research_run import ResearchSession
 from quantcrucible.validation.run import FEATURE_MAP
 from tests.agent.evolution.test_feature_map import _candidate
@@ -125,20 +133,48 @@ def test_a_diverging_arm_no_longer_withholds_the_decision() -> None:
     assert decide(landslide)["outcome"] == "gp_beats_random"
 
 
-def test_the_protocol_hash_covers_the_monitor_behaviour(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ADR-0028: `is_oos_diverging` is reachable from the protocol only as a string, so the hash
-    folds in what it actually decides. Moving its threshold must invalidate a locked campaign."""
-    before_hash, before_print = protocol_hash(), monitor_fingerprint()
-    monkeypatch.setattr(cpcv, "FLAT_SLOPE", 10.0)  # nothing is a rising line any more
-    assert monitor_fingerprint() != before_print
-    assert protocol_hash() != before_hash
-    assert protocol()["monitor_fingerprint"] == monitor_fingerprint()
+def test_the_protocol_hash_covers_the_monitor_thresholds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fingerprint alone is not a lock: moving `flat_slope` from 1e-9 to 1e-5 changes what a
+    slowly drifting arm is called while flipping none of `MONITOR_SCENARIOS`. The thresholds are
+    therefore hashed as data (ADR-0028 amendment)."""
+    slow = [DegradationPoint(f"p{k}", 1.0 + 1e-6 * k, 1.2 - 1e-6 * k) for k in range(3)]
+    loose = DivergenceRule(flat_slope=1e-5)
+    assert is_oos_diverging(slow) and not is_oos_diverging(slow, loose)
+    assert monitor_fingerprint(loose) == monitor_fingerprint()  # the scenarios do not notice
+
+    before = protocol_hash()
+    monkeypatch.setattr(compare_module, "DEFAULT_DIVERGENCE", loose)
+    assert protocol()["monitor"]["rule"]["flat_slope"] == 1e-5
+    assert protocol_hash() != before
+
+
+def test_the_monitor_runs_the_rule_its_campaign_locked(ledger: Ledger) -> None:
+    """The hashed rule is the operative one, not decoration: what a campaign locked is what the
+    monitor and the report are then read with."""
+    assert divergence_rule(ledger, "c1") == DEFAULT_DIVERGENCE  # no protocol yet
+    lock_protocol(ledger, "c1")
+    assert divergence_rule(ledger, "c1") == DEFAULT_DIVERGENCE
+    assert protocol()["monitor"]["rule"] == dataclasses.asdict(DEFAULT_DIVERGENCE)
 
 
 def test_the_fingerprint_scenarios_straddle_the_decision_boundary() -> None:
     """A fingerprint whose verdicts never differ would hash the same under any rule."""
     verdicts = [is_oos_diverging(points) for points in MONITOR_SCENARIOS]
     assert True in verdicts and False in verdicts
+
+
+def test_a_recovered_arm_keeps_the_warning_it_earned(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0028 amendment: `divergence_warnings` comes from the ledger, not from the curve as it
+    stands now. An arm that diverged at checkpoint 3 and recovered at 4 stays in the report."""
+    lock_protocol(ledger, "c1")
+    warn = EarlyStop(ledger, "c1", "run", every=1, mode="warn")
+    for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2), (9.0, 9.0)]):
+        _candidate(ledger, f"w{k}", "random", 1, is_sr, ["trend"], g4_pass=True,
+                   g4_detail={"pbo": 0.1, "cpcv_path_sharpes": [oos]})  # fmt: skip
+        warn(("random", 1), k + 1)
+    report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
+    assert not report["per_seed"]["random"][1]["diverging"]  # the curve recovered
+    assert report["divergence_warnings"] == ["random-s1"]  # the event did not
 
 
 def _fill(ledger: Ledger, per_unit: int, gp_pass: int, random_pass: int) -> None:
