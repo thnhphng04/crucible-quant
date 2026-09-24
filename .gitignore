@@ -38,3 +38,15 @@ config/locks/
 Thumbs.db
 .vscode/
 .idea/
+
+# Review UI: installed packages, build output and tsc incremental state
+ui/node_modules/
+ui/dist/
+ui/test-results/
+ui/playwright-report/
+ui/screenshots/
+*.tsbuildinfo
+ui/vite.config.js
+ui/vite.config.d.ts
+ui/playwright.config.js
+ui/playwright.config.d.ts

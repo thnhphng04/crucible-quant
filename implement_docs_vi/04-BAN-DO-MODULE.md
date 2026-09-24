@@ -54,8 +54,10 @@ TradingProject/
 │   │   ├── dsl.py, drift.py, patcher.py, pipeline.py, routing.py, runlock.py, scheduler.py, insights.py
 │   │   └── prompts/
 │   ├── holdout/                   evaluator_proc.py (tiến trình riêng), campaign.py    §4.2    P1-10
+│   ├── review/                    read model chỉ đọc + app FastAPI (`cli review`)   ADR-0029  công cụ
 │   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py, risk.py §3.5 P0-10, P1-06
 │       └── adapters/ssi/          adapter VN30F1M                                      §3.5    GĐ 6
+├── ui/                            front-end React + Vite: src/, e2e/ (Playwright)    ADR-0029  công cụ
 └── tests/                         phản chiếu src/quantcrucible/; e2e/ cho cổng giai đoạn
 ```
 
@@ -71,6 +73,7 @@ TradingProject/
 | `validation` | `core`, `data`, `ledger`, `config`, `execution` |
 | `agent` | mọi thứ trừ `holdout` |
 | `holdout` | `core`, `data`, `ledger`, `config`, `execution`, `validation` — và **không ai import nó** |
+| `review` | — (đọc thẳng file ledger ở chế độ chỉ đọc; không import package nghiên cứu nào) |
 
 Các hướng bị cấm được cưỡng chế bằng contract import-linter trong `pyproject.toml`:
 
@@ -84,6 +87,7 @@ Các hướng bị cấm được cưỡng chế bằng contract import-linter t
 | `agent` không import code `execution`, sandbox hay leak-check | Nó chỉ tới được backtest qua `GatePipeline`, nơi ghi ledger (P2) |
 | `validation.sandbox_runner` không import `ledger`, `config`, `agent`, `holdout`, code gate hay code sandbox phía host | Nó chạy trong container cùng code sinh ra; chỉ có thể trả về một báo cáo (§3.3.3) |
 | `ledger` không import package `quantcrucible` nào khác; `config` chỉ import `ledger` | Ledger là nguồn sự thật duy nhất (P2) và không được phụ thuộc vào thứ nó ghi lại |
+| `review` không import `agent`, `validation`, `execution`, `core`, `data`, `config` hay package đánh giá | Mặt review chỉ đọc và hiển thị; nó không bao giờ được mọc ra đường đi vào phần nghiên cứu ([ADR-0029](adr/0029-giao-dien-review-chi-doc.md)) |
 
 Thêm một test AST cho import bên thứ ba: SDK của LLM (`openai`, `anthropic`, `litellm`, `langchain`, `langgraph`, …) chỉ nằm dưới `agent/` (A4).
 
@@ -97,3 +101,4 @@ Khi một module mới cần một import mà các quy tắc này cấm, nhiều
 | Container sandbox (code được sinh) | dữ liệu IS (chỉ-đọc), thư mục tmp | mạng, biến môi trường, `holdout/`, `config/`, `ledger/` |
 | Tiến trình đánh giá holdout | `portfolio_hash` đã đóng băng, dữ liệu holdout, ledger | bộ nhớ của vòng agent; trả về 1 token |
 | Live (cổng ⑧) | `core` + `execution` + các strategy đã đóng băng | LLM, `agent/`, `validation/` |
+| Giao diện review (`cli review`, chỉ localhost) | ledger ở chế độ chỉ đọc, artifact dưới `results/` | mọi đường ghi, dữ liệu của tiến trình đánh giá, file ngoài `results/` |

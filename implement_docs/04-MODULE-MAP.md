@@ -54,8 +54,10 @@ TradingProject/
 │   │   ├── dsl.py, drift.py, patcher.py, pipeline.py, routing.py, runlock.py, scheduler.py, insights.py
 │   │   └── prompts/
 │   ├── holdout/                   evaluator_proc.py (own process), campaign.py         §4.2    P1-10
+│   ├── review/                    read-only read model + FastAPI app (`cli review`) ADR-0029  tooling
 │   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py, risk.py §3.5 P0-10, P1-06
 │       └── adapters/ssi/          VN30F1M adapter                                      §3.5    phase 6
+├── ui/                            React + Vite front end: src/, e2e/ (Playwright)    ADR-0029  tooling
 └── tests/                         mirrors src/quantcrucible/; e2e/ for phase gates
 ```
 
@@ -71,6 +73,7 @@ TradingProject/
 | `validation` | `core`, `data`, `ledger`, `config`, `execution` |
 | `agent` | everything except `holdout` |
 | `holdout` | `core`, `data`, `ledger`, `config`, `execution`, `validation` — and **nobody imports it** |
+| `review` | — (reads the ledger file directly in read-only mode; imports no research package) |
 
 The forbidden directions are enforced by import-linter contracts in `pyproject.toml`:
 
@@ -84,6 +87,7 @@ The forbidden directions are enforced by import-linter contracts in `pyproject.t
 | `agent` imports no `execution`, sandbox or leak-check code | It reaches backtests only through `GatePipeline`, which writes the ledger (P2) |
 | `validation.sandbox_runner` imports no `ledger`, `config`, `agent`, `holdout`, gate or host-sandbox code | It runs inside the container with generated code; it can only return a report (§3.3.3) |
 | `ledger` imports no other `quantcrucible` package; `config` imports only `ledger` | The ledger is the single source of truth (P2) and must not depend on what it records |
+| `review` imports no `agent`, `validation`, `execution`, `core`, `data`, `config` or evaluator package | The review surface reads and shows; it must never grow a way into research ([ADR-0029](adr/0029-read-only-review-ui.md)) |
 
 Plus one AST test for third-party imports: LLM SDKs (`openai`, `anthropic`, `litellm`, `langchain`, `langgraph`, …) only under `agent/` (A4).
 
@@ -97,3 +101,4 @@ When a new module needs an import these rules forbid, the design is probably wro
 | Sandbox container (generated code) | IS data (read-only), tmp dir | network, env vars, `holdout/`, `config/`, `ledger/` |
 | Holdout evaluator | frozen `portfolio_hash`, holdout data, ledger | the agent loop's memory; returns 1 token |
 | Live (gate ⑧) | `core` + `execution` + frozen strategies | LLMs, `agent/`, `validation/` |
+| Review UI (`cli review`, localhost only) | the ledger read-only, artifacts under `results/` | any write path, the evaluator's data, files outside `results/` |

@@ -13,6 +13,17 @@ An LLM-driven research loop that generates **deterministic, rule-based trading s
 - **Execution** — multi-market (crypto, forex, international and Vietnamese equities/futures) on NautilusTrader, with backtest ≡ live.
 - **No LLM at runtime** — the LLM only writes strategy code; the deployed strategy is plain deterministic code.
 
+## Reviewing a campaign
+
+A local, read-only web UI over the ledger — it explains what a campaign established and never writes anything ([ADR-0029](implement_docs/adr/0029-read-only-review-ui.md)):
+
+```bash
+cd ui && npm install && npm run build && cd ..        # once, after a checkout
+uv run python -m quantcrucible.cli review             # http://127.0.0.1:8765
+```
+
+While working on the UI itself, `npm run dev` proxies `/api` to a running review server. `npm test` runs the component tests and `npm run test:e2e` the Playwright smoke run, which serves a throwaway demo ledger instead of your own.
+
 ## Documentation
 
 | | English | Tiếng Việt (source of truth) |

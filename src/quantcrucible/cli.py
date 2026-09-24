@@ -291,6 +291,9 @@ def main(argv: list[str] | None = None) -> int:
     cmp_.add_argument("--lock", action="store_true", help="record the protocol (before any trial)")
     cmp_.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     cmp_.add_argument("--root", type=Path, default=Path("."))
+    review = sub.add_parser("review", help="open the local read-only research review UI")
+    review.add_argument("--root", type=Path, default=Path("."))
+    review.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
     try:
         return _dispatch(args)
@@ -318,6 +321,13 @@ def _dispatch(args: argparse.Namespace) -> int:
         return evolve(args.engine, args.workers, args.config, args.root)
     if args.command == "compare":
         return compare(args.lock, args.config, args.root)
+    if args.command == "review":
+        import uvicorn
+
+        from quantcrucible.review.app import create_app
+
+        uvicorn.run(create_app(args.root.resolve()), host="127.0.0.1", port=args.port)
+        return 0
     return 2
 
 
