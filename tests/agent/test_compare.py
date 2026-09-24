@@ -6,17 +6,22 @@ from typing import Any
 import pytest
 
 from quantcrucible.agent.compare import (
+    MONITOR_SCENARIOS,
     PROTOCOL,
     ProtocolError,
     assert_protocol_predates_trials,
     compare,
     decide,
     lock_protocol,
+    monitor_fingerprint,
+    protocol,
     protocol_hash,
 )
 from quantcrucible.agent.run import EvolveError, evolve
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
+from quantcrucible.validation import cpcv
+from quantcrucible.validation.cpcv import is_oos_diverging
 from quantcrucible.validation.research_run import ResearchSession
 from quantcrucible.validation.run import FEATURE_MAP
 from tests.agent.evolution.test_feature_map import _candidate
@@ -82,7 +87,7 @@ def test_the_protocol_is_recorded_once_before_anything_runs(tmp_path: Path) -> N
     lg.open_campaign("c1", "2024-01-01/2025-01-01", lock_hash="h")
     assert lock_protocol(lg, "c1") == lock_protocol(lg, "c1") == protocol_hash()
     locked = [d for e, _i, d in lg.events_for("c1") if e == Event.PROTOCOL_LOCKED]
-    assert len(locked) == 1 and locked[0] == {"protocol": PROTOCOL, "sha256": protocol_hash()}
+    assert len(locked) == 1 and locked[0] == {"protocol": protocol(), "sha256": protocol_hash()}
     assert_protocol_predates_trials(lg, "c1")
     _candidate(lg, "a", "gp", 0, 1.0, ["trend"])
     with pytest.raises(ProtocolError, match="already has trials"):
@@ -103,14 +108,37 @@ def test_decision_rule(gp: list[float], rnd: list[float], outcome: str) -> None:
     assert d["outcome"] == outcome and d["action"] == PROTOCOL["decision"][outcome]
 
 
-def test_an_unfinished_or_stopped_run_yields_no_engine_decision() -> None:
+def test_an_unfinished_run_yields_no_engine_decision() -> None:
     """A landslide measured at different budgets is not a result (protocol v2)."""
     landslide = {"gp": [40.0, 41.0, 39.0], "random": [0.0, 0.0, 0.0]}
     assert decide(landslide)["outcome"] == "gp_beats_random"
     half = decide(landslide, unfinished=["random-s0", "random-s1", "random-s2"])
     assert half["outcome"] == "incomplete" and half["unfinished"][0] == "random-s0"
-    halted = decide(landslide, unfinished=["random-s0"], stopped=["gp-s2"])
-    assert halted["outcome"] == "stopped_early" and halted["stopped_early"] == ["gp-s2"]
+
+
+def test_a_diverging_arm_no_longer_withholds_the_decision() -> None:
+    """v3 (ADR-0028): the monitor warns, so no arm is cut short and `stopped_early` cannot
+    arise. The warning is reported next to the decision, never inside it."""
+    assert "stopped_early" not in PROTOCOL["decision"]
+    assert PROTOCOL["monitor"]["mode"] == "warn"
+    landslide = {"gp": [40.0, 41.0, 39.0], "random": [0.0, 0.0, 0.0]}
+    assert decide(landslide)["outcome"] == "gp_beats_random"
+
+
+def test_the_protocol_hash_covers_the_monitor_behaviour(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADR-0028: `is_oos_diverging` is reachable from the protocol only as a string, so the hash
+    folds in what it actually decides. Moving its threshold must invalidate a locked campaign."""
+    before_hash, before_print = protocol_hash(), monitor_fingerprint()
+    monkeypatch.setattr(cpcv, "FLAT_SLOPE", 10.0)  # nothing is a rising line any more
+    assert monitor_fingerprint() != before_print
+    assert protocol_hash() != before_hash
+    assert protocol()["monitor_fingerprint"] == monitor_fingerprint()
+
+
+def test_the_fingerprint_scenarios_straddle_the_decision_boundary() -> None:
+    """A fingerprint whose verdicts never differ would hash the same under any rule."""
+    verdicts = [is_oos_diverging(points) for points in MONITOR_SCENARIOS]
+    assert True in verdicts and False in verdicts
 
 
 def _fill(ledger: Ledger, per_unit: int, gp_pass: int, random_pass: int) -> None:

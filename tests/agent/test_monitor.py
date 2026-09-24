@@ -14,6 +14,7 @@ from quantcrucible.agent.monitor import (
     record_checkpoint,
     record_holder,
     stopped_keys,
+    warned_keys,
 )
 from quantcrucible.agent.pipeline import Outcome, Pipeline
 from quantcrucible.agent.scheduler import Key, TrialScheduler
@@ -54,6 +55,20 @@ def test_diverging_is_and_oos_stop_the_engine(ledger: Ledger) -> None:
         verdicts.append(stop(("gp", 0), k + 1))
     assert verdicts == [False, False, True]
     assert [p.oos_median_sharpe for p in checkpoints(ledger, "c1", "gp", 0)] == [0.8, 0.5, 0.2]
+
+
+def test_in_warn_mode_a_diverging_engine_keeps_running(ledger: Ledger) -> None:
+    """ADR-0028: in a comparison campaign the stopping time must not depend on the result being
+    measured, so divergence is recorded and the arm runs on to its quota."""
+    warn = EarlyStop(ledger, "c1", "run", every=1, mode="warn")
+    verdicts = []
+    for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2), (2.5, 0.1)]):
+        _trial(ledger, f"x{k}", is_sr, [oos, oos, oos])
+        verdicts.append(warn(("gp", 0), k + 1))
+    assert verdicts == [False, False, False, False]
+    keys: list[Key] = [("gp", 0), ("random", 0)]
+    assert warned_keys(ledger, "c1", keys) == {("gp", 0)}  # once, not once per checkpoint
+    assert len(checkpoints(ledger, "c1", "gp", 0)) == 4
 
 
 def test_is_and_oos_rising_together_do_not_stop(ledger: Ledger) -> None:

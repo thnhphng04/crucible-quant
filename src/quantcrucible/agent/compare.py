@@ -1,10 +1,12 @@
 """The phase-2 engine comparison: protocol locked before running, report, decision (arch §3.1.11
-v0.6, ADR-0027, P2-15).
+v0.6, ADR-0027, ADR-0028, P2-15).
 
-The protocol — metrics, the spread that counts as "beats", the decision rule — is written into
-the campaign's audit log (``PROTOCOL_LOCKED``, with its hash) before the campaign's first trial;
-``evolve`` refuses to run a harness-test campaign without it, and the report refuses a campaign
-whose protocol does not predate its first trial (INV-70).
+The protocol — metrics, the spread that counts as "beats", the decision rule, and what the
+monitor may do — is written into the campaign's audit log (``PROTOCOL_LOCKED``, with its hash)
+before the campaign's first trial; ``evolve`` refuses to run a harness-test campaign without it,
+and the report refuses a campaign whose protocol does not predate its first trial (INV-70). The
+hash covers the monitor by measuring it: ``monitor_fingerprint`` runs ``is_oos_diverging`` over
+fixed checkpoint shapes, so moving its thresholds invalidates a locked campaign (INV-76).
 
 Primary metric: **trial efficiency** — strategies passing gate ④ per 100 trials — per
 (engine, seed). C-gp beats C-random when the difference of the seed means exceeds the
@@ -27,10 +29,11 @@ from typing import Any
 
 from quantcrucible.agent.evolution.archive import trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap, cell_id
-from quantcrucible.agent.monitor import engine_report
+from quantcrucible.agent.monitor import CHECKPOINT_EVERY, MonitorMode, engine_report
 from quantcrucible.agent.scheduler import quotas
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
+from quantcrucible.validation.cpcv import DegradationPoint, is_oos_diverging
 from quantcrucible.validation.gates import G4_PBO
 from quantcrucible.validation.n_eff import update_n_eff
 from quantcrucible.validation.pbo_gate import periods_per_year
@@ -47,14 +50,38 @@ from quantcrucible.validation.statistical import portfolio_dsr
 MEANINGFUL_EFFICIENCY = 1.0  # passing ④ per 100 trials; below it for both arms ⇒ investigate
 MIN_SEEDS = 3  # §3.1.11: the seed-to-seed spread needs at least three seeds
 
+MONITOR_SCENARIOS: tuple[tuple[DegradationPoint, ...], ...] = tuple(
+    tuple(DegradationPoint(f"p{k}", is_sr, oos) for k, (is_sr, oos) in enumerate(seq))
+    for seq in (
+        ((1.0, 0.8), (1.5, 0.5), (2.0, 0.2)),  # textbook divergence: IS up, OOS down
+        ((1.0, 0.2), (1.5, 0.4), (2.0, 0.7)),  # both rising: healthy search
+        ((1.0, 0.3), (1.0, 0.3), (1.0, 0.3)),  # flat line: arithmetic noise, never divergence
+        ((1.0, 0.5), (1.5, 0.4), (1.5, 0.4)),  # one record change, then repeats (ADR-0028)
+        ((1.0, 0.5), (1.0, 0.5), (1.5, 0.4)),  # repeats, then one record change
+        ((1.0, 0.8), (1.5, 0.8), (2.0, 0.8)),  # IS up, OOS exactly flat
+        ((1.0, 0.8), (1.5, 0.5)),  # below min_points: never a verdict
+        ((2.0, 0.2), (1.5, 0.5), (1.0, 0.8)),  # IS falling: not the signal
+    )
+)
+"""Checkpoint shapes the protocol hash is measured on: they straddle the decision boundary, so a
+change to ``is_oos_diverging`` or its thresholds flips at least one verdict (ADR-0028)."""
+
 PROTOCOL: dict[str, Any] = {
-    "version": 2,
+    "version": 3,
     "arms": ["gp", "random"],
     "primary_metric": "trial_efficiency = strategies passing gate 4 per 100 trials",
     "unit": "(engine, seed); >= 3 seeds; same trial quota per (engine, seed)",
     "beats": "mean(gp) - mean(random) > max(sd(gp), sd(random)), sample sd across seeds",
     "complete": "every (engine, seed) of every arm has used its whole quota; short of that the "
     "report shows progress and withholds the decision",
+    "monitor": {
+        "mode": "warn",
+        "signal": "is_oos_diverging over DEGRADATION_CHECKPOINT points",
+        "min_points": 3,
+        "checkpoint_every": CHECKPOINT_EVERY,
+        "note": "recorded as DEGRADATION_WARNING and reported; never stops an arm and never "
+        "enters the decision (ADR-0028)",
+    },
     "decision": {
         "gp_beats_random": "C-gp main engine; C-random stays as the permanent control",
         "tie": "C-random main engine; re-add GP components only after a dedicated ablation",
@@ -62,8 +89,6 @@ PROTOCOL: dict[str, Any] = {
         "find the cause in the DSL, the data or the gates",
         "incomplete": "progress only: the arms have not used their quotas, so the efficiencies "
         "are not comparable yet",
-        "stopped_early": "an arm was stopped for IS->OOS divergence before its quota: the "
-        "divergence is the finding; no engine decision from this campaign",
     },
     "supporting": [
         "archive_cells", "search_cells", "proposals_per_trial",
@@ -78,8 +103,24 @@ class ProtocolError(RuntimeError):
     """The comparison protocol is missing or was locked too late."""
 
 
-def protocol_hash(protocol: dict[str, Any] = PROTOCOL) -> str:
-    return hashlib.sha256(json.dumps(protocol, sort_keys=True).encode()).hexdigest()
+def monitor_fingerprint() -> str:
+    """What the divergence signal actually decides, on the fixed shapes of ``MONITOR_SCENARIOS``.
+
+    The protocol can only name ``is_oos_diverging`` as a string, so a changed threshold or a
+    rewritten rule would otherwise leave the locked hash untouched (ADR-0028). Measuring the
+    verdicts instead of the source keeps renames, formatting and docstrings out of the hash.
+    """
+    verdicts = [is_oos_diverging(points) for points in MONITOR_SCENARIOS]
+    return hashlib.sha256(json.dumps(verdicts).encode()).hexdigest()
+
+
+def protocol() -> dict[str, Any]:
+    """The protocol as it is locked and compared: the dict plus the monitor's measured behaviour."""
+    return {**PROTOCOL, "monitor_fingerprint": monitor_fingerprint()}
+
+
+def protocol_hash(p: dict[str, Any] | None = None) -> str:
+    return hashlib.sha256(json.dumps(p or protocol(), sort_keys=True).encode()).hexdigest()
 
 
 def _locked_event_id(ledger: Ledger, campaign_id: str) -> int | None:
@@ -126,10 +167,18 @@ def lock_protocol(ledger: Ledger, campaign_id: str) -> str:
             GenerationEvent(
                 run_id="protocol", campaign_id=campaign_id, engine="compare", seed=0,
                 agent="human", model_used="none", event=Event.PROTOCOL_LOCKED,
-                detail={"protocol": PROTOCOL, "sha256": protocol_hash()},
+                detail={"protocol": protocol(), "sha256": protocol_hash()},
             )
         )  # fmt: skip
     return protocol_hash()
+
+
+def monitor_mode(ledger: Ledger, campaign_id: str) -> MonitorMode:
+    """How this campaign's locked protocol lets the monitor act. A campaign with no protocol —
+    any campaign that is not an engine comparison — keeps the ordinary early stop."""
+    locked = locked_protocol(ledger, campaign_id)
+    mode = (locked or {}).get("protocol", {}).get("monitor", {}).get("mode")
+    return "warn" if mode == "warn" else "stop"
 
 
 def assert_protocol_predates_trials(ledger: Ledger, campaign_id: str) -> None:
@@ -149,18 +198,17 @@ def _sd(values: Sequence[float]) -> float:
 def decide(
     efficiency: dict[str, list[float]],
     unfinished: Sequence[str] = (),
-    stopped: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """The locked rule. ``unfinished`` are the (engine, seed) units short of their quota and
-    ``stopped`` those the monitor stopped: either way the efficiencies were measured at
-    different budgets, so the engine decision is withheld (protocol v2)."""
+    """The locked rule. ``unfinished`` are the (engine, seed) units short of their quota: their
+    efficiencies were measured at a different budget, so the engine decision is withheld.
+
+    A divergence warning never reaches this function — under protocol v3 the monitor cannot cut
+    an arm short, and the warning is reported beside the decision, not inside it (ADR-0028)."""
     gp, rnd = efficiency.get("gp", []), efficiency.get("random", [])
     mean_gp = statistics.fmean(gp) if gp else 0.0
     mean_rnd = statistics.fmean(rnd) if rnd else 0.0
     spread = max(_sd(gp), _sd(rnd))
-    if stopped:
-        outcome = "stopped_early"
-    elif unfinished:
+    if unfinished:
         outcome = "incomplete"
     elif max(mean_gp, mean_rnd) < MEANINGFUL_EFFICIENCY:
         outcome = "neither_meaningful"
@@ -174,8 +222,6 @@ def decide(
     }  # fmt: skip
     if unfinished:
         out["unfinished"] = list(unfinished)
-    if stopped:
-        out["stopped_early"] = list(stopped)
     return out
 
 
@@ -262,7 +308,7 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     }
     efficiency = {arm: [r["trial_efficiency"] for r in rows] for arm, rows in per_seed.items()}
     completeness = _completeness(session, seeds)
-    stopped = [
+    warnings = [
         f"{arm}-s{s}" for arm, rows in per_seed.items()
         for s, r in enumerate(rows) if r["diverging"]
     ]  # fmt: skip
@@ -271,7 +317,8 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
         "protocol_sha256": protocol_hash(),
         "per_seed": per_seed,
         "completeness": completeness,
-        "decision": decide(efficiency, completeness["unfinished"], stopped),
+        "divergence_warnings": warnings,  # reported, never decisive (ADR-0028)
+        "decision": decide(efficiency, completeness["unfinished"]),
         "gate4_backtests_per_passing_strategy": {
             arm: _backtests_per_pass(ledger, cid, arm) for arm in PROTOCOL["arms"]
         },

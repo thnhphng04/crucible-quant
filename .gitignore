@@ -26,6 +26,7 @@ venv/
 /results/
 /holdout/
 /ledger/*.db*
+/ledger/*.runlock
 *.sqlite
 
 # Generated per campaign from config/user.yaml (§10.1) — never hand-edited, never committed

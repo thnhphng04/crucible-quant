@@ -7,7 +7,9 @@
 - **Degradation curve:** every ``CHECKPOINT_EVERY`` trials of an (engine, seed), the IS record
   holder (highest IS Sharpe among its trials that reached ④) and the median Sharpe of that same
   trial's CPCV-OOS paths are recorded as a ``DEGRADATION_CHECKPOINT`` audit event. When the IS
-  line rises while the OOS line is flat or falling (``is_oos_diverging``), the engine is stopped.
+  line rises while the OOS line is flat or falling (``is_oos_diverging``), an ordinary search
+  stops that engine; a comparison campaign only records a ``DEGRADATION_WARNING`` and runs on,
+  because a stopping time that depends on the measured result biases the comparison (ADR-0028).
 
 The monitor reads the CPCV paths — a ``private`` metric — which §3.2 allows for this purpose; it
 is the only consumer, and nothing it reads reaches an engine or its ranking (INV-68). The holdout
@@ -19,7 +21,7 @@ from __future__ import annotations
 import statistics
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from quantcrucible.agent.evolution.archive import load_entries, trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap
@@ -30,6 +32,7 @@ from quantcrucible.validation.cpcv import DegradationPoint, is_oos_diverging
 from quantcrucible.validation.gates import G3_IS, G4_PBO
 
 CHECKPOINT_EVERY = 25  # trials of one (engine, seed) between two checkpoints
+MonitorMode = Literal["stop", "warn"]  # ADR-0028: a comparison campaign only warns
 
 
 def record_holder(
@@ -79,6 +82,32 @@ def record_checkpoint(
     return DegradationPoint(cid, is_sharpe, oos)
 
 
+def record_warning(ledger: Ledger, campaign_id: str, engine: str, seed: int, run_id: str) -> None:
+    """The divergence a warn-mode monitor saw and did not act on (ADR-0028), written once per
+    (engine, seed) so the report can weigh it after the run."""
+    ledger.log_event(
+        GenerationEvent(
+            run_id=run_id, campaign_id=campaign_id, engine=engine, seed=seed, agent="monitor",
+            model_used="none", event=Event.DEGRADATION_WARNING,
+            detail={"signal": "is_oos_diverging",
+                    "checkpoints": len(checkpoints(ledger, campaign_id, engine, seed))},
+        )
+    )  # fmt: skip
+
+
+def already_warned(ledger: Ledger, campaign_id: str, key: Key) -> bool:
+    engine, seed = key
+    return any(
+        e == Event.DEGRADATION_WARNING
+        for e, _island, _d in ledger.events_for(campaign_id, engine=engine, seed=seed)
+    )
+
+
+def warned_keys(ledger: Ledger, campaign_id: str, keys: Iterable[Key]) -> set[Key]:
+    """Every (engine, seed) whose divergence was recorded as a warning (ADR-0028)."""
+    return {k for k in keys if already_warned(ledger, campaign_id, k)}
+
+
 def already_stopped(ledger: Ledger, campaign_id: str, key: Key) -> bool:
     """Whether the checkpoints in the ledger already condemn this (engine, seed). The stop
     decision is derived state like everything else, so a restart honours it before proposing
@@ -93,12 +122,19 @@ def stopped_keys(ledger: Ledger, campaign_id: str, keys: Iterable[Key]) -> set[K
 
 @dataclass
 class EarlyStop:
-    """The pipeline's monitor: checkpoint every ``every`` trials, stop a diverging engine."""
+    """The pipeline's monitor: checkpoint every ``every`` trials, then act on divergence.
+
+    ``mode="stop"`` stops the diverging engine — the point of the signal in an ordinary search,
+    where the trials it saves are the reward. ``mode="warn"`` records the divergence and lets the
+    arm run on: a comparison campaign measures the arms at one budget, so the stopping time may
+    not depend on the result being measured (ADR-0028).
+    """
 
     ledger: Ledger
     campaign_id: str
     run_id: str
     every: int = CHECKPOINT_EVERY
+    mode: MonitorMode = "stop"
 
     def __post_init__(self) -> None:
         self._last: dict[Key, int] = {}
@@ -110,7 +146,12 @@ class EarlyStop:
             return False
         self._last[key] = trials_in_ledger
         record_checkpoint(self.ledger, self.campaign_id, engine, seed, self.run_id)
-        return is_oos_diverging(checkpoints(self.ledger, self.campaign_id, engine, seed))
+        diverging = is_oos_diverging(checkpoints(self.ledger, self.campaign_id, engine, seed))
+        if diverging and self.mode == "warn":
+            if not already_warned(self.ledger, self.campaign_id, key):
+                record_warning(self.ledger, self.campaign_id, engine, seed, self.run_id)
+            return False
+        return diverging
 
 
 def engine_report(

@@ -12,7 +12,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from quantcrucible.agent.compare import ProtocolError, assert_protocol_predates_trials
+from quantcrucible.agent.compare import (
+    ProtocolError,
+    assert_protocol_predates_trials,
+    monitor_mode,
+)
 from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
 from quantcrucible.agent.evolution.feature_map import FeatureMap
@@ -111,6 +115,7 @@ def _run_locked(
     measured = {  # read under the lock: no other run is adding trials meanwhile
         k: len(session.ledger.trials(session.campaign_id, engine=k[0], seed=k[1])) for k in limits
     }
+    mode = monitor_mode(session.ledger, session.campaign_id)
     pipeline = Pipeline(
         {k: _engine(session, k, label) for k in limits},
         TrialScheduler(limits, measured),
@@ -118,7 +123,8 @@ def _run_locked(
         workers,
         label,
         on_abort=getattr(session.sandbox, "kill_all", None),
-        monitor=EarlyStop(session.ledger, session.campaign_id, label),
-        stopped=stopped_keys(session.ledger, session.campaign_id, limits),
+        monitor=EarlyStop(session.ledger, session.campaign_id, label, mode=mode),
+        # ADR-0028: in warn mode nothing was stopped, so nothing is restored as stopped either
+        stopped=stopped_keys(session.ledger, session.campaign_id, limits) if mode == "stop" else (),
     )
     return pipeline.run()
