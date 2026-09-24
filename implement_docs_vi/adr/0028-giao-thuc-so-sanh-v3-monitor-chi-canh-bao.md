@@ -49,3 +49,9 @@ random-s0   26 trial: IS 1.249 → OOS 1.214
 `DivergenceRule` (`validation/cpcv.py`) giờ giữ `version`, `min_points` và `flat_slope` dưới dạng dữ liệu. `protocol()` ghi rule đó vào `monitor.rule` nên các ngưỡng được băm trực tiếp; `divergence_rule()` đọc nó trở lại, và monitor, `stopped_keys` cùng `engine_report` đều chạy bằng rule **mà campaign đã khóa** thay vì mặc định của module. `version` phủ trường hợp viết lại phần số học, thứ mà không ngưỡng nào mô tả nổi. Vân tay ở lại làm kiểm tra phụ đúng cho trường hợp đó, và được ghi rõ là không bao giờ đóng vai khóa.
 
 Cùng đợt review đó phát hiện `divergence_warnings` được dựng từ cờ `diverging` hiện thời của từng seed thay vì từ ledger. Một arm phân kỳ ở checkpoint thứ ba rồi phục hồi ở checkpoint thứ tư vẫn giữ sự kiện `DEGRADATION_WARNING` nhưng biến mất khỏi báo cáo — đúng chỗ duy nhất mà cảnh báo lẽ ra phải sống sót, vì dưới v3 cảnh báo chính là toàn bộ đầu ra của monitor. Báo cáo giờ liệt kê `warned_keys()` và giữ `diverging` bên cạnh như trạng thái của đường cong ở thời điểm hiện tại.
+
+## B? sung m?u tr??c campaign ti?p theo (2026-09-24)
+
+Fingerprint gi? c? 17 t?nh hu?ng c? ??nh: t?m m?u c? c?ng ??u v?o r?ng/m?t ?i?m, ?? d?c d??i/tr?n ng??ng IS v? OOS, ph?c h?i, ?o?n ?i ngang d?i h?n, v? ???ng dao ??ng c? h??ng OLS kh?c h??ng n?i hai ??u. Test ghi r? k?t qu? k? v?ng cho t?ng m?u. Rule v? ph?p t?nh kh?ng ??i; th?m m?u l?m ??i hash protocol, v? v?y kh?ng ???c ghi l?i lock c?a campaign hi?n c?.
+
+Phi?n b?n thu?t to?n v?n l? cam k?t th? c?ng: ??i ph?p t?nh ph?i t?ng version. C?c m?u b? sung c?ng kh?ng ph?t hi?n ???c m?i l?n vi?t l?i m? qu?n t?ng version; test h?i quy c? ? minh h?a m?t thay ??i ng??ng nh? m? fingerprint kh?ng th?y nh?ng rule ???c b?m tr?c ti?p ph?t hi?n ???c.

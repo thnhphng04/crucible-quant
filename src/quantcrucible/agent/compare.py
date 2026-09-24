@@ -5,8 +5,9 @@ The protocol — metrics, the spread that counts as "beats", the decision rule, 
 monitor may do — is written into the campaign's audit log (``PROTOCOL_LOCKED``, with its hash)
 before the campaign's first trial; ``evolve`` refuses to run a harness-test campaign without it,
 and the report refuses a campaign whose protocol does not predate its first trial (INV-70). The
-hash covers the monitor by measuring it: ``monitor_fingerprint`` runs ``is_oos_diverging`` over
-fixed checkpoint shapes, so moving its thresholds invalidates a locked campaign (INV-76).
+hash includes the monitor's thresholds and declared algorithm version directly (INV-76).
+``monitor_fingerprint`` additionally checks behaviour on fixed checkpoint shapes; it cannot
+detect every arithmetic rewrite, so such changes still require a version bump.
 
 Primary metric: **trial efficiency** — strategies passing gate ④ per 100 trials — per
 (engine, seed). C-gp beats C-random when the difference of the seed means exceeds the
@@ -71,10 +72,22 @@ MONITOR_SCENARIOS: tuple[tuple[DegradationPoint, ...], ...] = tuple(
         ((1.0, 0.8), (1.5, 0.8), (2.0, 0.8)),  # IS up, OOS exactly flat
         ((1.0, 0.8), (1.5, 0.5)),  # below min_points: never a verdict
         ((2.0, 0.2), (1.5, 0.5), (1.0, 0.8)),  # IS falling: not the signal
+        (),  # no checkpoints
+        ((1.0, 0.8),),  # one checkpoint
+        ((0.0, 0.0), (0.5e-9, -1.0), (1.0e-9, -2.0)),  # IS below tolerance
+        ((0.0, 0.0), (2.0e-9, -1.0), (4.0e-9, -2.0)),  # IS above tolerance
+        ((0.0, 0.0), (1.0, 0.5e-9), (2.0, 1.0e-9)),  # tiny OOS rise is flat
+        ((0.0, 0.0), (1.0, 2.0e-9), (2.0, 4.0e-9)),  # material OOS rise
+        ((1.0, 0.8), (1.5, 0.5), (2.0, 0.2), (2.5, 3.0)),  # recovery at point 4
+        ((1.0, 0.8), (1.5, 0.5), (1.5, 0.5), (1.5, 0.5)),  # longer plateau
+        # Endpoints rise, but OLS over all five OOS points falls: no endpoint shortcut.
+        ((1.0, 0.0), (1.5, 4.0), (2.0, 0.0), (2.5, -4.0), (3.0, 1.0)),
     )
 )
-"""Checkpoint shapes the protocol hash is measured on: they straddle the decision boundary, so a
-change to ``is_oos_diverging`` or its thresholds flips at least one verdict (ADR-0028)."""
+"""Fixed probes near the tolerance and across different curve shapes (ADR-0028).
+These detect some behavioural changes, not every possible rewrite. Keep the values fixed
+rather than deriving them from the active rule, which would move the probes with the threshold.
+"""
 
 PROTOCOL: dict[str, Any] = {
     "version": 3,

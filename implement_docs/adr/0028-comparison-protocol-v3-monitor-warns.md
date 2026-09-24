@@ -49,3 +49,9 @@ Review of the first implementation found the lock pointing the wrong way round. 
 `DivergenceRule` (`validation/cpcv.py`) now holds `version`, `min_points` and `flat_slope` as data. `protocol()` writes that rule into `monitor.rule`, so the thresholds are hashed directly; `divergence_rule()` reads it back and the monitor, `stopped_keys` and `engine_report` are all run with the rule **the campaign locked** rather than the module default. `version` covers a rewrite of the arithmetic, which no threshold can describe. The fingerprint stays as a secondary check on exactly that case, and is documented as never being the lock.
 
 The same review found `divergence_warnings` built from each seed's current `diverging` flag instead of from the ledger. An arm that diverged at its third checkpoint and recovered at its fourth kept its `DEGRADATION_WARNING` event but vanished from the report — the one place the warning was supposed to survive, since under v3 the warning is the whole output of the monitor. The report now lists `warned_keys()` and keeps `diverging` beside it as the state of the curve today.
+
+## Additional probes before the next campaign (2026-09-24)
+
+The fingerprint now has 17 fixed scenarios: the original eight plus empty/singleton inputs, slopes below/above the IS and OOS tolerance, recovery, a longer plateau, and an oscillating curve whose OLS direction differs from its endpoints. Explicit expected verdicts protect these probes. The rule and arithmetic are unchanged; adding probes changes the protocol hash, so existing campaign locks must not be rewritten.
+
+The algorithm version remains a manual contract: an arithmetic change requires a version bump. Even these extra probes cannot detect every unversioned rewrite; the regression deliberately demonstrates a small threshold change invisible to the fingerprint but detected by the directly hashed rule.

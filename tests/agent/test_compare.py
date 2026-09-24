@@ -134,17 +134,17 @@ def test_a_diverging_arm_no_longer_withholds_the_decision() -> None:
 
 
 def test_the_protocol_hash_covers_the_monitor_thresholds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The fingerprint alone is not a lock: moving `flat_slope` from 1e-9 to 1e-5 changes what a
+    """The fingerprint alone is not a lock: moving `flat_slope` from 1e-9 to 1.1e-9 changes what a
     slowly drifting arm is called while flipping none of `MONITOR_SCENARIOS`. The thresholds are
     therefore hashed as data (ADR-0028 amendment)."""
-    slow = [DegradationPoint(f"p{k}", 1.0 + 1e-6 * k, 1.2 - 1e-6 * k) for k in range(3)]
-    loose = DivergenceRule(flat_slope=1e-5)
+    slow = [DegradationPoint(f"p{k}", 1.05e-9 * k, -1.05e-9 * k) for k in range(3)]
+    loose = DivergenceRule(flat_slope=1.1e-9)
     assert is_oos_diverging(slow) and not is_oos_diverging(slow, loose)
     assert monitor_fingerprint(loose) == monitor_fingerprint()  # the scenarios do not notice
 
     before = protocol_hash()
     monkeypatch.setattr(compare_module, "DEFAULT_DIVERGENCE", loose)
-    assert protocol()["monitor"]["rule"]["flat_slope"] == 1e-5
+    assert protocol()["monitor"]["rule"]["flat_slope"] == 1.1e-9
     assert protocol_hash() != before
 
 
@@ -161,6 +161,15 @@ def test_the_fingerprint_scenarios_straddle_the_decision_boundary() -> None:
     """A fingerprint whose verdicts never differ would hash the same under any rule."""
     verdicts = [is_oos_diverging(points) for points in MONITOR_SCENARIOS]
     assert True in verdicts and False in verdicts
+
+
+@pytest.mark.parametrize("points,expected", tuple(zip(MONITOR_SCENARIOS, (
+    True, False, False, True, True, True, False, False,
+    False, False, False, True, True, False, False, True, True,
+), strict=True)))  # fmt: skip
+def test_monitor_probe_verdicts(points: tuple[DegradationPoint, ...], expected: bool) -> None:
+    """Explicit outcomes catch changes to tolerance, sample count and whole-curve OLS."""
+    assert is_oos_diverging(points) is expected
 
 
 def test_a_recovered_arm_keeps_the_warning_it_earned(ledger: Ledger, tmp_path: Path) -> None:
