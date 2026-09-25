@@ -363,13 +363,13 @@ def evolve(engines: Sequence[str], workers: int, config: Path, root: Path) -> in
         sys.stderr.write(f"refused: {e}\n")
         return 2
     summary = {
-        f"{e}-s{s}": {
-            "proposed": stats.proposed.get((e, s), 0),
-            "trials": stats.trials.get((e, s), 0),
-            "passed": stats.passed.get((e, s), 0),
-            "starved": (e, s) in stats.starved,
+        str(k): {
+            "proposed": stats.proposed.get(k, 0),
+            "trials": stats.trials.get(k, 0),
+            "passed": stats.passed.get(k, 0),
+            "starved": k in stats.starved,
         }
-        for (e, s) in sorted(set(stats.proposed) | set(stats.trials))
+        for k in sorted(set(stats.proposed) | set(stats.trials))
     }
     report = {"campaign": session.campaign_id, "run": label, **summary}
     sys.stdout.write(json.dumps(report, indent=1) + "\n")

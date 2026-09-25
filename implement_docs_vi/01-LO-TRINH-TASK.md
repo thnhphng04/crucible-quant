@@ -374,7 +374,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** thêm mới `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
 **Đạt khi:** INV-95 — hàng cũ được giải lúc đọc, không bao giờ bằng UPDATE, thứ mà trigger append-only cấm. Migration chạy trên bản copy tạm, không bao giờ trên ledger thật.
 
-### ☐ P3-12 Đơn vị tìm kiếm thành (instrument, direction, engine, seed)
+### ✅ P3-12 Đơn vị tìm kiếm thành (instrument, direction, engine, seed)
 **Mục tiêu:** mỗi scope là một arm độc lập. **Kiến trúc:** §3.1.11, ADR-0033. **Cần:** P3-04, P3-11
 **File:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
 **Đạt khi:** INV-96; INV-61 và INV-71 mở rộng và vẫn xanh; INV-65 mạnh thêm — engine vẫn không bao giờ thấy instrument của nó.

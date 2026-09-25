@@ -24,7 +24,7 @@ from quantcrucible.validation.gates import G1A_STATIC
 from quantcrucible.validation.research_run import ResearchSession
 from quantcrucible.validation.run import derived_settings
 from quantcrucible.validation.sandbox import SandboxRunner
-from tests.factories import make_trending_bars
+from tests.factories import make_trending_bars, unit
 
 pytestmark = [pytest.mark.docker, pytest.mark.slow]
 
@@ -89,10 +89,10 @@ def test_every_candidate_has_ledger_rows(run: Phase2Random) -> None:
 
 def test_the_run_stops_exactly_at_its_quotas(run: Phase2Random) -> None:
     limits = run_quotas(run.session, ["random"])
-    assert limits == {("random", 0): 3, ("random", 1): 3}
-    for (engine, seed), limit in limits.items():
-        n = len(run.ledger.trials("c-p2", engine=engine, seed=seed))
-        assert n == limit or (engine, seed) in run.first.starved
+    assert limits == {unit("random", 0): 3, unit("random", 1): 3}
+    for key, limit in limits.items():
+        n = len(run.ledger.trials("c-p2", engine=key.engine, seed=key.seed))
+        assert n == limit or key in run.first.starved
 
 
 def test_a_second_run_resumes_from_the_ledger(run: Phase2Random) -> None:
@@ -103,8 +103,11 @@ def test_a_second_run_resumes_from_the_ledger(run: Phase2Random) -> None:
 
 def test_the_search_covers_more_than_one_cell(run: Phase2Random) -> None:
     fm = FeatureMap.from_lock(run.session.lock)
-    cells = {c for seed in (0, 1)
-             for c in trial_cells(run.ledger, "c-p2", "random", seed, fm).values()}  # fmt: skip
+    cells = {
+        c
+        for seed in (0, 1)
+        for c in trial_cells(run.ledger, "c-p2", unit("random", seed), fm).values()
+    }
     assert len(cells) > 1
 
 

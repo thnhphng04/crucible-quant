@@ -14,14 +14,15 @@ from quantcrucible.agent.pipeline import Outcome, Pipeline
 from quantcrucible.agent.scheduler import Key, TrialScheduler
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent, TrialRecord
+from tests.factories import unit
 
 
 def _engines(keys: list[Key]) -> dict[Key, RandomSearch]:
-    return {k: RandomSearch(seed=k[1] + 100 * i) for i, k in enumerate(keys)}
+    return {k: RandomSearch(seed=k.seed + 100 * i) for i, k in enumerate(keys)}
 
 
 def test_quotas_are_used_exactly_under_concurrent_slots() -> None:
-    limits = {("gp", 0): 12, ("random", 0): 9, ("random", 1): 7}
+    limits = {unit("gp", 0): 12, unit("random", 0): 9, unit("random", 1): 7}
     lock = threading.Lock()
     measured: Counter[Key] = Counter()
 
@@ -50,7 +51,7 @@ def test_the_slots_are_shared_fairly_between_engines_and_seeds() -> None:
         time.sleep(random.random() / 200)
         return Outcome(cid, True, True)
 
-    limits = {("gp", 0): 30, ("gp", 1): 30, ("random", 0): 30, ("random", 1): 30}
+    limits = {unit("gp", 0): 30, unit("gp", 1): 30, unit("random", 0): 30, unit("random", 1): 30}
     workers = 4
     Pipeline(_engines(list(limits)), TrialScheduler(limits), evaluate, workers, "t").run()
     dispatched: Counter[Key] = Counter()
@@ -63,11 +64,11 @@ def test_the_slots_are_shared_fairly_between_engines_and_seeds() -> None:
 def test_an_engine_whose_candidates_never_reach_gate_3_is_stopped() -> None:
     """No infinite loop: a (engine, seed) that only produces pre-③ failures is marked starved."""
     pipe = Pipeline(
-        _engines([("random", 0)]), TrialScheduler({("random", 0): 5}),
+        _engines([unit("random", 0)]), TrialScheduler({unit("random", 0): 5}),
         lambda k, p, c: Outcome(c, False, False, "g1a_static"), 2, "t", max_attempts_per_trial=10,
     )  # fmt: skip
     stats = pipe.run()
-    assert stats.starved == {("random", 0)} and stats.proposed[("random", 0)] >= 10
+    assert stats.starved == {unit("random", 0)} and stats.proposed[unit("random", 0)] >= 10
 
 
 def test_an_error_aborts_and_kills_first() -> None:
@@ -77,7 +78,7 @@ def test_an_error_aborts_and_kills_first() -> None:
         raise RuntimeError("sandbox exploded")
 
     pipe = Pipeline(
-        _engines([("random", 0)]), TrialScheduler({("random", 0): 5}), evaluate, 2, "t",
+        _engines([unit("random", 0)]), TrialScheduler({unit("random", 0): 5}), evaluate, 2, "t",
         on_abort=lambda: aborted.append(True),
     )  # fmt: skip
     with pytest.raises(RuntimeError, match="exploded"):
@@ -94,10 +95,11 @@ def test_candidate_ids_are_unique_and_carry_engine_and_seed() -> None:
             seen.append(cid)
         return Outcome(cid, True, True)
 
-    limits = {("gp", 0): 10, ("random", 2): 10}
+    limits = {unit("gp", 0): 10, unit("random", 2): 10}
     Pipeline(_engines(list(limits)), TrialScheduler(limits), evaluate, 3, "run7").run()
     assert len(seen) == len(set(seen)) == 20
-    assert all(c.startswith(("run7-gp-s0-", "run7-random-s2-")) for c in seen)
+    prefixes = tuple(f"run7-{k}-" for k in limits)
+    assert all(c.startswith(prefixes) for c in seen)
 
 
 def test_concurrent_slots_write_the_ledger_without_lock_errors(tmp_path: Path) -> None:
@@ -109,7 +111,7 @@ def test_concurrent_slots_write_the_ledger_without_lock_errors(tmp_path: Path) -
     def evaluate(key: Key, p: Proposal, cid: str) -> Outcome:
         lg = getattr(local, "lg", None) or Ledger.open(main.path)
         local.lg = lg
-        engine, seed = key
+        engine, seed = key.engine, key.seed
         lg.log_event(GenerationEvent(run_id="r", campaign_id="c1", engine=engine, seed=seed,
                                      agent="engine", model_used="none",
                                      event=Event.CANDIDATE_SUBMITTED))  # fmt: skip
@@ -121,7 +123,7 @@ def test_concurrent_slots_write_the_ledger_without_lock_errors(tmp_path: Path) -
         ))  # fmt: skip
         return Outcome(cid, True, True)
 
-    limits = {("gp", 0): 40, ("random", 0): 40}
+    limits = {unit("gp", 0): 40, unit("random", 0): 40}
     Pipeline(_engines(list(limits)), TrialScheduler(limits), evaluate, 6, "t").run()
     assert len(main.trials("c1", engine="gp")) == 40
     assert len(main.trials("c1", engine="random")) == 40

@@ -374,7 +374,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** new `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
 **Accept when:** INV-95 — a legacy row resolves at read time, never by UPDATE, which the append-only triggers forbid. The migration runs against a temporary copy, never the real ledger.
 
-### ☐ P3-12 The search unit becomes (instrument, direction, engine, seed)
+### ✅ P3-12 The search unit becomes (instrument, direction, engine, seed)
 **Goal:** each scope is an independent arm. **Arch:** §3.1.11, ADR-0033. **Needs:** P3-04, P3-11
 **Files:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
 **Accept when:** INV-96; INV-61 and INV-71 widened and still green; INV-65 strengthened — the engine still never sees its instrument.

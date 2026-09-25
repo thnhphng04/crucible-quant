@@ -31,6 +31,7 @@ from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.run import FEATURE_MAP
 from quantcrucible.validation.statistical import deflated_benchmark
 from tests.agent.evolution.test_feature_map import _candidate
+from tests.factories import unit
 
 # (sr_obs, skew_is, kurtosis_is, spp_median_sharpe, plateau, n_params), ascending by sr_obs.
 CAMPAIGN_ROWS: tuple[tuple[float, float, float, float, float, int], ...] = (
@@ -263,7 +264,7 @@ def test_ranking_ignores_private(tmp_path: Path) -> None:
         lg = Ledger.open(tmp_path / f"{private['pbo']}.db")
         lg.open_campaign("c1", "2024-01-01/2025-01-01", lock_hash="h")
         _candidate(lg, "a", "gp", 0, 1.0, ["trend"], g4_detail=private)
-        [entry] = load_entries(lg, "c1", "gp", 0, fm)
+        [entry] = load_entries(lg, "c1", unit("gp", 0), fm)
         assert "pbo" not in entry.public and "cpcv_path_sharpes" not in entry.public
         runs.append(scores([entry], CTX))
     assert runs[0] == runs[1]

@@ -38,6 +38,7 @@ from quantcrucible.validation.cpcv import (
 from quantcrucible.validation.research_run import ResearchSession
 from quantcrucible.validation.run import FEATURE_MAP
 from tests.agent.evolution.test_feature_map import _candidate
+from tests.factories import unit
 
 LOCK: dict[str, Any] = {
     "research": {"engines": {"gp": 0.5, "random": 0.5}, "seeds": 3},
@@ -185,10 +186,10 @@ def test_a_recovered_arm_keeps_the_warning_it_earned(ledger: Ledger, tmp_path: P
     for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2), (9.0, 9.0)]):
         _candidate(ledger, f"w{k}", "random", 1, is_sr, ["trend"], g4_pass=True,
                    g4_detail={"pbo": 0.1, "cpcv_path_sharpes": [oos]})  # fmt: skip
-        warn(("random", 1), k + 1)
+        warn(unit("random", 1), k + 1)
     report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
     assert not report["per_seed"]["random"][1]["diverging"]  # the curve recovered
-    assert report["divergence_warnings"] == ["random-s1"]  # the event did not
+    assert report["divergence_warnings"] == ["legacy_spot-long-random-s1"]  # not the event
 
 
 def _fill(ledger: Ledger, per_unit: int, gp_pass: int, random_pass: int) -> None:
@@ -207,7 +208,8 @@ def test_report_from_the_ledger(ledger: Ledger, tmp_path: Path) -> None:
     assert [r["trial_efficiency"] for r in report["per_seed"]["gp"]] == [50.0] * 3
     assert [r["trial_efficiency"] for r in report["per_seed"]["random"]] == [20.0] * 3
     assert report["completeness"]["unfinished"] == []
-    assert report["completeness"]["per_unit"]["gp-s0"] == {"trials": 10, "quota": 10}
+    per_unit = report["completeness"]["per_unit"]
+    assert per_unit["legacy_spot-long-gp-s0"] == {"trials": 10, "quota": 10}
     assert report["decision"]["outcome"] == "gp_beats_random"
     assert report["protocol_sha256"] == protocol_hash()
 

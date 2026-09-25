@@ -20,7 +20,7 @@ from quantcrucible.config.lock import (
     sha256_file,
 )
 from quantcrucible.config.schema import UserConfig
-from quantcrucible.core.strategy.base import Bars
+from quantcrucible.core.strategy.base import Bars, ScopeDirection
 from quantcrucible.core.strategy.template import parse, template_hash
 from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.data.holdout_split import read_holdout_lock
@@ -145,6 +145,10 @@ class Provenance:
     engine: str
     seed: int
     run_id: str
+    # The (instrument, direction) this candidate was searched for (P3-12). Unset for a legacy
+    # whole-basket run, which is what every pre-P3 caller is.
+    instrument: str | None = None
+    direction: str | None = None
     island: str | None = None
     cell_id: str | None = None
     parents: tuple[str, ...] = ()
@@ -153,6 +157,14 @@ class Provenance:
     agent: str = "engine"
     model_used: str = "none"
     trial_source: TrialSource = "evolution"
+
+
+def _scope_direction(given: str | None, current: ScopeDirection) -> ScopeDirection:
+    if given is None:
+        return current
+    if given not in ("long", "short"):
+        raise ValueError(f"direction must be long or short, got {given!r}")
+    return given  # type: ignore[return-value]
 
 
 def make_candidate(
@@ -186,7 +198,8 @@ def make_candidate(
     return replace(
         candidate, run_id=p.run_id, engine=p.engine, seed=p.seed, island=p.island,
         cell_id=p.cell_id, parents=p.parents, mutation=p.mutation, descriptors=p.descriptors,
-        agent=p.agent,
+        agent=p.agent, direction=_scope_direction(p.direction, candidate.direction),
+        instrument=p.instrument,
         model_used=p.model_used, trial_source=p.trial_source,
     )  # fmt: skip
 

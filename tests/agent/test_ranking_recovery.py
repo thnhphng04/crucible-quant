@@ -61,6 +61,7 @@ from quantcrucible.validation.gates import (
 )
 from quantcrucible.validation.run import FEATURE_MAP
 from quantcrucible.validation.statistical import deflated_benchmark
+from tests.factories import unit
 
 pytestmark = pytest.mark.slow
 
@@ -129,7 +130,7 @@ def _evaluator(path: str) -> Callable[[Key, Proposal, str], Outcome]:
     def evaluate(key: Key, p: Proposal, cid: str) -> Outcome:
         lg = getattr(local, "lg", None) or Ledger.open(path)
         local.lg = lg
-        engine, seed = key
+        engine, seed = key.engine, key.seed
         cand = StrategyCandidate(
             candidate_id=cid, source=p.source, params=p.params, universe=("A/USDT",),
             timeframe="1d", timerange="2018-01-01/2024-01-01", run_id="rec", campaign_id="c1",
@@ -161,9 +162,9 @@ def _run(tmp_path_factory: pytest.TempPathFactory, rng_seed: int, absolute: bool
     path = tmp_path_factory.mktemp(f"rec{rng_seed}{absolute:d}") / "ledger.db"
     main = Ledger.open(path)
     main.open_campaign("c1", "2024-01-01/2025-01-01", lock_hash="h")
-    gp = GpSearch(main, "c1", 0, rng_seed, FeatureMap.from_lock(LOCK), PPY, 0.30, "rec")
+    gp = GpSearch(main, "c1", unit(), rng_seed, FeatureMap.from_lock(LOCK), PPY, 0.30, "rec")
     pipeline = Pipeline(
-        {("gp", 0): gp}, TrialScheduler({("gp", 0): GENERATIONS * ISLANDS}),
+        {unit(): gp}, TrialScheduler({unit(): GENERATIONS * ISLANDS}),
         _evaluator(main.path), workers=2, run_label="rec",
     )  # fmt: skip
     with pytest.MonkeyPatch.context() as patch:
@@ -174,7 +175,7 @@ def _run(tmp_path_factory: pytest.TempPathFactory, rng_seed: int, absolute: bool
 
 
 def _entries_and_context(ledger: Ledger) -> tuple[list[Entry], RankContext]:
-    entries = load_entries(ledger, "c1", "gp", 0, FeatureMap.from_lock(LOCK))
+    entries = load_entries(ledger, "c1", unit(), FeatureMap.from_lock(LOCK))
     stats = ledger.trial_stats()
     return entries, RankContext(max(stats.n_eff, 1), stats.var_sr or 0.0, PPY)
 

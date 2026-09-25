@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 
 from quantcrucible.agent.engines.random_search import Proposal
-from quantcrucible.agent.evolution.archive import Entry, load_entries
+from quantcrucible.agent.evolution.archive import Entry, load_entries, scope_args
 from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.evolution.islands import (
     MIGRATION_INTERVAL,
@@ -53,6 +53,7 @@ from quantcrucible.agent.grammar import (
     render_genome,
     sample_genome,
 )
+from quantcrucible.agent.scheduler import Key
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
 
@@ -72,7 +73,7 @@ class GpSearch:
         self,
         ledger: Ledger,
         campaign_id: str,
-        seed: int,
+        key: Key,
         rng_seed: int,
         fmap: FeatureMap,
         periods_per_year: float,
@@ -82,7 +83,8 @@ class GpSearch:
     ) -> None:
         self.ledger = ledger
         self.campaign_id = campaign_id
-        self.seed = seed
+        self.key = key  # the unit of search this engine breeds for (P3-12)
+        self.seed = key.seed
         self.fmap = fmap
         self.ppy = periods_per_year
         self.param_only_max = param_only_max
@@ -121,7 +123,7 @@ class GpSearch:
     def _submissions(self) -> list[tuple[str, str | None, Mapping[str, Any]]]:
         return [
             (e, i, d)
-            for e, i, d in self.ledger.events_for(self.campaign_id, engine=ENGINE, seed=self.seed)
+            for e, i, d in self.ledger.events_for(self.campaign_id, *scope_args(self.key))
             if e == Event.CANDIDATE_SUBMITTED and d
         ]
 
@@ -134,11 +136,11 @@ class GpSearch:
         return out
 
     def _state(self) -> tuple[dict[str, list[Entry]], dict[str, float], dict[str, Genome]]:
-        entries = load_entries(self.ledger, self.campaign_id, ENGINE, self.seed, self.fmap)
+        entries = load_entries(self.ledger, self.campaign_id, self.key, self.fmap)
         stats = self.ledger.trial_stats()
         ctx = RankContext(max(stats.n_eff, 1), stats.var_sr or 0.0, self.ppy)
         score = scores(entries, ctx)
-        moved = migrations(self.ledger, self.campaign_id, ENGINE, self.seed)
+        moved = migrations(self.ledger, self.campaign_id, self.key)
         return populations(entries, moved, self.islands), score, self._genomes()
 
     # ── one proposal ────────────────────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ class GpSearch:
             and generation % MIGRATION_INTERVAL == 0
         ):
             for m in plan_migration(pops, score):
-                record_migration(self.ledger, self.campaign_id, ENGINE, self.seed, self.run_id, m)
+                record_migration(self.ledger, self.campaign_id, self.key, self.run_id, m)
             pops, score, genomes = self._state()
         for attempt in range(MAX_TRIES):
             proposal = (
