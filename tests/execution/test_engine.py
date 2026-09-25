@@ -14,7 +14,12 @@ from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
 
 from quantcrucible.core.strategy.base import FLAT, Bars, Features, FeatureView, Signal, Strategy
 from quantcrucible.core.zoo.ema_crossover import GeneratedStrategy
-from quantcrucible.execution.engine import BacktestAbortedError, BacktestResult, run_backtest
+from quantcrucible.execution.engine import (
+    BacktestAbortedError,
+    BacktestResult,
+    assert_complete,
+    run_backtest,
+)
 from quantcrucible.execution.nautilus_bridge import CostModel, bar_type_for, build_engine
 from tests.factories import make_bars
 
@@ -140,12 +145,13 @@ def test_protective_stop_fills_at_gap_open() -> None:
     assert res.n_trades >= 1
 
 
-def test_short_signal_means_flat_on_spot() -> None:
+def test_a_short_signal_is_traded_not_dropped() -> None:
+    """Replaces `test_short_signal_means_flat_on_spot` (P3-06). The venue is a USDT-M margin
+    venue now, so a short is a position; the behavioural detail lives in test_hedge.py."""
     bars = ladder(OPENS)
     res = bt(AlwaysShort(), {"TEST/USDT": bars})
-    assert res.fills == ()
+    assert res.fills and res.fills[0].side == "SELL"
     assert res.signals["short"] == len(bars)
-    np.testing.assert_allclose(res.equity, 100_000.0)
 
 
 def test_multi_symbol() -> None:
@@ -158,8 +164,15 @@ def test_multi_symbol() -> None:
 
 
 def test_engine_stop_is_not_a_silent_truncation() -> None:
-    with pytest.raises(BacktestAbortedError):  # all cash at the close, filled at a higher open
-        bt(LongFrom(0), {"TEST/USDT": ladder(OPENS)}, gross=1.0)
+    """A run that saw fewer bars than it was given is an error, not a shorter backtest.
+
+    Tested on the guard itself: under the USDT-M margin venue (P3-06) the account no longer runs
+    out of funds the way the cash account did, so there is no honest account-level way to drive
+    it. Every other test in this file exercises the guard's wiring by passing through it.
+    """
+    assert_complete(10, 10)  # a complete run is silent
+    with pytest.raises(BacktestAbortedError, match="stopped after 7/10 bars"):
+        assert_complete(7, 10)
 
 
 def test_mixed_timeframes_rejected() -> None:

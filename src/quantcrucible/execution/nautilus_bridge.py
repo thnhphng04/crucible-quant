@@ -32,7 +32,7 @@ from nautilus_trader.model.enums import (
     OrderSide,
 )
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, TradeId, Venue
-from nautilus_trader.model.instruments import CurrencyPair
+from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Currency, Money, Price, Quantity
 from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
 
@@ -43,6 +43,9 @@ PRICE_PRECISION = 8
 SIZE_PRECISION = 8  # at most; an instrument never trades finer than its base currency
 OPEN_TICK_OFFSET_NS = 1
 REBALANCE_BAND = 0.25  # an open position is resized only if the target moves by more than 25%
+# Not a risk parameter: the venue object must not reject an order on margin it does not own
+# (ADR-0032). The real leverage bound is the bracket table, applied in `perp_account`.
+VENUE_LEVERAGE = Decimal(100)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +67,13 @@ class CostModel:
 class FillRecord:
     ts: int  # ns
     symbol: str
-    side: str  # BUY | SELL
+    side: str  # BUY | SELL — the order's side
     qty: float
     price: float
     commission: float  # quote currency
+    # Which leg the fill belongs to under hedge mode (P3-06). BUY/SELL alone cannot say: a BUY
+    # is an entry on the LONG leg and an exit on the SHORT one.
+    position_side: str = "LONG"  # LONG | SHORT
 
 
 @dataclass(slots=True)
@@ -105,20 +111,30 @@ def lot_step(symbol: str) -> float:
     return 10.0 ** -size_precision(symbol)
 
 
-def make_instrument(symbol: str, venue: Venue, costs: CostModel) -> CurrencyPair:
+def make_instrument(symbol: str, venue: Venue, costs: CostModel) -> CryptoPerpetual:
+    """A linear USDT-margined perpetual.
+
+    ``margin_init`` and ``margin_maint`` are deliberately zero. Nautilus is used here as a
+    *position and fill* model, not as a margin model: its ``MarginAccount`` keys margin by
+    ``InstrumentId`` alone and so cannot hold one symbol's LONG and SHORT isolated wallets
+    separately, which is exactly what Binance hedge mode is. Margin, funding and liquidation are
+    replayed host-side by :mod:`quantcrucible.execution.perp_account` (ADR-0032). Leaving the
+    venue's own margin at zero keeps it from rejecting an order on numbers we do not use.
+    """
     base, quote = symbol.split("/")
     raw = Symbol(nautilus_symbol(symbol))
     size = size_precision(symbol)
-    return CurrencyPair(
+    return CryptoPerpetual(
         instrument_id=InstrumentId(raw, venue),
         raw_symbol=raw,
         base_currency=_currency(base),
         quote_currency=_currency(quote),
+        settlement_currency=_currency(quote),  # USDT-M: linear, settled in the quote currency
+        is_inverse=False,
         price_precision=PRICE_PRECISION,
         size_precision=size,
         price_increment=Price(10**-PRICE_PRECISION, PRICE_PRECISION),
         size_increment=Quantity(10**-size, size),
-        lot_size=None,
         max_quantity=None,
         min_quantity=None,
         max_notional=None,
@@ -134,12 +150,12 @@ def make_instrument(symbol: str, venue: Venue, costs: CostModel) -> CurrencyPair
     )
 
 
-def bar_type_for(instrument: CurrencyPair, timeframe: str) -> BarType:
+def bar_type_for(instrument: CryptoPerpetual, timeframe: str) -> BarType:
     unit = {"m": "MINUTE", "h": "HOUR", "d": "DAY"}[timeframe[-1]]
     return BarType.from_str(f"{instrument.id}-{int(timeframe[:-1])}-{unit}-LAST-EXTERNAL")
 
 
-def to_nautilus_data(bars: Bars, instrument: CurrencyPair) -> tuple[list[Bar], list[TradeTick]]:
+def to_nautilus_data(bars: Bars, instrument: CryptoPerpetual) -> tuple[list[Bar], list[TradeTick]]:
     """Bars (stamped at close) + one synthetic open tick before every bar but the first.
 
     The tick sits 1 ns after the bar's own OPEN time (close − timeframe). With contiguous data
@@ -207,7 +223,7 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
     def __init__(
         self,
         strategy: Strategy,
-        instruments: Mapping[str, CurrencyPair],
+        instruments: Mapping[str, CryptoPerpetual],
         bar_types: Mapping[str, BarType],
         timeframe: str,
         sizer: TargetSizer,
@@ -275,30 +291,36 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
         window = self._window(symbol)
         sig = step(self._strategy, window)
         self._record.signals[sig.direction] += 1
+        # Signed target: the sizer is unsigned (P3), the direction rides on the signal.
         target = self._sizer.target(symbol, sig, window, self._equity())
-        if sig.direction != "long":
-            target = 0.0  # spot, cash account: long or flat
+        if sig.direction == "short":
+            target = -target
+        elif sig.direction != "long":
+            target = 0.0
         inst = self._instruments[symbol]
         current = float(self.portfolio.net_position(inst.id))
         self.cancel_all_orders(inst.id)  # the protective stop is re-issued every bar
         min_step = 10.0**-inst.size_precision
-        # already in: resize only when the target moved by more than the band
+        # already in on the same side: resize only when the target moved by more than the band
         if (
-            current >= min_step
-            and target >= min_step
-            and abs(target - current) <= REBALANCE_BAND * max(target, current)
+            abs(current) >= min_step
+            and abs(target) >= min_step
+            and current * target > 0  # same side; a flip always trades
+            and abs(target - current) <= REBALANCE_BAND * max(abs(target), abs(current))
         ):
             target = current
         delta = target - current
         if abs(delta) >= min_step:
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             self.submit_order(self.order_factory.market(inst.id, side, inst.make_qty(abs(delta))))
-        if target >= min_step and sig.direction == "long":
-            trigger = close - sig.stop_distance
+        if abs(target) >= min_step and sig.direction in ("long", "short"):
+            long_side = sig.direction == "long"
+            trigger = close - sig.stop_distance if long_side else close + sig.stop_distance
             if trigger > 0:
                 self.submit_order(
                     self.order_factory.stop_market(
-                        inst.id, OrderSide.SELL, inst.make_qty(target),
+                        inst.id, OrderSide.SELL if long_side else OrderSide.BUY,
+                        inst.make_qty(abs(target)),
                         inst.make_price(trigger), reduce_only=True,
                     )
                 )  # fmt: skip
@@ -313,8 +335,26 @@ class BridgeStrategy(NautilusStrategy):  # type: ignore[misc]
                 qty=float(event.last_qty),
                 price=float(event.last_px),
                 commission=float(event.commission),
+                position_side=self._position_side(symbol, event),
             )
         )
+
+    def _position_side(self, symbol: str, event: Any) -> str:
+        """Which leg this fill belongs to.
+
+        The venue reports the resulting position's side, but a fill that *closes* a leg leaves
+        it FLAT, so the event alone cannot say. Falling back on the book's own side before the
+        fill is what keeps an exit attributed to the leg it exited.
+        """
+        reported = getattr(getattr(event, "position_side", None), "name", None)
+        if reported in ("LONG", "SHORT"):
+            return str(reported)
+        held = float(self.portfolio.net_position(self._instruments[symbol].id))
+        if held > 0:
+            return "LONG"
+        if held < 0:
+            return "SHORT"
+        return "LONG" if event.order_side == OrderSide.SELL else "SHORT"
 
     def on_order_denied(self, event: Any) -> None:
         self._record.denied_orders += 1
@@ -329,20 +369,27 @@ def build_engine(
     costs: CostModel,
     initial_cash: float,
     seed: int = 0,
-) -> tuple[BacktestEngine, dict[str, CurrencyPair], dict[str, BarType]]:
+) -> tuple[BacktestEngine, dict[str, CryptoPerpetual], dict[str, BarType]]:
     """A Nautilus engine with the pessimistic fill model and the data loaded."""
     engine = BacktestEngine(BacktestEngineConfig(logging=LoggingConfig(bypass_logging=True)))
     venue = venue_for(exchange)
     engine.add_venue(
         venue,
+        # NETTING, not HEDGING: one backtest runs ONE strategy on ONE side, so this engine never
+        # holds both legs of a contract. The two-sided book is a property of the joint-account
+        # replay (P3-08), which is host-side. HEDGING would also mint a fresh PositionId per
+        # entry order, leaving `reduce_only` stops with nothing to reduce.
         OmsType.NETTING,
-        AccountType.CASH,
+        AccountType.MARGIN,  # a cash account cannot hold a short at all
         [Money(initial_cash, USDT)],
         base_currency=None,
+        # The venue's own margin is not the model: see make_instrument. A high default leverage
+        # keeps Nautilus from refusing an order on numbers `perp_account` overrides anyway.
+        default_leverage=VENUE_LEVERAGE,
         fill_model=FillModel(prob_fill_on_limit=0.0, prob_slippage=0.0, random_seed=seed),
         latency_model=LatencyModel(base_latency_nanos=OPEN_TICK_OFFSET_NS),
     )
-    instruments: dict[str, CurrencyPair] = {}
+    instruments: dict[str, CryptoPerpetual] = {}
     bar_types: dict[str, BarType] = {}
     for symbol, bars in bars_by_symbol.items():
         inst = make_instrument(symbol, venue, costs)

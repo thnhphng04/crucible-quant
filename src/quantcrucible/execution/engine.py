@@ -113,7 +113,7 @@ def run_backtest(
     ppy = _periods_per_year(timeframe)
     if sizer is None:
         steps = {s: lot_step(s) for s in bars_by_symbol}
-        sizer = RiskSizer(list(bars_by_symbol), risk or RiskSettings(), ppy, steps)
+        sizer = RiskSizer(list(bars_by_symbol), risk or RiskSettings(), steps)
     engine.add_strategy(
         BridgeStrategy(strategy, instruments, bar_types, timeframe, sizer, lookback, log)
     )
@@ -121,10 +121,20 @@ def run_backtest(
         engine.run()
     finally:
         engine.dispose()
-    expected = sum(len(b) for b in bars_by_symbol.values())
-    if log.bars_seen != expected:  # Nautilus stops quietly; a truncated run must not pass as whole
-        raise BacktestAbortedError(f"engine stopped after {log.bars_seen}/{expected} bars")
+    assert_complete(log.bars_seen, sum(len(b) for b in bars_by_symbol.values()))
     return _summarize(bars_by_symbol, log, initial_cash, ppy)
+
+
+def assert_complete(bars_seen: int, expected: int) -> None:
+    """Nautilus stops quietly on an engine-level problem, and a truncated run must never pass as
+    a whole backtest: its metrics would describe a shorter history than the one asked for.
+
+    Until P3-06 the usual cause was a cash account going negative. The USDT-M margin venue does
+    not run out that way, so no test drives this through the account any more — the guard stays
+    because it catches *any* early stop, and is tested directly.
+    """
+    if bars_seen != expected:
+        raise BacktestAbortedError(f"engine stopped after {bars_seen}/{expected} bars")
 
 
 def _summarize(
@@ -175,11 +185,16 @@ def _summarize(
 
 
 def _round_trips(fills: list[FillRecord], ts_ns: npt.NDArray[np.int64]) -> list[int]:
-    """Bars held by each trade, walking the fills in time order (flat → long → flat).
+    """Bars held by each trade, walking the fills in time order.
+
+    A trade is any excursion away from flat and back, on **either** side (P3-06). Counting only
+    ``flat → long → flat`` reported zero trades for every short strategy, which made gate ③
+    reject it on ``min_trades`` for a reason that had nothing to do with the strategy.
 
     Taken from the fills, not from positions at bar closes: an entry stopped out inside the
     same bar is a trade too, held 0 bars. A fill belongs to the first bar closing at or after
-    it; a trade still open at the end is held until the last bar.
+    it; a trade still open at the end is held until the last bar. A flip straight from long to
+    short closes one trade and opens another at the same bar.
     """
     held: list[int] = []
     position, entry = 0.0, -1
@@ -187,11 +202,16 @@ def _round_trips(fills: list[FillRecord], ts_ns: npt.NDArray[np.int64]) -> list[
         k = int(np.searchsorted(ts_ns, f.ts, side="left"))
         before = position
         position += f.qty if f.side == "BUY" else -f.qty
-        if before <= _FLAT < position:
+        was_flat = abs(before) <= _FLAT
+        is_flat = abs(position) <= _FLAT
+        if was_flat and not is_flat:
             entry = k
-        elif before > _FLAT >= position:
+        elif not was_flat and is_flat:
             held.append(k - entry)
-    if position > _FLAT:
+        elif not was_flat and not is_flat and before * position < 0:  # flipped side
+            held.append(k - entry)
+            entry = k
+    if abs(position) > _FLAT:
         held.append(len(ts_ns) - entry)
     return held
 
