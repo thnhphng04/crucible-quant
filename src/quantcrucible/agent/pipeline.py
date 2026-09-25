@@ -165,7 +165,8 @@ def session_evaluator(session: ResearchSession, run_label: str) -> Evaluate:
             local.session = s
         provenance = Provenance(
             engine=key.engine, seed=key.seed, run_id=f"{run_label}-{key}",
-            instrument=key.instrument, direction=key.direction,
+            instrument=key.searched_instrument,
+            direction=None if key.is_legacy else key.direction,
             island=proposal.island, parents=proposal.parents, mutation=proposal.mutation,
             descriptors={
                 "categories": list(categories(proposal.genome)),

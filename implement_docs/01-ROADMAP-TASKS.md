@@ -396,6 +396,17 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 
 **Phase-3 gate:** fixtures prove the joint-account path and the real-data preflight passes. **No real campaign opens inside this phase** — its shape is a separate decision, and the headroom is 1,185 trials.
 
+**Status, honestly.** Eleven of fifteen tasks are done. The four marked ◐ share one unfinished
+piece: **the sandbox payload still carries only trade bars.** `perp_account`, `joint_account`,
+`path_summary` and `admission` are built and tested, but nothing in the gate pipeline calls them,
+because a backtest inside the container cannot yet receive mark prices or funding. Until that
+lands, a perpetual campaign cannot be run end to end — the components exist, the wiring does not.
+What is blocked by it: gate ③/④ on the perpetual path (P3-07, P3-08), the holdout evaluator on
+that path (P3-10), and the account-equity endpoint and contribution chart (P3-15).
+
+That piece was deferred out of P3-07 into P3-08 and then not built. Recording it here rather than
+marking the tasks done is the point: the phase gate above is not met yet.
+
 ---
 
 ## Phases 3b–6 — milestones (break into tasks when the phase starts)

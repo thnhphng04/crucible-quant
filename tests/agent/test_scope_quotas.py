@@ -101,3 +101,19 @@ def test_in_flight_reservations_still_bound_the_quota() -> None:
     key = next(iter(q))
     assert all(scheduler.reserve(key) for _ in range(q[key]))
     assert not scheduler.reserve(key)  # nothing settled yet, but the quota is spoken for
+
+
+def test_the_legacy_sentinel_never_travels_as_an_instrument() -> None:
+    """`legacy_spot` labels absent scope; it is not a contract.
+
+    Letting it through made a candidate ask for bars that do not exist, which the phase-2
+    end-to-end runs caught and the unit tests did not — so it is pinned here.
+    """
+    legacy = Scope("legacy_spot", "long")
+    key = next(iter(quotas(6, SHARES, seeds=3, scopes=(legacy,))))
+    assert key.is_legacy
+    assert key.searched_instrument is None
+
+    real = next(iter(quotas(6, SHARES, seeds=3, scopes=(Scope("BTCUSDT", "short"),))))
+    assert not real.is_legacy
+    assert real.searched_instrument == "BTCUSDT"

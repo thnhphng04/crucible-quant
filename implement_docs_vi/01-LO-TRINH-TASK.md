@@ -396,6 +396,17 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 
 **Cổng giai đoạn 3:** fixture chứng minh đường tài khoản chung và preflight dữ liệu thật đạt. **Không campaign thật nào mở trong giai đoạn này** — hình dạng của nó là quyết định riêng, và headroom là 1.185 trial.
 
+**Trạng thái, nói thẳng.** Mười một trên mười lăm task đã xong. Bốn task mang dấu ◐ cùng thiếu
+đúng một mảnh: **payload vào sandbox vẫn chỉ mang nến giao dịch.** `perp_account`,
+`joint_account`, `path_summary` và `admission` đã dựng và đã test, nhưng không gì trong đường ống
+gate gọi tới chúng, vì một backtest bên trong container chưa nhận được mark price hay funding.
+Chừng nào mảnh đó chưa xong, một campaign perpetual không chạy được end-to-end — linh kiện có đủ,
+đường dây thì chưa. Những thứ bị chặn bởi nó: gate ③/④ trên đường perpetual (P3-07, P3-08),
+evaluator holdout trên đường đó (P3-10), và endpoint equity tài khoản cùng chart đóng góp (P3-15).
+
+Mảnh này bị hoãn từ P3-07 sang P3-08 rồi không được làm. Ghi lại ở đây thay vì đánh dấu task đã
+xong chính là điều đáng làm: cổng giai đoạn phía trên chưa đạt.
+
 ---
 
 ## Giai đoạn 3b–6 — các mốc (chia thành task khi bắt đầu giai đoạn)

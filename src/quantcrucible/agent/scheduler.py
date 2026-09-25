@@ -51,6 +51,21 @@ class Key:
     def scope(self) -> Scope:
         return Scope(self.instrument, self.direction)
 
+    @property
+    def is_legacy(self) -> bool:
+        """A pre-P3 unit: the whole-basket long-or-flat search, whose trials store NULL scope."""
+        return self.instrument == LEGACY_INSTRUMENT
+
+    @property
+    def searched_instrument(self) -> str | None:
+        """The contract this unit searches, or ``None`` for the legacy basket.
+
+        ``legacy_spot`` is a *label* for absent scope, not a contract. Letting it travel as if it
+        were one makes a candidate ask for bars that do not exist — which is exactly what the
+        phase-2 end-to-end runs caught.
+        """
+        return None if self.is_legacy else self.instrument
+
     def __str__(self) -> str:
         return f"{self.instrument}-{self.direction}-{self.engine}-s{self.seed}"
 
