@@ -122,7 +122,6 @@ def _validate(cfg: UserConfig) -> None:
     if not r.drift.allow_below < r.drift.reject_at:
         problems.append("research.drift.allow_below must be < reject_at")
     positive = {
-        "research.target_vol": r.target_vol,
         "research.max_risk_pct": r.max_risk_pct,
         "research.portfolio.max_corr": r.portfolio.max_corr,
         "research.portfolio.max_strategies": r.portfolio.max_strategies,

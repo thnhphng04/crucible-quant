@@ -117,8 +117,7 @@ class Data:
 
 @dataclass(frozen=True, slots=True)
 class Research:
-    target_vol: float = 0.10
-    max_risk_pct: float = 0.01
+    max_risk_pct: float = 0.01  # D12 — the loss at the stop; sizing is Q = R/d (ADR-0031)
     portfolio: Portfolio = field(default_factory=Portfolio)
     pbo_grid: PboGrid = field(default_factory=PboGrid)
     drift: Drift = field(default_factory=Drift)

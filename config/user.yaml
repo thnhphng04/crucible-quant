@@ -13,8 +13,8 @@ operational:            # GROUP A — change any time, does not affect statistic
     eval: null                  # <mid-tier> — choose in phase 2
 
 research:               # GROUP B — locked per campaign; mid-campaign changes are refused
-  target_vol: 0.10              # D7
-  max_risk_pct: 0.01            # D12
+  max_risk_pct: 0.01            # D12 — the loss at the stop. Sizing is Q = R/d (ADR-0031);
+                                # D7's target_vol is retired with P4
   portfolio:                    # D9
     max_corr: 0.5
     max_strategies: 20

@@ -20,7 +20,6 @@ from quantcrucible.config.lock import (
     sha256_file,
 )
 from quantcrucible.config.schema import UserConfig
-from quantcrucible.core.sizing.vol_target import IDM_CAP, VOL_SPAN
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.core.strategy.template import parse, template_hash
 from quantcrucible.core.strategy.tunable import default_params
@@ -58,7 +57,6 @@ FEATURE_MAP: dict[str, Any] = {
     },
     "categories": ["trend", "momentum", "mean_reversion", "breakout"],
 }
-MAX_LEVERAGE = 1.0  # spot, cash account: gross exposure never above equity (ADR-0010)
 
 
 def phase0_pipeline() -> GatePipeline:
@@ -79,7 +77,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "template_hash": template_hash(evolve_scope),
         "costs": asdict(CostModel()),
         "lookback": DEFAULT_LOOKBACK,
-        "sizing": {"vol_span": VOL_SPAN, "max_leverage": MAX_LEVERAGE, "idm_cap": IDM_CAP},
+        "sizing": {"rule": "risk_over_stop"},  # ADR-0031: Q = R/d, no vol-targeting knobs
         "pbo": {"n_splits": DEFAULT_SPLITS},
         "robustness": {"cost_multiplier": COST_MULTIPLIER, "max_sharpe_drop": MAX_SHARPE_DROP},
         "feature_map": FEATURE_MAP,

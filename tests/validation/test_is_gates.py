@@ -23,7 +23,6 @@ from tests.factories import make_bars
 LOCK: dict[str, Any] = {
     "research": {
         "minbtl_target_sharpe": 1.5,
-        "target_vol": 0.10,
         "max_risk_pct": 0.01,
         "portfolio": {"rebalance": "monthly"},
         "constraints": {"min_trades": 30, "min_holding_bars": 1, "max_indicator_corr": 0.9},
@@ -31,7 +30,7 @@ LOCK: dict[str, Any] = {
     "derived": {
         "costs": {"fee_rate": 0.001, "slippage_bps": 5.0},
         "lookback": 400,
-        "sizing": {"vol_span": 25, "max_leverage": 1.0, "idm_cap": 2.5},
+        "sizing": {"rule": "risk_over_stop"},
     },
 }
 
@@ -117,10 +116,7 @@ def test_g3_passes_and_saves_returns(ledger: Ledger, tmp_path: Path) -> None:
     assert result.report.public["n_trades"] == 40.0
     job = c.services["sandbox"].jobs[0]
     assert job.kind == "backtest" and job.options["costs"]["fee_rate"] == 0.001
-    assert job.options["risk"] == {
-        "target_vol": 0.10, "max_risk_pct": 0.01, "rebalance": "monthly",
-        "vol_span": 25, "max_leverage": 1.0, "idm_cap": 2.5,
-    }  # fmt: skip
+    assert job.options["risk"] == {"max_risk_pct": 0.01}
 
 
 def test_g3_refuses_a_lock_without_sizing(ledger: Ledger, tmp_path: Path) -> None:
@@ -129,6 +125,19 @@ def test_g3_refuses_a_lock_without_sizing(ledger: Ledger, tmp_path: Path) -> Non
     c = ctx(ledger, tmp_path)
     c.lock = old
     with pytest.raises(ValueError, match="open a new campaign"):
+        InSampleGate().check(cand("ok"), c)
+
+
+def test_g3_refuses_a_lock_written_under_vol_targeting(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0031: a v4 lock carries `derived.sizing.max_leverage`. Its trials were sized under
+    P4, so they must not be mixed with `Q = R/d` trials inside one campaign."""
+    old = {
+        **LOCK,
+        "derived": {**LOCK["derived"], "sizing": {"vol_span": 25, "max_leverage": 1.0}},
+    }
+    c = ctx(ledger, tmp_path)
+    c.lock = old
+    with pytest.raises(ValueError, match="vol targeting"):
         InSampleGate().check(cand("ok"), c)
 
 
