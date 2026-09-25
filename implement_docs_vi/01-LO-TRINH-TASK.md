@@ -359,7 +359,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** `execution/engine.py`, thêm mới `execution/admission.py`, `validation/sandbox_runner.py`.
 **Đạt khi:** INV-92; equity tài khoản đối soát khớp tổng đóng góp của các slot; cùng seed tái hiện cùng đường equity.
 
-### ☐ P3-09 Nguồn dữ liệu perpetual và manifest
+### ✅ P3-09 Nguồn dữ liệu perpetual và manifest
 **Mục tiêu:** dữ liệu perpetual có hồ sơ toàn vẹn mà parquet spot chưa bao giờ có. **Kiến trúc:** §6.1, D18. **Cần:** P3-01, P3-05
 **File:** thêm mới `data/perp_source.py`, `data/store.py`, thêm mới `data/manifest.py`.
 **Đạt khi:** INV-94; manifest ghi checksum, coverage và nguồn; nến spot v4 không thoả được một yêu cầu perpetual; `data` vẫn không import `execution` (import-linter).

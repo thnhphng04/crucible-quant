@@ -359,7 +359,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** `execution/engine.py`, new `execution/admission.py`, `validation/sandbox_runner.py`.
 **Accept when:** INV-92; account equity reconciles with the sum of slot contributions; the same seed reproduces the same account curve.
 
-### ☐ P3-09 Perpetual data source and manifests
+### ✅ P3-09 Perpetual data source and manifests
 **Goal:** perpetual data with the integrity record the spot parquet never had. **Arch:** §6.1, D18. **Needs:** P3-01, P3-05
 **Files:** new `data/perp_source.py`, `data/store.py`, new `data/manifest.py`.
 **Accept when:** INV-94; a manifest records checksum, coverage and source; v4 spot bars cannot satisfy a perpetual request; `data` still imports no `execution` (import-linter).
