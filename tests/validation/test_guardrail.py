@@ -1,10 +1,12 @@
 """Gate ①a static guardrail (Architecture §3.3.1, §3.1.6) — INV-30, INV-31, INV-32."""
 
+import dataclasses
 from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
+from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.core.strategy.template import canonical_template, parse, render, template_hash
 from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.ledger.db import Ledger
@@ -249,3 +251,44 @@ def test_stop_must_be_in_price_units(ctx: GateContext, stop: str, fragment: str)
     )
     result = run(ctx, src, PARAMS)
     assert not result.passed and fragment in result.reason, result.reason
+
+
+# ── direction is the scope's, not the strategy's (P3-04, INV-91) ──────────────────────
+
+
+def _sig(direction: str, strength: str = "1.0") -> str:
+    return f"""
+    def signal(self, x: FeatureView) -> Signal:
+        if x["f"] > x["f"].ago(1):
+            return Signal("{direction}", {strength}, self.p.k * x["atr"])
+        return Signal("flat", 0.0, 0.0)
+"""
+
+
+def _scoped(source: str, direction: ScopeDirection) -> StrategyCandidate:
+    return dataclasses.replace(cand(source, PARAMS), direction=direction)
+
+
+@pytest.mark.parametrize(("scope", "emitted"), [("long", "short"), ("short", "long")])
+def test_a_wrong_side_signal_is_rejected(
+    ctx: GateContext, scope: ScopeDirection, emitted: str
+) -> None:
+    """INV-91: a scope searches one side. A strategy that can emit the other one is not a
+    candidate for that scope, however good it looks."""
+    src = render(canonical_template(), {"joint": body(signal=_sig(emitted))})
+    result = StaticGuardrail().check(_scoped(src, scope), ctx)
+    assert not result.passed and "direction" in result.reason, result.reason
+
+
+@pytest.mark.parametrize("scope", ["long", "short"])
+def test_its_own_side_passes(ctx: GateContext, scope: ScopeDirection) -> None:
+    src = render(canonical_template(), {"joint": body(signal=_sig(scope))})
+    result = StaticGuardrail().check(_scoped(src, scope), ctx)
+    assert result.passed, result.reason
+
+
+def test_strength_must_be_one(ctx: GateContext) -> None:
+    """ADR-0031: the portfolio cap is defined on R, so strength must not scale it."""
+    src = render(canonical_template(), {"joint": body(signal=_sig("long", "0.5"))})
+    result = StaticGuardrail().check(_scoped(src, "long"), ctx)
+    assert not result.passed and "strength" in result.reason, result.reason

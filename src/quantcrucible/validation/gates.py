@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import (
     Event,
@@ -76,6 +77,7 @@ class StrategyCandidate:
     engine: str = "manual"
     seed: int = 0
     evolve_scope: str = "joint"
+    direction: ScopeDirection = "long"  # the side this scope searches (P3-04, INV-91)
     hypothesis: str | None = None
     cell_id: str | None = None
     trial_source: TrialSource = "manual"

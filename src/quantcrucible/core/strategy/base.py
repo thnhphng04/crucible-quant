@@ -21,6 +21,9 @@ import numpy as np
 import numpy.typing as npt
 
 Direction = Literal["long", "short", "flat"]
+# The side one search scope trades (P3-04). `flat` is an outcome of a rule, never a scope, so a
+# scope is narrower than a Signal: a long scope emits `long` or `flat` and nothing else (INV-91).
+ScopeDirection = Literal["long", "short"]
 FloatArray = npt.NDArray[np.float64]
 Features = dict[str, FloatArray]
 
