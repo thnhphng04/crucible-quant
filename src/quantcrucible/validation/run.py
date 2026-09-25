@@ -179,14 +179,26 @@ def make_candidate(
     if params is None:
         params = default_params(list(parse(source).tunables))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
-    first = min(b.ts[0] for b in is_data.values()).astype("datetime64[D]")
-    last = max(b.ts[-1] for b in is_data.values()).astype("datetime64[D]")
+    # A scoped candidate sees ONE contract. Before P3-13 the universe was a campaign constant,
+    # which made every candidate a whole-basket strategy; a BTC-long candidate measured on five
+    # contracts is not the thing its scope searched for. An unscoped candidate keeps the basket,
+    # because that is what the pre-P3 campaigns did and their trials must keep meaning it.
+    scope = provenance.instrument if provenance else None
+    if scope is not None and scope not in is_data:
+        raise ValueError(
+            f"instrument {scope!r} is not in this session's data ({sorted(is_data)}): refusing "
+            "rather than falling back to the whole basket"
+        )
+    universe = (scope,) if scope is not None else tuple(is_data)
+    scoped_bars = [is_data[s] for s in universe]
+    first = min(b.ts[0] for b in scoped_bars).astype("datetime64[D]")
+    last = max(b.ts[-1] for b in scoped_bars).astype("datetime64[D]")
     candidate = StrategyCandidate(
         candidate_id=candidate_id or f"manual-{strategy_hash(source)[:10]}-{stamp}",
         source=source,
         params=dict(params),
-        universe=tuple(is_data),
-        timeframe=next(iter(is_data.values())).timeframe,
+        universe=universe,
+        timeframe=scoped_bars[0].timeframe,
         timerange=f"{first}/{last}",
         run_id=f"manual-{stamp}",
         campaign_id=campaign_id,
