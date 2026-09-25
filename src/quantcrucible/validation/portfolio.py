@@ -28,7 +28,12 @@ import numpy as np
 import pandas as pd
 
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.ledger.records import PortfolioVariant, TrialRow, TrialStats
+from quantcrucible.ledger.records import (
+    LEGACY_INSTRUMENT,
+    PortfolioVariant,
+    TrialRow,
+    TrialStats,
+)
 from quantcrucible.validation.gates import G4_PBO
 from quantcrucible.validation.statistical import (
     deflated_benchmark,
@@ -169,6 +174,54 @@ def combine(frame: pd.DataFrame, weights: np.ndarray, rebalance: str) -> pd.Seri
         holdings = holdings * (1.0 + rets[i])
         out[i] = holdings.sum() / value - 1.0
     return pd.Series(out, index=frame.index)
+
+
+def select_slots(
+    trials: Sequence[Any],
+    returns: Mapping[int, pd.Series],
+    trial_stats: TrialStats,
+    periods_per_year: float,
+    max_strategies: int | None = None,
+) -> list[Any]:
+    """One member per ``(instrument, direction)`` slot — §3.2.1 step 1, as of ADR-0033.
+
+    This **replaces** the cell-representative rule rather than sitting beside it. That rule was
+    right when every candidate searched the same five-symbol basket, because two candidates in
+    one feature-map cell really were near-duplicates. Once scopes are searched independently it
+    is wrong: BTC-long and XRP-short landing in one cell are not duplicates, and deduping would
+    silently drop one of them.
+
+    A slot with no candidate that passed gate ④ with a positive IS Sharpe stays **empty**. The
+    requirements are explicit that an empty slot is an outcome, not a gap to be filled by a
+    neighbour or a post-hoc replacement.
+
+    Ties break on the lowest trial id: deterministic, and it prefers the earlier trial rather
+    than whichever happened to sort first.
+    """
+    if trial_stats.var_sr is None:
+        raise ValueError("no trials in the ledger")
+    eligible = []
+    for t in trials:
+        if t.instrument == LEGACY_INSTRUMENT:
+            raise ValueError(
+                f"trial {t.id} has the legacy scope: it searched the whole basket, so it belongs "
+                "to no (instrument, direction) slot"
+            )
+        if not getattr(t, "passed4", True) or t.sharpe_is <= 0 or t.id not in returns:
+            continue
+        eligible.append(t)
+    if not eligible:
+        return []
+    # per observation, like build_portfolio: `var_sr` is annualised in the ledger and
+    # `selection_score` compares per-observation Sharpes
+    var_sr = max(trial_stats.var_sr, 0.0) / periods_per_year
+    sr0 = deflated_benchmark(max(trial_stats.n_eff, 1), var_sr)
+    score = {t.id: selection_score(returns[t.id], sr0) for t in eligible}
+    best: dict[tuple[str, str], Any] = {}
+    for t in sorted(eligible, key=lambda t: (-score[t.id], t.id)):
+        best.setdefault((t.instrument, t.direction), t)
+    chosen = sorted(best.values(), key=lambda t: (-score[t.id], t.id))
+    return chosen[:max_strategies] if max_strategies is not None else chosen
 
 
 def build_portfolio(

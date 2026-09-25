@@ -108,23 +108,37 @@ def test_the_protocol_is_recorded_once_before_anything_runs(tmp_path: Path) -> N
         lock_protocol(lg, "c1")
 
 
+def _paired(gp: list[float], rnd: list[float]) -> dict[str, list[dict[str, object]]]:
+    """One legacy scope, one row per seed — the shape `decide` takes since protocol v5."""
+    return {
+        "gp": [
+            {"instrument": "legacy_spot", "direction": "long", "seed": s, "trial_efficiency": v}
+            for s, v in enumerate(gp)
+        ],
+        "random": [
+            {"instrument": "legacy_spot", "direction": "long", "seed": s, "trial_efficiency": v}
+            for s, v in enumerate(rnd)
+        ],
+    }
+
+
 @pytest.mark.parametrize(
     ("gp", "rnd", "outcome"),
     [
         ([12.0, 14.0, 13.0], [5.0, 6.0, 4.0], "gp_beats_random"),
-        ([6.0, 7.0, 5.0], [5.0, 6.0, 4.0], "tie"),  # difference 1.0 == spread 1.0: not beyond
+        ([6.0, 8.0, 5.0], [5.0, 6.0, 6.0], "tie"),  # the per-seed differences disagree
         ([0.5, 0.0, 0.2], [0.3, 0.6, 0.1], "neither_meaningful"),
         ([2.0, 3.0, 2.5], [9.0, 8.0, 10.0], "tie"),  # random ahead is not a GP win
     ],
 )
 def test_decision_rule(gp: list[float], rnd: list[float], outcome: str) -> None:
-    d = decide({"gp": gp, "random": rnd})
+    d = decide(_paired(gp, rnd))
     assert d["outcome"] == outcome and d["action"] == PROTOCOL["decision"][outcome]
 
 
 def test_an_unfinished_run_yields_no_engine_decision() -> None:
     """A landslide measured at different budgets is not a result (protocol v2)."""
-    landslide = {"gp": [40.0, 41.0, 39.0], "random": [0.0, 0.0, 0.0]}
+    landslide = _paired([40.0, 41.0, 39.0], [0.0, 0.0, 0.0])
     assert decide(landslide)["outcome"] == "gp_beats_random"
     half = decide(landslide, unfinished=["random-s0", "random-s1", "random-s2"])
     assert half["outcome"] == "incomplete" and half["unfinished"][0] == "random-s0"
@@ -135,7 +149,7 @@ def test_a_diverging_arm_no_longer_withholds_the_decision() -> None:
     arise. The warning is reported next to the decision, never inside it."""
     assert "stopped_early" not in PROTOCOL["decision"]
     assert PROTOCOL["monitor"]["mode"] == "warn"
-    landslide = {"gp": [40.0, 41.0, 39.0], "random": [0.0, 0.0, 0.0]}
+    landslide = _paired([40.0, 41.0, 39.0], [0.0, 0.0, 0.0])
     assert decide(landslide)["outcome"] == "gp_beats_random"
 
 
@@ -188,7 +202,7 @@ def test_a_recovered_arm_keeps_the_warning_it_earned(ledger: Ledger, tmp_path: P
                    g4_detail={"pbo": 0.1, "cpcv_path_sharpes": [oos]})  # fmt: skip
         warn(unit("random", 1), k + 1)
     report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
-    assert not report["per_seed"]["random"][1]["diverging"]  # the curve recovered
+    assert not report["per_unit"]["random"][1]["diverging"]  # the curve recovered
     assert report["divergence_warnings"] == ["legacy_spot-long-random-s1"]  # not the event
 
 
@@ -205,8 +219,8 @@ def test_report_from_the_ledger(ledger: Ledger, tmp_path: Path) -> None:
     lock_protocol(ledger, "c1")
     _fill(ledger, per_unit=10, gp_pass=5, random_pass=2)
     report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
-    assert [r["trial_efficiency"] for r in report["per_seed"]["gp"]] == [50.0] * 3
-    assert [r["trial_efficiency"] for r in report["per_seed"]["random"]] == [20.0] * 3
+    assert [r["trial_efficiency"] for r in report["per_unit"]["gp"]] == [50.0] * 3
+    assert [r["trial_efficiency"] for r in report["per_unit"]["random"]] == [20.0] * 3
     assert report["completeness"]["unfinished"] == []
     per_unit = report["completeness"]["per_unit"]
     assert per_unit["legacy_spot-long-gp-s0"] == {"trials": 10, "quota": 10}
@@ -223,7 +237,7 @@ def test_a_report_before_the_quotas_are_used_is_progress_only(
     report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
     assert report["decision"]["outcome"] == "incomplete"
     assert len(report["completeness"]["unfinished"]) == 6
-    assert report["per_seed"]["gp"][0]["trial_efficiency"] == 50.0  # progress is still shown
+    assert report["per_unit"]["gp"][0]["trial_efficiency"] == 50.0  # progress is still shown
 
 
 # ── the ranking is part of the treatment, so the protocol carries it (ADR-0029) ───────────────
@@ -289,6 +303,6 @@ def test_the_ranking_margin_is_reported_for_both_arms_and_decides_nothing(
     _fill(ledger, per_unit=10, gp_pass=6, random_pass=3)
     report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
     for arm in PROTOCOL["arms"]:
-        assert "ranking_margin" in report["per_seed"][arm][0]
+        assert "ranking_margin" in report["per_unit"][arm][0]
     assert "ranking_margin" in PROTOCOL["supporting"]
     assert "ranking_margin" not in repr(report["decision"])

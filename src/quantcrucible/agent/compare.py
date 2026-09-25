@@ -25,7 +25,7 @@ import dataclasses
 import hashlib
 import json
 import statistics
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from quantcrucible.agent.evolution.archive import Entry, scope_args, trial_cells
@@ -163,12 +163,16 @@ fully tied, missing moments, two entries, one entry. Literal data for the same r
 """
 
 PROTOCOL: dict[str, Any] = {
-    "version": 4,
+    "version": 5,
     "arms": ["gp", "random"],
     "primary_metric": "trial_efficiency = strategies passing gate 4 per 100 trials",
-    "unit": "(engine, seed); >= 3 seeds; same trial quota per (engine, seed)",
-    "beats": "mean(gp) - mean(random) > max(sd(gp), sd(random)), sample sd across seeds",
-    "complete": "every (engine, seed) of every arm has used its whole quota; short of that the "
+    "unit": "(instrument, direction, engine, seed); >= 3 seeds; identical trial quota per unit",
+    "beats": "mean(d) > sd(d), where d = eff(gp) - eff(random) paired on "
+    "(instrument, direction, seed). Pooling instead of pairing admits between-instrument "
+    "variance and the spread swallows any real effect (ADR-0033)",
+    "scope_verdicts": "none: an individual (instrument, direction) is exploratory and carries "
+    "no win or loss. Reporting one requires a new protocol version, not a reinterpretation",
+    "complete": "every unit of every arm has used its whole quota; short of that the "
     "report shows progress and withholds the decision",
     "monitor": {
         "mode": "warn",
@@ -342,30 +346,58 @@ def _sd(values: Sequence[float]) -> float:
     return statistics.stdev(values) if len(values) > 1 else 0.0
 
 
+def paired_differences(per_scope: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[float]:
+    """gp minus random, matched on (instrument, direction, seed).
+
+    Both arms of a pair saw the same instrument, the same window, the same data and the same
+    quota, so their difference is attributable to the engine. A unit only one arm ran cannot be
+    differenced and is left out rather than compared against a zero.
+    """
+
+    def by_unit(rows: Sequence[Mapping[str, Any]]) -> dict[tuple[Any, Any, Any], float]:
+        return {
+            (r.get("instrument"), r.get("direction"), r.get("seed")): float(r["trial_efficiency"])
+            for r in rows
+        }
+
+    gp = by_unit(per_scope.get("gp", []))
+    rnd = by_unit(per_scope.get("random", []))
+    return [gp[k] - rnd[k] for k in sorted(gp.keys() & rnd.keys(), key=str)]
+
+
 def decide(
-    efficiency: dict[str, list[float]],
+    per_scope: Mapping[str, Sequence[Mapping[str, Any]]],
     unfinished: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """The locked rule. ``unfinished`` are the (engine, seed) units short of their quota: their
-    efficiencies were measured at a different budget, so the engine decision is withheld.
+    """The locked rule, protocol v5: a **paired within-scope** difference.
 
-    A divergence warning never reaches this function — under protocol v3 the monitor cannot cut
-    an arm short, and the warning is reported beside the decision, not inside it (ADR-0028)."""
-    gp, rnd = efficiency.get("gp", []), efficiency.get("random", [])
-    mean_gp = statistics.fmean(gp) if gp else 0.0
-    mean_rnd = statistics.fmean(rnd) if rnd else 0.0
-    spread = max(_sd(gp), _sd(rnd))
+    ``unfinished`` are the units short of their quota: their efficiencies were measured at a
+    different budget, so the engine decision is withheld.
+
+    Pooling every unit's efficiency and taking its sd would admit between-instrument variance —
+    BTC and XRP differ for reasons that have nothing to do with the engine — and the spread would
+    swallow any real effect, turning the rule into a machine that always returns ``tie``. Pairing
+    removes that variance; `tests/agent/test_paired_decision.py` keeps the negative control.
+
+    No individual scope carries a verdict (``PROTOCOL["scope_verdicts"] == "none"``). A divergence
+    warning never reaches this function: the monitor cannot cut an arm short, and the warning is
+    reported beside the decision, not inside it (ADR-0028).
+    """
+    diffs = paired_differences(per_scope)
+    mean_diff = statistics.fmean(diffs) if diffs else 0.0
+    spread = _sd(diffs)
+    levels = [float(r["trial_efficiency"]) for rows in per_scope.values() for r in rows]
     if unfinished:
         outcome = "incomplete"
-    elif max(mean_gp, mean_rnd) < MEANINGFUL_EFFICIENCY:
+    elif not diffs or max(levels, default=0.0) < MEANINGFUL_EFFICIENCY:
         outcome = "neither_meaningful"
-    elif mean_gp - mean_rnd > spread:
+    elif mean_diff > spread:
         outcome = "gp_beats_random"
     else:
         outcome = "tie"
     out = {
-        "mean_gp": mean_gp, "mean_random": mean_rnd, "spread": spread, "outcome": outcome,
-        "action": PROTOCOL["decision"][outcome],
+        "mean_difference": mean_diff, "spread": spread, "pairs": len(diffs),
+        "outcome": outcome, "action": PROTOCOL["decision"][outcome],
     }  # fmt: skip
     if unfinished:
         out["unfinished"] = list(unfinished)
@@ -465,7 +497,7 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
         arm: [engine_report(ledger, cid, k, fmap, rule, ppy) for k in keys if k.engine == arm]
         for arm in PROTOCOL["arms"]
     }
-    efficiency = {arm: [r["trial_efficiency"] for r in rows] for arm, rows in per_seed.items()}
+
     completeness = _completeness(session, seeds)
     # from the ledger, not from the current curve: a warning is an event that happened, and an
     # arm whose OOS later recovers must not drop out of the report (ADR-0028 amendment)
@@ -473,10 +505,10 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     out: dict[str, Any] = {
         "campaign": cid,
         "protocol_sha256": protocol_hash(),
-        "per_seed": per_seed,
+        "per_unit": per_seed,
         "completeness": completeness,
         "divergence_warnings": warnings,  # reported, never decisive (ADR-0028)
-        "decision": decide(efficiency, completeness["unfinished"]),
+        "decision": decide(per_seed, completeness["unfinished"]),
         "gate4_backtests_per_passing_strategy": {
             arm: _backtests_per_pass(ledger, cid, arm) for arm in PROTOCOL["arms"]
         },

@@ -379,7 +379,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
 **Đạt khi:** INV-96; INV-61 và INV-71 mở rộng và vẫn xanh; INV-65 mạnh thêm — engine vẫn không bao giờ thấy instrument của nó.
 
-### ☐ P3-13 Gate theo scope, danh mục theo slot, protocol v5
+### ◐ P3-13 Gate theo scope, danh mục theo slot, protocol v5
 **Mục tiêu:** gate ③④ trên một contract và một hướng; gate ⑤ trên một lần replay tài khoản chung. **Kiến trúc:** §3.2, §3.2.1, §3.1.11. **Cần:** P3-08, P3-12
 **File:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
 **Đạt khi:** INV-97, INV-98; lưới PBO không bao giờ trộn scope; INV-42 giữ nguyên, nên `trial_stats` vẫn toàn cục; campaign v4 bị từ chối dưới v5 (INV-74).

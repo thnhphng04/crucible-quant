@@ -379,7 +379,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
 **Accept when:** INV-96; INV-61 and INV-71 widened and still green; INV-65 strengthened — the engine still never sees its instrument.
 
-### ☐ P3-13 Scoped gates, slot portfolios, protocol v5
+### ◐ P3-13 Scoped gates, slot portfolios, protocol v5
 **Goal:** gates ③④ on one contract and direction; gate ⑤ on one joint-account replay. **Arch:** §3.2, §3.2.1, §3.1.11. **Needs:** P3-08, P3-12
 **Files:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
 **Accept when:** INV-97, INV-98; a PBO grid never mixes scopes; INV-42 unchanged, so `trial_stats` stays global; a v4 campaign is refused under v5 (INV-74).
