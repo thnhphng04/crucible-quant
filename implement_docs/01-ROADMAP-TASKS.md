@@ -384,7 +384,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
 **Accept when:** INV-97, INV-98; a PBO grid never mixes scopes; INV-42 unchanged, so `trial_stats` stays global; a v4 campaign is refused under v5 (INV-74).
 
-### ☐ P3-14 Timeframe is a real knob
+### ✅ P3-14 Timeframe is a real knob
 **Goal:** switching `research.data.timeframe` to `4h` runs end to end. **Arch:** D18, §3.2. **Needs:** P3-13
 **Files:** `validation/portfolio.py` (`Member.from_dict` must refuse a missing timeframe rather than default it), `validation/run.py` (`DEFAULT_LOOKBACK` counts bars), `config/schema.py`, `validation/is_gates.py`.
 **Accept when:** the whole path runs at 4h on the same fixtures with correct annualisation; funding lands correctly at 1d, 4h and 8h bars.

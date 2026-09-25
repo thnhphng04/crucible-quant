@@ -384,7 +384,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
 **Đạt khi:** INV-97, INV-98; lưới PBO không bao giờ trộn scope; INV-42 giữ nguyên, nên `trial_stats` vẫn toàn cục; campaign v4 bị từ chối dưới v5 (INV-74).
 
-### ☐ P3-14 Timeframe là knob thật
+### ✅ P3-14 Timeframe là knob thật
 **Mục tiêu:** đổi `research.data.timeframe` sang `4h` phải chạy end-to-end. **Kiến trúc:** D18, §3.2. **Cần:** P3-13
 **File:** `validation/portfolio.py` (`Member.from_dict` phải từ chối timeframe thiếu chứ không mặc định nó), `validation/run.py` (`DEFAULT_LOOKBACK` đếm theo nến), `config/schema.py`, `validation/is_gates.py`.
 **Đạt khi:** cả đường ống chạy ở 4h trên cùng fixture với niên hoá đúng; funding rơi đúng ở nến 1d, 4h và 8h.

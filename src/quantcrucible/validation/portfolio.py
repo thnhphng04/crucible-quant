@@ -68,6 +68,22 @@ class PortfolioRule:
         }  # fmt: skip
 
 
+def _required_timeframe(d: Mapping[str, Any]) -> str:
+    """A member's timeframe is not optional (P3-14).
+
+    Defaulting a missing one to "1d" would annualise a 4h member six times too small, and nothing
+    downstream would notice — the Sharpe would simply be wrong. A variant recorded before the
+    field existed is refused rather than guessed.
+    """
+    try:
+        return str(d["timeframe"])
+    except KeyError:
+        raise KeyError(
+            "this portfolio member has no timeframe: it cannot be annualised, and defaulting "
+            "would silently mis-scale every metric derived from it"
+        ) from None
+
+
 @dataclass(frozen=True, slots=True)
 class Member:
     trial_id: int
@@ -91,7 +107,7 @@ class Member:
         return cls(
             int(d["trial_id"]), str(d["candidate_id"]), str(d["strategy_hash"]),
             dict(d["params"]), float(d["weight"]), tuple(d.get("universe", ())),
-            str(d.get("timeframe", "1d")),
+            _required_timeframe(d),
         )  # fmt: skip
 
 
