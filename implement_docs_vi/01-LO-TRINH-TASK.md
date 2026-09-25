@@ -369,7 +369,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
 **Đạt khi:** có khoá và manifest riêng; khoá cũ không bao giờ bị mở hay ghi đè; lần cắt thứ hai bị từ chối; INV-08 đúng với khoá mới.
 
-### ☐ P3-11 Migration 007 — cột scope
+### ✅ P3-11 Migration 007 — cột scope
 **Mục tiêu:** ledger mang được scope, và 1.325 hàng cũ giữ nguyên ý nghĩa mà không bị đụng. **Kiến trúc:** §4.1, ADR-0033. **Cần:** —
 **File:** thêm mới `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
 **Đạt khi:** INV-95 — hàng cũ được giải lúc đọc, không bao giờ bằng UPDATE, thứ mà trigger append-only cấm. Migration chạy trên bản copy tạm, không bao giờ trên ledger thật.

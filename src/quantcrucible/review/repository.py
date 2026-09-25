@@ -16,7 +16,7 @@ from typing import Any, cast
 import pandas as pd
 import yaml
 
-SUPPORTED_SCHEMA = 6
+SUPPORTED_SCHEMA = 7  # bumped by migration 007 (P3-11): trials and events carry a scope
 
 
 class ReviewDataError(RuntimeError):

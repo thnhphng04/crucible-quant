@@ -369,7 +369,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
 **Accept when:** its own lock and manifest; the existing lock is never opened or overwritten; a second carve is refused; INV-08 holds for the new lock.
 
-### ☐ P3-11 Migration 007 — scope columns
+### ✅ P3-11 Migration 007 — scope columns
 **Goal:** the ledger carries a scope, and 1,325 legacy rows keep their meaning untouched. **Arch:** §4.1, ADR-0033. **Needs:** —
 **Files:** new `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
 **Accept when:** INV-95 — a legacy row resolves at read time, never by UPDATE, which the append-only triggers forbid. The migration runs against a temporary copy, never the real ledger.

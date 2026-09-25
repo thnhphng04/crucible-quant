@@ -40,6 +40,7 @@ MIGRATIONS = (
     "migration_004_calibration_runs.sql",
     "migration_005_island.sql",
     "migration_006_campaign_purposes.sql",
+    "migration_007_scope.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 # Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
@@ -48,8 +49,22 @@ ADDED_COLUMNS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("generation_log", "island", "TEXT"),
         ("trials", "island", "TEXT"),
     ),
+    "migration_007_scope.sql": (
+        ("generation_log", "instrument", "TEXT"),
+        ("generation_log", "direction", "TEXT"),
+        ("trials", "instrument", "TEXT"),
+        ("trials", "direction", "TEXT"),
+    ),
 }
 RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
+
+
+def _checked_direction(direction: str | None) -> str | None:
+    """A scope trades one side. Anything else is a bug upstream, refused before it is recorded:
+    the ledger is append-only, so a wrong value can never be corrected afterwards."""
+    if direction is None or direction in ("long", "short"):
+        return direction
+    raise LedgerError(f"direction must be long, short or unset, got {direction!r}")
 
 
 class LedgerError(Exception):
@@ -249,12 +264,13 @@ class Ledger:
     def log_event(self, e: GenerationEvent) -> int:
         return self._insert(
             "INSERT INTO generation_log (ts, run_id, campaign_id, engine, seed, evolve_scope,"
-            " agent, model_used, cell_id, event, strategy_hash, drift_delta, detail, island)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " agent, model_used, cell_id, event, strategy_hash, drift_delta, detail, island,"
+            " instrument, direction)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(e.ts), e.run_id, e.campaign_id, e.engine, e.seed, e.evolve_scope, e.agent,
                 e.model_used, e.cell_id, str(e.event), e.strategy_hash, e.drift_delta,
-                _json(e.detail), e.island,
+                _json(e.detail), e.island, e.instrument, _checked_direction(e.direction),
             ),
         )  # fmt: skip
 
@@ -262,13 +278,13 @@ class Ledger:
         return self._insert(
             "INSERT INTO trials (ts, run_id, campaign_id, candidate_id, engine, seed, evolve_scope,"
             " strategy_hash, hypothesis, params, universe, timeframe, timerange, cell_id, source,"
-            " sharpe_is, returns_path, gate_failed, verdict, island)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " sharpe_is, returns_path, gate_failed, verdict, island, instrument, direction)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(t.ts), t.run_id, t.campaign_id, t.candidate_id, t.engine, t.seed,
                 t.evolve_scope, t.strategy_hash, t.hypothesis, _json(t.params), t.universe,
                 t.timeframe, t.timerange, t.cell_id, t.source, t.sharpe_is, t.returns_path,
-                t.gate_failed, t.verdict, t.island,
+                t.gate_failed, t.verdict, t.island, t.instrument, _checked_direction(t.direction),
             ),
         )  # fmt: skip
 
@@ -425,29 +441,50 @@ class Ledger:
         return [(r[0], r[1]) for r in rows]
 
     def trials(
-        self, campaign_id: str | None = None, engine: str | None = None, seed: int | None = None
+        self,
+        campaign_id: str | None = None,
+        engine: str | None = None,
+        seed: int | None = None,
+        instrument: str | None = None,
+        direction: str | None = None,
     ) -> list[TrialRow]:
-        """Every trial in insertion order — all campaigns, engines and seeds unless filtered."""
-        where, args = _filters(campaign_id=campaign_id, engine=engine, seed=seed)
+        """Every trial in insertion order — all campaigns, engines, seeds and scopes unless
+        filtered.
+
+        A scope filter matches what is **stored**, not what a reader resolves NULL to, so a
+        legacy row is never swept into a perpetual scope by asking for one.
+        """
+        where, args = _filters(
+            campaign_id=campaign_id, engine=engine, seed=seed,
+            instrument=instrument, direction=direction,
+        )  # fmt: skip
         rows = self._conn.execute(
             "SELECT id, campaign_id, candidate_id, engine, strategy_hash, params, universe,"
             " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id, seed,"
-            f" island, timerange FROM trials{where} ORDER BY id",
+            f" island, timerange, instrument, direction FROM trials{where} ORDER BY id",
             args,
         )
         return [
             TrialRow(
                 int(r[0]), r[1], r[2], r[3], r[4], json.loads(r[5]), r[6], r[7], r[8],
-                float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15], r[16],
+                float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15], r[16], r[17], r[18],
             )
             for r in rows
         ]  # fmt: skip
 
     def events_for(
-        self, campaign_id: str, engine: str | None = None, seed: int | None = None
+        self,
+        campaign_id: str,
+        engine: str | None = None,
+        seed: int | None = None,
+        instrument: str | None = None,
+        direction: str | None = None,
     ) -> list[tuple[str, str | None, dict[str, Any] | None]]:
-        """(event, island, detail) of one campaign's audit log, optionally for one engine/seed."""
-        where, args = _filters(campaign_id=campaign_id, engine=engine, seed=seed)
+        """(event, island, detail) of one campaign's audit log, optionally for one scope."""
+        where, args = _filters(
+            campaign_id=campaign_id, engine=engine, seed=seed,
+            instrument=instrument, direction=direction,
+        )  # fmt: skip
         rows = self._conn.execute(
             f"SELECT event, island, detail FROM generation_log{where} ORDER BY id", args
         )
