@@ -364,7 +364,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** thêm mới `data/perp_source.py`, `data/store.py`, thêm mới `data/manifest.py`.
 **Đạt khi:** INV-94; manifest ghi checksum, coverage và nguồn; nến spot v4 không thoả được một yêu cầu perpetual; `data` vẫn không import `execution` (import-linter).
 
-### ☐ P3-10 Cắt holdout perpetual — tách biệt, ghi một lần
+### ◐ P3-10 Cắt holdout perpetual — tách biệt, ghi một lần
 **Mục tiêu:** một holdout thứ hai không bao giờ chạm cái thứ nhất. **Kiến trúc:** §4.2, P6. **Cần:** P3-09
 **File:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
 **Đạt khi:** có khoá và manifest riêng; khoá cũ không bao giờ bị mở hay ghi đè; lần cắt thứ hai bị từ chối; INV-08 đúng với khoá mới.

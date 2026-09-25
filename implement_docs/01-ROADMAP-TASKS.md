@@ -364,7 +364,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** new `data/perp_source.py`, `data/store.py`, new `data/manifest.py`.
 **Accept when:** INV-94; a manifest records checksum, coverage and source; v4 spot bars cannot satisfy a perpetual request; `data` still imports no `execution` (import-linter).
 
-### ☐ P3-10 Perpetual holdout carve — separate, write-once
+### ◐ P3-10 Perpetual holdout carve — separate, write-once
 **Goal:** a second holdout that never touches the first. **Arch:** §4.2, P6. **Needs:** P3-09
 **Files:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
 **Accept when:** its own lock and manifest; the existing lock is never opened or overwritten; a second carve is refused; INV-08 holds for the new lock.
