@@ -16,7 +16,18 @@ from typing import Any, cast
 import pandas as pd
 import yaml
 
+from quantcrucible.ledger.records import LEGACY_DIRECTION, LEGACY_INSTRUMENT
+
 SUPPORTED_SCHEMA = 7  # bumped by migration 007 (P3-11): trials and events carry a scope
+
+
+def unit_label(instrument: str | None, direction: str | None, engine: str, seed: int | str) -> str:
+    """One unit of search, spelled the way `compare` and the CLI spell it.
+
+    A legacy row stores NULL scope columns; it is labelled by what those NULLs mean rather than
+    left blank, so a v4 campaign still reads as a campaign and not as missing data.
+    """
+    return f"{instrument or LEGACY_INSTRUMENT}-{direction or LEGACY_DIRECTION}-{engine}-s{seed}"
 
 
 class ReviewDataError(RuntimeError):
@@ -203,30 +214,37 @@ class ReviewRepository:
             protocol = self._protocol(db, campaign_id)
             rows = db.execute(
                 """WITH units AS (
-                   SELECT engine, seed, COUNT(*) trials,
+                   SELECT instrument, direction, engine, seed, COUNT(*) trials,
                      SUM(CASE WHEN EXISTS(SELECT 1 FROM gate_results g WHERE g.campaign_id=t.campaign_id
                        AND g.candidate_id=t.candidate_id AND g.gate='g4_pbo' AND g.passed=1) THEN 1 ELSE 0 END) passed
-                   FROM trials t WHERE campaign_id=? GROUP BY engine, seed)
-                   SELECT * FROM units ORDER BY engine, seed""",
+                   FROM trials t WHERE campaign_id=?
+                   GROUP BY instrument, direction, engine, seed)
+                   SELECT * FROM units ORDER BY instrument, direction, engine, seed""",
                 (campaign_id,),
             ).fetchall()
             checkpoints = db.execute(
-                """SELECT engine, seed, ts, detail FROM generation_log
+                """SELECT instrument, direction, engine, seed, ts, detail FROM generation_log
                    WHERE campaign_id=? AND event='DEGRADATION_CHECKPOINT' ORDER BY id""",
                 (campaign_id,),
             ).fetchall()
             warnings = db.execute(
-                """SELECT DISTINCT engine, seed FROM generation_log
-                   WHERE campaign_id=? AND event='DEGRADATION_WARNING' ORDER BY engine, seed""",
+                """SELECT DISTINCT instrument, direction, engine, seed FROM generation_log
+                   WHERE campaign_id=? AND event='DEGRADATION_WARNING'
+                   ORDER BY instrument, direction, engine, seed""",
                 (campaign_id,),
             ).fetchall()
             engines = {}
-            seeds = max((int(r["seed"]) for r in rows), default=-1) + 1
-            quota = int(campaign["trial_budget"] or 0) // max(seeds * 2, 1)
+            # The quota is the budget divided by the number of units, not by seeds x 2: the
+            # literal 2 was the arm count, which stopped being the whole story when the unit
+            # widened to (instrument, direction, engine, seed) in P3-12.
+            quota = int(campaign["trial_budget"] or 0) // max(len(rows), 1)
             for r in rows:
-                key = f"{r['engine']}-s{r['seed']}"
+                key = unit_label(r["instrument"], r["direction"], r["engine"], r["seed"])
                 engines[key] = {
                     **dict(r),
+                    "unit": key,
+                    "instrument": r["instrument"] or LEGACY_INSTRUMENT,
+                    "direction": r["direction"] or LEGACY_DIRECTION,
                     "quota": quota,
                     "pass_rate": 100 * r["passed"] / r["trials"] if r["trials"] else None,
                 }
@@ -243,7 +261,7 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         where = ["c.campaign_id = ?"]
         args: list[Any] = [campaign_id]
-        for column in ("engine", "seed", "island"):
+        for column in ("engine", "seed", "island", "instrument", "direction"):
             if value := query.get(column):
                 where.append(f"c.{column} = ?")
                 args.append(int(value) if column == "seed" else value)
@@ -254,11 +272,13 @@ class ReviewRepository:
         with self.connection() as db:
             base = """WITH c AS (
               SELECT t.campaign_id,t.candidate_id,t.engine,t.seed,t.island,t.strategy_hash,t.source,
-                     t.sharpe_is,t.verdict,t.gate_failed,t.ts,t.id trial_id,t.cell_id
+                     t.sharpe_is,t.verdict,t.gate_failed,t.ts,t.id trial_id,t.cell_id,
+                     t.instrument,t.direction
               FROM trials t WHERE t.campaign_id=?
               UNION ALL
               SELECT g.campaign_id,json_extract(g.detail,'$.candidate_id'),g.engine,g.seed,g.island,
-                     g.strategy_hash,'evolution',NULL,'PRE_TRIAL',NULL,g.ts,NULL,g.cell_id
+                     g.strategy_hash,'evolution',NULL,'PRE_TRIAL',NULL,g.ts,NULL,g.cell_id,
+                     g.instrument,g.direction
               FROM generation_log g WHERE g.campaign_id=? AND g.event='CANDIDATE_SUBMITTED'
                 AND json_extract(g.detail,'$.candidate_id') IS NOT NULL
                 AND NOT EXISTS(SELECT 1 FROM trials t WHERE t.campaign_id=g.campaign_id

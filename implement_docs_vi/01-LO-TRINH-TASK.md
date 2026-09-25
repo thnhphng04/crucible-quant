@@ -389,7 +389,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** `validation/portfolio.py` (`Member.from_dict` phải từ chối timeframe thiếu chứ không mặc định nó), `validation/run.py` (`DEFAULT_LOOKBACK` đếm theo nến), `config/schema.py`, `validation/is_gates.py`.
 **Đạt khi:** cả đường ống chạy ở 4h trên cùng fixture với niên hoá đúng; funding rơi đúng ở nến 1d, 4h và 8h.
 
-### ☐ P3-15 Review API, UI, hồi quy legacy, cổng chất lượng
+### ◐ P3-15 Review API, UI, hồi quy legacy, cổng chất lượng
 **Mục tiêu:** kết quả mới đọc được và kết quả v4 vẫn đọc được. **Kiến trúc:** ADR-0029, ADR-0033. **Cần:** P3-14, P3-10
 **File:** `review/repository.py` (`SUPPORTED_SCHEMA` 6→7, endpoint equity tài khoản), `review/app.py`, `ui/src/`.
 **Đạt khi:** equity ban đầu cộng tổng đóng góp bằng equity tài khoản trong sai số làm tròn; campaign v4 vẫn hiển thị được; INV-79 và INV-80 giữ nguyên; toàn bộ cổng chất lượng xanh.

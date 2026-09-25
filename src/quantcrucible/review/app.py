@@ -54,8 +54,13 @@ def create_app(root: Path, static_dir: Path | None = None) -> FastAPI:
         engine: str = "",
         seed: str = "",
         island: str = "",
+        instrument: str = "",
+        direction: str = "",
     ) -> object:
-        query = {"q": q, "engine": engine, "seed": seed, "island": island}
+        query = {
+            "q": q, "engine": engine, "seed": seed, "island": island,
+            "instrument": instrument, "direction": direction,
+        }  # fmt: skip
         return _read(repo.candidates, cid, query, page, size)
 
     @app.get("/api/campaigns/{cid}/candidates/{candidate_id}")

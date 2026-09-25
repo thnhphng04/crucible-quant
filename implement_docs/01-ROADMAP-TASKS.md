@@ -389,7 +389,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** `validation/portfolio.py` (`Member.from_dict` must refuse a missing timeframe rather than default it), `validation/run.py` (`DEFAULT_LOOKBACK` counts bars), `config/schema.py`, `validation/is_gates.py`.
 **Accept when:** the whole path runs at 4h on the same fixtures with correct annualisation; funding lands correctly at 1d, 4h and 8h bars.
 
-### ☐ P3-15 Review API, UI, legacy regression, quality gate
+### ◐ P3-15 Review API, UI, legacy regression, quality gate
 **Goal:** the new results are readable and the v4 ones still are. **Arch:** ADR-0029, ADR-0033. **Needs:** P3-14, P3-10
 **Files:** `review/repository.py` (`SUPPORTED_SCHEMA` 6→7, an account-equity endpoint), `review/app.py`, `ui/src/`.
 **Accept when:** starting equity plus the summed contributions equals account equity within rounding tolerance; a v4 campaign still renders; INV-79 and INV-80 unchanged; the full quality gate green.
