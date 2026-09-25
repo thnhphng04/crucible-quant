@@ -349,7 +349,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **Chệch hướng: `OmsType.NETTING`, không phải `HEDGING`.** Một backtest chạy một strategy trên một hướng, nên engine này không bao giờ giữ cả hai chân của một contract — sổ hai chiều là tính chất của joint-account replay (P3-08), vốn nằm ở host. `HEDGING` còn sinh `PositionId` mới cho mỗi lệnh vào, khiến stop `reduce_only` không còn gì để giảm và âm thầm không khớp.
 **Hai test bị thay, không bị xóa:** `test_short_signal_means_flat_on_spot` khẳng định đúng hành vi mà task này gỡ bỏ → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` kích hoạt guard bằng cách làm cạn tài khoản cash, thiếu thứ mà venue margin không làm → guard nay là `assert_complete` và được test trực tiếp.
 
-### ☐ P3-07 Funding, mark price, thanh lý, đường giá trong nến
+### ◐ P3-07 Funding, mark price, thanh lý, đường giá trong nến
 **Mục tiêu:** ba thứ Nautilus không mô hình. **Kiến trúc:** §3.5, ADR-0032. **Cần:** P3-05, P3-06
 **File:** thêm mới `execution/perp_account.py`, thêm mới `execution/path_summary.py`, `validation/sandbox.py` và `sandbox_runner.py` (kênh dữ liệu vào container mở rộng).
 **Đạt khi:** INV-93, INV-94; first touch khớp với quét vét cạn theo phút; chạm đồng thời bị gắn cờ mơ hồ và giải theo kết quả bất lợi hơn; nến phút không bao giờ vào sandbox.

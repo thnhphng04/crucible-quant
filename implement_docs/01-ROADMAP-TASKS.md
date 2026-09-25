@@ -349,7 +349,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Deviation: `OmsType.NETTING`, not `HEDGING`.** One backtest runs one strategy on one side, so this engine never holds both legs of a contract — the two-sided book is a property of the joint-account replay (P3-08), which is host-side. `HEDGING` also mints a fresh `PositionId` per entry order, which left `reduce_only` stops with nothing to reduce and silently stopped them filling.
 **Two tests replaced, not deleted:** `test_short_signal_means_flat_on_spot` asserted the behaviour this task removes → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` drove the guard by exhausting a cash account, which a margin venue does not do → the guard is now `assert_complete` and is tested directly.
 
-### ☐ P3-07 Funding, mark price, liquidation, intrabar path
+### ◐ P3-07 Funding, mark price, liquidation, intrabar path
 **Goal:** the three things Nautilus does not model. **Arch:** §3.5, ADR-0032. **Needs:** P3-05, P3-06
 **Files:** new `execution/perp_account.py`, new `execution/path_summary.py`, `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
 **Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox.
