@@ -310,11 +310,99 @@ No agent code in this phase (P1).
 
 ---
 
-## Phases 3–6 — milestones (break into tasks when the phase starts)
+## Phase 3 — Per-(instrument, direction) strategies on USDT-M perpetuals (6–10 weeks)
+
+Arch §3.4 (rewritten), §3.5, §7. Requirements: `PLAN-PER-INSTRUMENT-STRATEGIES.en.md`, frozen 2026-09-25.
+Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual account), ADR-0033 (scope, protocol v5).
+
+### ✅ P3-01 Perpetual data coverage spike
+**Goal:** know what Binance USDT-M publishes before any decision is recorded. **Arch:** §6.1, D18. **Needs:** —
+**Files:** `scripts/perp_coverage.py` (read-only, no `src/` change).
+**Result (2026-09-25):** all three series exist for all five contracts. SOLUSDT is the binding listing at 2020-09-14, giving **5.03 years** of IS after a 12-month holdout. MinBTL at target 1.5 caps N at **1,475** against an `n_eff` of 290 — headroom 1,185. Leverage brackets need a signed endpoint. Mark 1m is ~3.5M rows per contract.
+**Accept when:** ✅ the coverage table and a go/no-go line, recorded in ADR-0031.
+
+### ✅ P3-02 Retire P4 in the architecture
+**Goal:** the sizing rule changes in the source of truth before it changes in code. **Arch:** §3.4, §7, §10 (D7, D12, D18). **Needs:** P3-01
+**Files:** `research_docs_vi/Architecture_Design.md` first, then the EN mirror; `CLAUDE.md`; `implement_docs/adr/0031-*.md` + VI mirror; `03-INVARIANT-TEST-MAP.md` (INV-05 retired, the INV-90..98 band added).
+**Accept when:** `uv run python scripts/check_doc_mirror.py` passes; ADR-0031 records who decided, what replaces INV-05, and that `idm` / `portfolio_scale` / `target_vol` are deleted rather than deprecated.
+
+### ✅ P3-03 `Q = R/d`: replace the INV-05 tests, then the code
+**Goal:** position size is risk over stop distance, proven by tests written first. **Arch:** §3.4, ADR-0031. **Needs:** P3-02
+**Files:** `tests/core/sizing/test_position_sizer.py`, `tests/execution/test_risk.py`, then `core/sizing/position_sizer.py`, `core/sizing/vol_target.py`, `execution/risk.py`, `config/schema.py`, `config/lock.py`, `validation/run.py`, `validation/is_gates.py`.
+**Accept when:** the four INV-90 tests pass; the three INV-05 tests are gone; a lock carrying `derived.sizing.max_leverage` is refused with the existing "open a new campaign" error rather than silently mixing two sizing rules.
+
+### ✅ P3-04 `direction` as a grammar axis, and the wrong-side guardrail
+**Goal:** a scope's genome renders in its own direction; a wrong-side signal dies at gate ①a. **Arch:** §3.3.1, ADR-0031. **Needs:** P3-02
+**Files:** `agent/grammar.py` (the rendered `Signal("long", …)` literal), `validation/guardrail.py`.
+**Accept when:** INV-91; a long and a short rendering of the same clauses have different `strategy_hash`.
+
+### ✅ P3-05 The bracket margin model
+**Goal:** initial margin, maintenance margin, the lowest funded leverage and isolated liquidation, on a bracket table. **Arch:** §3.5, ADR-0032. **Needs:** P3-01, P3-03
+**Files:** new `execution/margin.py`.
+**Accept when:** ✅ `tests/execution/test_margin.py` — maintenance margin is continuous across a tier boundary (which is what the venue's `amount` term is for), the boundary itself belongs to the lower tier, leverage above the bracket is refused, and liquidation sits below a long's entry and above a short's.
+**Deviation:** the venue switch (`CryptoPerpetual`, `OmsType.HEDGING`, `AccountType.MARGIN`) moved to P3-06. On its own it has no test that can fail for the right reason — a short only becomes observable once `TargetSizer` carries a side. The bracket table stays **data**: `fetchLeverageTiers` is a signed endpoint, so real values arrive with the campaign lock and are recorded there as an assumption.
+
+### ✅ P3-06 The venue trades both sides
+**Goal:** a short signal opens a short with its own protective stop. **Arch:** §3.5, P3. **Needs:** P3-04, P3-05
+**Files:** `execution/nautilus_bridge.py` (`CryptoPerpetual`, `AccountType.MARGIN`, signed target, short-side stop, `FillRecord.position_side`), `execution/engine.py` (`_round_trips`, `assert_complete`).
+**Accept when:** ✅ `tests/execution/test_hedge.py` — a short is traded rather than counted and dropped, and its round trips are counted; without that last part gate ③ rejected every short strategy on `min_trades` for a reason that had nothing to do with the strategy. INV-35's tests unchanged.
+**Deviation: `OmsType.NETTING`, not `HEDGING`.** One backtest runs one strategy on one side, so this engine never holds both legs of a contract — the two-sided book is a property of the joint-account replay (P3-08), which is host-side. `HEDGING` also mints a fresh `PositionId` per entry order, which left `reduce_only` stops with nothing to reduce and silently stopped them filling.
+**Two tests replaced, not deleted:** `test_short_signal_means_flat_on_spot` asserted the behaviour this task removes → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` drove the guard by exhausting a cash account, which a margin venue does not do → the guard is now `assert_complete` and is tested directly.
+
+### ☐ P3-07 Funding, mark price, liquidation, intrabar path
+**Goal:** the three things Nautilus does not model. **Arch:** §3.5, ADR-0032. **Needs:** P3-05, P3-06
+**Files:** new `execution/perp_account.py`, new `execution/path_summary.py`, `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
+**Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox.
+
+### ☐ P3-08 Joint-account backtest and the admission rule
+**Goal:** one account replay instead of N self-financed streams. **Arch:** §3.4, §3.2.1, ADR-0032. **Needs:** P3-07
+**Files:** `execution/engine.py`, new `execution/admission.py`, `validation/sandbox_runner.py`.
+**Accept when:** INV-92; account equity reconciles with the sum of slot contributions; the same seed reproduces the same account curve.
+
+### ☐ P3-09 Perpetual data source and manifests
+**Goal:** perpetual data with the integrity record the spot parquet never had. **Arch:** §6.1, D18. **Needs:** P3-01, P3-05
+**Files:** new `data/perp_source.py`, `data/store.py`, new `data/manifest.py`.
+**Accept when:** INV-94; a manifest records checksum, coverage and source; v4 spot bars cannot satisfy a perpetual request; `data` still imports no `execution` (import-linter).
+
+### ☐ P3-10 Perpetual holdout carve — separate, write-once
+**Goal:** a second holdout that never touches the first. **Arch:** §4.2, P6. **Needs:** P3-09
+**Files:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
+**Accept when:** its own lock and manifest; the existing lock is never opened or overwritten; a second carve is refused; INV-08 holds for the new lock.
+
+### ☐ P3-11 Migration 007 — scope columns
+**Goal:** the ledger carries a scope, and 1,325 legacy rows keep their meaning untouched. **Arch:** §4.1, ADR-0033. **Needs:** —
+**Files:** new `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
+**Accept when:** INV-95 — a legacy row resolves at read time, never by UPDATE, which the append-only triggers forbid. The migration runs against a temporary copy, never the real ledger.
+
+### ☐ P3-12 The search unit becomes (instrument, direction, engine, seed)
+**Goal:** each scope is an independent arm. **Arch:** §3.1.11, ADR-0033. **Needs:** P3-04, P3-11
+**Files:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
+**Accept when:** INV-96; INV-61 and INV-71 widened and still green; INV-65 strengthened — the engine still never sees its instrument.
+
+### ☐ P3-13 Scoped gates, slot portfolios, protocol v5
+**Goal:** gates ③④ on one contract and direction; gate ⑤ on one joint-account replay. **Arch:** §3.2, §3.2.1, §3.1.11. **Needs:** P3-08, P3-12
+**Files:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
+**Accept when:** INV-97, INV-98; a PBO grid never mixes scopes; INV-42 unchanged, so `trial_stats` stays global; a v4 campaign is refused under v5 (INV-74).
+
+### ☐ P3-14 Timeframe is a real knob
+**Goal:** switching `research.data.timeframe` to `4h` runs end to end. **Arch:** D18, §3.2. **Needs:** P3-13
+**Files:** `validation/portfolio.py` (`Member.from_dict` must refuse a missing timeframe rather than default it), `validation/run.py` (`DEFAULT_LOOKBACK` counts bars), `config/schema.py`, `validation/is_gates.py`.
+**Accept when:** the whole path runs at 4h on the same fixtures with correct annualisation; funding lands correctly at 1d, 4h and 8h bars.
+
+### ☐ P3-15 Review API, UI, legacy regression, quality gate
+**Goal:** the new results are readable and the v4 ones still are. **Arch:** ADR-0029, ADR-0033. **Needs:** P3-14, P3-10
+**Files:** `review/repository.py` (`SUPPORTED_SCHEMA` 6→7, an account-equity endpoint), `review/app.py`, `ui/src/`.
+**Accept when:** starting equity plus the summed contributions equals account equity within rounding tolerance; a v4 campaign still renders; INV-79 and INV-80 unchanged; the full quality gate green.
+
+**Phase-3 gate:** fixtures prove the joint-account path and the real-data preflight passes. **No real campaign opens inside this phase** — its shape is a separate decision, and the headroom is 1,185 trials.
+
+---
+
+## Phases 3b–6 — milestones (break into tasks when the phase starts)
 
 | Phase | Milestones | Arch |
 |---|---|---|
-| **3** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
+| **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
 | **4** IB → forex + intl equities (3–4 wk) | IB adapter via Nautilus; sessions/calendars; Stooq data source; indices/ETFs only (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 wk) | Own roll module (ratio adjustment, OI/volume roll) from TurtleTrader data; match a reference source | §6.1 |
 | **6** SSI → VN30F1M (3–6 wk) | InstrumentProvider + DataClient + ExecutionClient; reconciliation on reconnect with open positions | §3.5 |

@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Đã chấp nhận
 - **Ngày:** 2026-09-21
-- **Task:** P1-06 · **Kiến trúc:** §3.4, D7, D12, P4, P5 · **Vấn đề mở:** O11 (đã đóng)
+- **Task:** P1-06 · **Kiến trúc:** §3.4, D7, D12, P4, P5 · **Vấn đề mở:** O11 (đã đóng) · **Được sửa đổi bởi:** [ADR-0031](0031-co-vi-the-la-rui-ro-chia-khoang-stop.md)
 
 ## Bối cảnh
 
