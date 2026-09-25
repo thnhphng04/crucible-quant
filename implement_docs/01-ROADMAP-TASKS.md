@@ -354,7 +354,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** new `execution/perp_account.py`, new `execution/path_summary.py`, `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
 **Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox.
 
-### ☐ P3-08 Joint-account backtest and the admission rule
+### ◐ P3-08 Joint-account backtest and the admission rule
 **Goal:** one account replay instead of N self-financed streams. **Arch:** §3.4, §3.2.1, ADR-0032. **Needs:** P3-07
 **Files:** `execution/engine.py`, new `execution/admission.py`, `validation/sandbox_runner.py`.
 **Accept when:** INV-92; account equity reconciles with the sum of slot contributions; the same seed reproduces the same account curve.

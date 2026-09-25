@@ -354,7 +354,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** thêm mới `execution/perp_account.py`, thêm mới `execution/path_summary.py`, `validation/sandbox.py` và `sandbox_runner.py` (kênh dữ liệu vào container mở rộng).
 **Đạt khi:** INV-93, INV-94; first touch khớp với quét vét cạn theo phút; chạm đồng thời bị gắn cờ mơ hồ và giải theo kết quả bất lợi hơn; nến phút không bao giờ vào sandbox.
 
-### ☐ P3-08 Backtest tài khoản chung và luật kết nạp
+### ◐ P3-08 Backtest tài khoản chung và luật kết nạp
 **Mục tiêu:** một lần replay tài khoản thay cho N luồng tự tài trợ. **Kiến trúc:** §3.4, §3.2.1, ADR-0032. **Cần:** P3-07
 **File:** `execution/engine.py`, thêm mới `execution/admission.py`, `validation/sandbox_runner.py`.
 **Đạt khi:** INV-92; equity tài khoản đối soát khớp tổng đóng góp của các slot; cùng seed tái hiện cùng đường equity.
