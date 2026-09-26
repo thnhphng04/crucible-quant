@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Protocol
 
+from quantcrucible.core.perp_inputs import PerpBundle, assert_aligned, write_bundle
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.store import file_name, write_bars
 from quantcrucible.ledger.records import Event
@@ -57,6 +58,11 @@ class SandboxJob:
     params: Mapping[str, float | int] = field(default_factory=dict)
     options: Mapping[str, Any] = field(default_factory=dict)  # lookback, costs, seed, …
     timeout_s: float | None = None  # overrides SandboxLimits.timeout_s (e.g. gate ④'s grid)
+    # Mark, funding, intrabar paths and leverage brackets, per symbol (P3-18, ADR-0034). A
+    # perpetual backtest cannot be priced without them, so `backtest` and `grid_backtest` refuse
+    # to run when it is absent rather than defaulting the mark to the trade price and funding to
+    # zero. `signals` and `leak_check` never price a position and so never need it.
+    perp: Mapping[str, PerpBundle] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,11 +181,19 @@ class SandboxRunner:
             name = file_name(symbol, bars.timeframe)
             write_bars(inp / "data" / name, bars)
             symbols[symbol] = name
+        perp: dict[str, dict[str, str]] = {}
+        if job.perp is not None:
+            # Checked here, on the host, where the traceback is readable: a bundle one bar out of
+            # step with its trade bars marks every position at its neighbour's price, silently.
+            assert_aligned(job.perp, job.bars)
+            for symbol, bundle in job.perp.items():
+                perp[symbol] = write_bundle(inp / "data", bundle)
         spec = {
             **dict(job.options),
             "kind": job.kind,
             "params": dict(job.params),
             "symbols": symbols,
+            "perp": perp,
             "timeframe": timeframes.pop(),
         }
         spec.setdefault("lookback", 400)

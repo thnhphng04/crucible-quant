@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from quantcrucible.core.strategy.base import Bars
+from quantcrucible.agent.scheduler import Key
+from quantcrucible.core.strategy.base import Bars, ScopeDirection
+from quantcrucible.ledger.records import LEGACY_INSTRUMENT
 
 
 def make_bars(
@@ -68,3 +70,17 @@ def bars_from_close(close: list[float] | np.ndarray, symbol: str = "TEST/USDT") 
     c = np.asarray(close, dtype=np.float64)
     ts = np.datetime64("2020-01-01", "ns") + np.arange(1, len(c) + 1) * np.timedelta64(1, "D")
     return Bars(symbol, "1d", ts, c.copy(), c.copy(), c.copy(), c.copy(), np.ones(len(c)))
+
+
+def unit(
+    engine: str = "gp",
+    seed: int = 0,
+    instrument: str = LEGACY_INSTRUMENT,
+    direction: ScopeDirection = "long",
+) -> Key:
+    """One unit of search for a test.
+
+    Defaults to the legacy scope, which is what every pre-P3-12 test meant by (engine, seed):
+    the whole-basket long-or-flat search whose trials store NULL scope columns.
+    """
+    return Key(instrument, direction, engine, seed)

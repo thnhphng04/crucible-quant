@@ -18,6 +18,7 @@ from typing import Literal
 
 import numpy as np
 
+from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.core.strategy.registry import OPS
 from quantcrucible.core.strategy.template import canonical_template, render
 from quantcrucible.core.strategy.tunable import MAX_TUNABLES
@@ -296,8 +297,11 @@ def _fmt(v: float | int, is_int: bool) -> str:
 
 
 class _Renderer:
-    def __init__(self, genome: Genome) -> None:
+    def __init__(self, genome: Genome, direction: ScopeDirection = "long") -> None:
+        if direction not in ("long", "short"):
+            raise ValueError(f"direction must be long or short, got {direction!r}")
         self.genome = genome
+        self.direction = direction
         self.names: dict[int, str] = {}  # id(Param) -> TUNABLE name
         self.features: list[tuple[str, str]] = []  # (feature name, indicators() expression)
         counters: dict[str, int] = {}
@@ -382,7 +386,7 @@ class _Renderer:
             + f"        stop = {self.p(self.genome.stop)} * atr\n"
             + "        ready = atr > 0 and atr - atr == 0 and stop > 0 and stop - stop == 0\n"
             + f"        if ready and ({entry}):\n"
-            + f'            return Signal("long", 1.0, stop{tp})\n'
+            + f'            return Signal("{self.direction}", 1.0, stop{tp})\n'
             + '        return Signal("flat", 0.0, 0.0)\n\n'
         )
 
@@ -390,9 +394,17 @@ class _Renderer:
         return {self.names[id(p)]: p.value for p in self.unique}
 
 
-def render_genome(genome: Genome) -> tuple[str, dict[str, float | int]]:
-    """(full strategy source, parameter values) — the source's TUNABLE defaults are the values."""
-    r = _Renderer(genome)
+def render_genome(
+    genome: Genome, direction: ScopeDirection = "long"
+) -> tuple[str, dict[str, float | int]]:
+    """(full strategy source, parameter values) — the source's TUNABLE defaults are the values.
+
+    ``direction`` is the scope's side (P3-04): the rendered ``signal`` emits that side or
+    ``flat``, never the other one (INV-91). Strength is always 1.0 — ADR-0031 forbids it as a
+    second risk lever. The two renderings of one genome are different strategies with different
+    hashes, so a long and a short scope never share a trial.
+    """
+    r = _Renderer(genome, direction)
     body = r.body()
     return render(canonical_template(), {"joint": body}), r.params()
 

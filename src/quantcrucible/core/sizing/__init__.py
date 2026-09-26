@@ -1,1 +1,1 @@
-"""Vol targeting + PositionSizer — volatility enters size exactly once; stop is a cap (§3.4)."""
+"""PositionSizer — ``Q = R/d``: the loss at the stop is the risk budget (§3.4, P4′, ADR-0031)."""

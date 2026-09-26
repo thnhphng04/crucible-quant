@@ -27,7 +27,7 @@ from quantcrucible.agent.grammar import (
     render_genome,
     signature,
 )
-from quantcrucible.agent.pipeline import Outcome, Pipeline
+from quantcrucible.agent.pipeline import Evaluate, Outcome, Pipeline
 from quantcrucible.agent.scheduler import Key, TrialScheduler
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
@@ -42,6 +42,7 @@ from quantcrucible.validation.gates import (
     TrialMeasurement,
 )
 from quantcrucible.validation.run import FEATURE_MAP
+from tests.factories import unit
 
 pytestmark = pytest.mark.slow
 
@@ -90,14 +91,14 @@ class Pbo:
         )  # fmt: skip
 
 
-def _evaluator(path: str) -> object:
+def _evaluator(path: str) -> Evaluate:
     local = threading.local()
     pipeline = GatePipeline([Static(), InSample(), Pbo()])
 
     def evaluate(key: Key, p: Proposal, cid: str) -> Outcome:
         lg = getattr(local, "lg", None) or Ledger.open(path)
         local.lg = lg
-        engine, seed = key
+        engine, seed = key.engine, key.seed
         cand = StrategyCandidate(
             candidate_id=cid, source=p.source, params=p.params, universe=("A/USDT",),
             timeframe="1d", timerange="2018-01-01/2024-01-01", run_id="loop", campaign_id="c1",
@@ -118,12 +119,13 @@ def loop(tmp_path_factory: pytest.TempPathFactory) -> tuple[Ledger, GpSearch]:
     path = tmp_path_factory.mktemp("gp") / "ledger.db"
     main = Ledger.open(path)
     main.open_campaign("c1", "2024-01-01/2025-01-01", lock_hash="h")
-    gp = GpSearch(main, "c1", 0, 7, FeatureMap.from_lock(LOCK), 365.0, 0.30, "loop")
+    gp = GpSearch(main, "c1", unit(), 7, FeatureMap.from_lock(LOCK), 365.0, 0.30, "loop")
     budget = GENERATIONS * ISLANDS
-    Pipeline(
-        {("gp", 0): gp}, TrialScheduler({("gp", 0): budget}), _evaluator(main.path),  # type: ignore[arg-type]
+    pipeline = Pipeline(
+        {unit(): gp}, TrialScheduler({unit(): budget}), _evaluator(main.path),
         workers=2, run_label="loop",
-    ).run()  # fmt: skip
+    )  # fmt: skip
+    pipeline.run()
     return main, gp
 
 
@@ -141,7 +143,7 @@ def test_every_s_new_reaches_the_ledger(loop: tuple[Ledger, GpSearch]) -> None:
 
 def test_the_feature_map_does_not_collapse(loop: tuple[Ledger, GpSearch]) -> None:
     ledger, _ = loop
-    cells = Counter(trial_cells(ledger, "c1", "gp", 0, FeatureMap.from_lock(LOCK)).values())
+    cells = Counter(trial_cells(ledger, "c1", unit(), FeatureMap.from_lock(LOCK)).values())
     assert len(cells) > 50
     assert max(cells.values()) / sum(cells.values()) < 0.2
 
@@ -163,12 +165,12 @@ def test_evolution_actually_happens_on_every_island(loop: tuple[Ledger, GpSearch
         if e == Event.CANDIDATE_SUBMITTED and d and d.get("mutation")
     )  # fmt: skip
     assert param_only <= 0.30 * bred + 1  # INV-66 over the run, counted by what changed
-    assert len(migrations(ledger, "c1", "gp", 0)) >= GENERATIONS // 10 - 1
+    assert len(migrations(ledger, "c1", unit())) >= GENERATIONS // 10 - 1
 
 
 def test_a_restarted_engine_resumes_from_the_ledger(loop: tuple[Ledger, GpSearch]) -> None:
     ledger, gp = loop
-    again = GpSearch(ledger, "c1", 0, 7, FeatureMap.from_lock(LOCK), 365.0, 0.30, "loop2")
+    again = GpSearch(ledger, "c1", unit(), 7, FeatureMap.from_lock(LOCK), 365.0, 0.30, "loop2")
     assert (again.proposals, again.children, again.param_only) == (
         gp.proposals, gp.children, gp.param_only,
     )  # fmt: skip

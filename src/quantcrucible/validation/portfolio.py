@@ -19,16 +19,28 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
+from quantcrucible.core.perp_inputs import PerpBundle
+from quantcrucible.core.strategy.base import Bars, Direction, Signal
+from quantcrucible.execution.joint_account import SignalReplay, SlotPlan, replay_signals
+from quantcrucible.execution.nautilus_bridge import CostModel
+from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.ledger.records import PortfolioVariant, TrialRow, TrialStats
+from quantcrucible.ledger.records import (
+    LEGACY_INSTRUMENT,
+    PortfolioVariant,
+    TrialRow,
+    TrialStats,
+)
 from quantcrucible.validation.gates import G4_PBO
 from quantcrucible.validation.statistical import (
     deflated_benchmark,
@@ -63,6 +75,22 @@ class PortfolioRule:
         }  # fmt: skip
 
 
+def _required_timeframe(d: Mapping[str, Any]) -> str:
+    """A member's timeframe is not optional (P3-14).
+
+    Defaulting a missing one to "1d" would annualise a 4h member six times too small, and nothing
+    downstream would notice — the Sharpe would simply be wrong. A variant recorded before the
+    field existed is refused rather than guessed.
+    """
+    try:
+        return str(d["timeframe"])
+    except KeyError:
+        raise KeyError(
+            "this portfolio member has no timeframe: it cannot be annualised, and defaulting "
+            "would silently mis-scale every metric derived from it"
+        ) from None
+
+
 @dataclass(frozen=True, slots=True)
 class Member:
     trial_id: int
@@ -72,21 +100,25 @@ class Member:
     weight: float
     universe: tuple[str, ...] = ()
     timeframe: str = "1d"
+    direction: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "trial_id": self.trial_id, "candidate_id": self.candidate_id,
             "strategy_hash": self.strategy_hash, "params": self.params,
             "weight": round(self.weight, WEIGHT_DIGITS), "universe": list(self.universe),
             "timeframe": self.timeframe,
         }  # fmt: skip
+        if self.direction is not None:
+            result["direction"] = self.direction
+        return result
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Member:
         return cls(
             int(d["trial_id"]), str(d["candidate_id"]), str(d["strategy_hash"]),
             dict(d["params"]), float(d["weight"]), tuple(d.get("universe", ())),
-            str(d.get("timeframe", "1d")),
+            _required_timeframe(d), str(d["direction"]) if "direction" in d else None,
         )  # fmt: skip
 
 
@@ -171,6 +203,54 @@ def combine(frame: pd.DataFrame, weights: np.ndarray, rebalance: str) -> pd.Seri
     return pd.Series(out, index=frame.index)
 
 
+def select_slots(
+    trials: Sequence[Any],
+    returns: Mapping[int, pd.Series],
+    trial_stats: TrialStats,
+    periods_per_year: float,
+    max_strategies: int | None = None,
+) -> list[Any]:
+    """One member per ``(instrument, direction)`` slot — §3.2.1 step 1, as of ADR-0033.
+
+    This **replaces** the cell-representative rule rather than sitting beside it. That rule was
+    right when every candidate searched the same five-symbol basket, because two candidates in
+    one feature-map cell really were near-duplicates. Once scopes are searched independently it
+    is wrong: BTC-long and XRP-short landing in one cell are not duplicates, and deduping would
+    silently drop one of them.
+
+    A slot with no candidate that passed gate ④ with a positive IS Sharpe stays **empty**. The
+    requirements are explicit that an empty slot is an outcome, not a gap to be filled by a
+    neighbour or a post-hoc replacement.
+
+    Ties break on the lowest trial id: deterministic, and it prefers the earlier trial rather
+    than whichever happened to sort first.
+    """
+    if trial_stats.var_sr is None:
+        raise ValueError("no trials in the ledger")
+    eligible = []
+    for t in trials:
+        if t.instrument == LEGACY_INSTRUMENT:
+            raise ValueError(
+                f"trial {t.id} has the legacy scope: it searched the whole basket, so it belongs "
+                "to no (instrument, direction) slot"
+            )
+        if not getattr(t, "passed4", True) or t.sharpe_is <= 0 or t.id not in returns:
+            continue
+        eligible.append(t)
+    if not eligible:
+        return []
+    # per observation, like build_portfolio: `var_sr` is annualised in the ledger and
+    # `selection_score` compares per-observation Sharpes
+    var_sr = max(trial_stats.var_sr, 0.0) / periods_per_year
+    sr0 = deflated_benchmark(max(trial_stats.n_eff, 1), var_sr)
+    score = {t.id: selection_score(returns[t.id], sr0) for t in eligible}
+    best: dict[tuple[str, str], Any] = {}
+    for t in sorted(eligible, key=lambda t: (-score[t.id], t.id)):
+        best.setdefault((t.instrument, t.direction), t)
+    chosen = sorted(best.values(), key=lambda t: (-score[t.id], t.id))
+    return chosen[:max_strategies] if max_strategies is not None else chosen
+
+
 def build_portfolio(
     trials: Sequence[TrialRow],
     returns: Mapping[int, pd.Series],
@@ -219,6 +299,7 @@ def build_portfolio(
         Member(
             t.id, t.candidate_id, t.strategy_hash, dict(t.params), float(w),
             tuple(s for s in t.universe.split(",") if s), t.timeframe,
+            t.direction if t.instrument != LEGACY_INSTRUMENT else None,
         )
         for t, w in zip(chosen, weights, strict=True)
     )  # fmt: skip
@@ -292,3 +373,150 @@ def build_and_record(
     )
     record_variant(ledger, portfolio, results_dir)
     return portfolio
+
+
+# ── the perpetual path: one account replay, not a weighted sum (P3-21, ADR-0035) ───────
+
+
+def load_signal_stream(path: Path) -> list[SlotPlan]:
+    """Read one trial's signal stream back as slot plans, one per instrument it traded.
+
+    The slot's side is taken from the signals themselves rather than passed in: INV-91 guarantees
+    a strategy only ever emits its own side, so the stream *is* the declaration. A stream carrying
+    both sides for one instrument is that invariant broken upstream, and it is refused here rather
+    than resolved by picking one.
+
+    Written by gate ③ beside the returns curve under the same id, so the ledger's ``returns_path``
+    locates it (``is_gates.signals_path_for``).
+    """
+    frame = pd.read_parquet(path).sort_values(["symbol", "bar"])
+    plans: list[SlotPlan] = []
+    for symbol, rows in frame.groupby("symbol", sort=True):
+        directions: list[Direction] = []
+        for value in rows["direction"]:
+            name = str(value)
+            if name not in ("long", "short", "flat"):
+                raise ValueError(f"{path.name}: {symbol} has an unknown direction {name!r}")
+            directions.append(cast("Direction", name))
+        strengths = rows["strength"].to_numpy(dtype=np.float64)
+        stops = rows["stop_distance"].to_numpy(dtype=np.float64)
+        # NaN is how "no take profit" survives a float column; `Signal` wants None back.
+        profits = rows["take_profit"].to_numpy(dtype=np.float64)
+        signals = tuple(
+            Signal(
+                directions[i],
+                float(strengths[i]),
+                float(stops[i]),
+                None if not math.isfinite(float(profits[i])) else float(profits[i]),
+            )
+            for i in range(len(directions))
+        )
+        sides = {s.direction for s in signals if s.direction != "flat"}
+        if len(sides) > 1:
+            raise ValueError(
+                f"{path.name}: {symbol} emits {sorted(sides)} — a scope trades one side (INV-91)"
+            )
+        if not sides:
+            continue  # never traded; it contributes no slot rather than an empty long one
+        side = sides.pop()
+        plans.append(SlotPlan(str(symbol), "long" if side == "long" else "short", signals))
+    return plans
+
+
+ACCOUNT_COLUMNS = ("ts", "equity")
+
+
+def write_account_curve(
+    results_dir: Path,
+    campaign_id: str,
+    portfolio_hash: str,
+    *,
+    ts: npt.NDArray[np.datetime64],
+    equity: npt.NDArray[np.float64],
+    initial_cash: float,
+    contributions: Mapping[tuple[str, str], npt.NDArray[np.float64]],
+) -> Path:
+    """Persist the account curve and its per-slot decomposition for the review UI (P3-23).
+
+    One column per slot, named ``"<instrument>-<direction>"``, alongside the account's own equity
+    and the balance it started from. All three are needed because the screen's promise is
+    arithmetic — ``initial_cash + Σ contributions == equity`` at every bar — and a reader that has
+    to infer the starting balance cannot check it.
+    """
+    frame = pd.DataFrame({"ts": ts, "equity": equity})
+    for (instrument, direction), series in sorted(contributions.items()):
+        frame[f"{instrument}-{direction}"] = series
+    frame.attrs.clear()
+    path = results_dir / "account" / campaign_id / f"{portfolio_hash}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The opening balance travels as a column of its own rather than in metadata: parquet
+    # key-value metadata is easy to drop on a rewrite, and losing it would silently turn the
+    # reconciliation into an unanswerable question.
+    frame["initial_cash"] = float(initial_cash)
+    frame.to_parquet(path, index=False)
+    return path
+
+
+def consolidate_on_account(
+    members: Sequence[Member],
+    streams: Mapping[int, Path],
+    bars: Mapping[str, Bars],
+    inputs: Mapping[str, PerpBundle],
+    *,
+    settings: RiskSettings,
+    costs: CostModel,
+    initial_cash: float,
+    leverage: int,
+    max_portfolio_risk_pct: float = 0.10,
+) -> SignalReplay:
+    """§3.2.1 steps 4–5 on the perpetual path: replace the weighted sum with one account replay.
+
+    Under ``Q = R/d`` every slot risks exactly 1% and the 10% cap bounds the total, so there is
+    nothing for naive risk parity to weight — and a weighted blend of standalone streams would
+    describe positions that never competed for the same margin, the same cap or the same ten
+    slots. The account replay *is* the portfolio.
+
+    A member's stream is matched to it by **instrument**, not by list position: a silent mismatch
+    would replay one strategy's signals against another strategy's market.
+    """
+    plans: list[SlotPlan] = []
+    seen: set[tuple[str, str]] = set()
+    for member in members:
+        if member.direction not in ("long", "short"):
+            raise ValueError(f"{member.candidate_id}: perpetual member has no locked direction")
+        path = streams.get(member.trial_id)
+        if path is None:
+            raise ValueError(
+                f"{member.candidate_id}: no signal stream for trial {member.trial_id}; a "
+                "perpetual portfolio is replayed from signals, not returns (ADR-0035)"
+            )
+        for plan in load_signal_stream(path):
+            if plan.direction != member.direction:
+                raise ValueError(
+                    f"{member.candidate_id}: signal direction {plan.direction} differs from "
+                    f"locked {member.direction} direction"
+                )
+            if plan.instrument not in member.universe:
+                raise ValueError(
+                    f"{member.candidate_id}: its signal stream names {plan.instrument}, which is "
+                    f"not in its universe {list(member.universe)}"
+                )
+            if plan.instrument not in bars or len(plan.signals) != len(bars[plan.instrument]):
+                raise ValueError(
+                    f"{member.candidate_id}: signal stream length does not match "
+                    f"{plan.instrument} bars"
+                )
+            if plan.slot in seen:
+                raise ValueError(f"duplicate perpetual slot {plan.slot}: one strategy per side")
+            seen.add(plan.slot)
+            plans.append(plan)
+    return replay_signals(
+        plans,
+        bars,
+        inputs,
+        initial_cash=initial_cash,
+        settings=settings,
+        costs=costs,
+        leverage=leverage,
+        max_portfolio_risk_pct=max_portfolio_risk_pct,
+    )

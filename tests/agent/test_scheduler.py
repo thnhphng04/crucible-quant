@@ -1,4 +1,10 @@
-"""Trial-budget scheduler (arch §3.1.11, P2-06) — INV-61."""
+"""Trial-budget scheduler (arch §3.1.11, P2-06, P3-12) — INV-61.
+
+The quota *split* moved to `test_scope_quotas.py` when the unit widened to
+`(instrument, direction, engine, seed)`. What stays here is the reservation invariant, which did
+not change: many workers reserving, measuring or failing at random never push a unit past its
+quota, and the quota is used up when attempts suffice.
+"""
 
 import random
 import threading
@@ -6,59 +12,57 @@ from collections import Counter
 
 import pytest
 
-from quantcrucible.agent.scheduler import TrialScheduler, quotas
-
-
-def test_quotas_split_the_budget_by_engine_share_then_seed() -> None:
-    q = quotas(1000, {"gp": 0.5, "random": 0.5, "quantevolve": 0.0, "simple_loop": 0.0}, seeds=3)
-    assert q == {
-        ("gp", 0): 167, ("gp", 1): 167, ("gp", 2): 166,
-        ("random", 0): 167, ("random", 1): 167, ("random", 2): 166,
-    }  # fmt: skip
-    assert sum(q.values()) == 1000
-
-
-def test_uneven_shares() -> None:
-    q = quotas(100, {"gp": 0.8, "random": 0.2}, seeds=1)
-    assert q == {("gp", 0): 80, ("random", 0): 20}
+from quantcrucible.agent.scheduler import Key, TrialScheduler
+from tests.factories import unit
 
 
 def test_existing_trials_count_against_the_quota() -> None:
-    s = TrialScheduler({("gp", 0): 5}, measured={("gp", 0): 4})
-    assert s.remaining("gp", 0) == 1
-    assert s.reserve("gp", 0)
-    assert not s.reserve("gp", 0)  # the in-flight one might become the 5th trial
-    s.settle("gp", 0, measured=False)  # it failed before gate ③: not a trial
-    assert s.reserve("gp", 0)
-    s.settle("gp", 0, measured=True)
-    assert s.exhausted("gp", 0) and s.measured("gp", 0) == 5
+    k = unit("gp", 0)
+    s = TrialScheduler({k: 5}, measured={k: 4})
+    assert s.remaining(k) == 1
+    assert s.reserve(k)
+    assert not s.reserve(k)  # the in-flight one might become the 5th trial
+    s.settle(k, measured=False)  # it failed before gate ③: not a trial
+    assert s.reserve(k)
+    s.settle(k, measured=True)
+    assert s.exhausted(k) and s.measured(k) == 5
 
 
-def test_unknown_engine_seed_has_no_quota() -> None:
-    s = TrialScheduler({("gp", 0): 5})
-    assert not s.reserve("random", 0)
+def test_an_unknown_unit_has_no_quota() -> None:
+    s = TrialScheduler({unit("gp", 0): 5})
+    assert not s.reserve(unit("random", 0))
     with pytest.raises(KeyError):
-        s.settle("random", 0, measured=True)
+        s.settle(unit("random", 0), measured=True)
+
+
+def test_a_unit_of_another_scope_has_no_quota() -> None:
+    """Widened from the engine/seed form: a scope cannot spend its neighbour's budget."""
+    s = TrialScheduler({unit("gp", 0, instrument="BTCUSDT"): 5})
+    assert not s.reserve(unit("gp", 0, instrument="ETHUSDT"))
+    assert not s.reserve(unit("gp", 0, instrument="BTCUSDT", direction="short"))
 
 
 def test_quota_never_exceeded_concurrently() -> None:
-    """INV-61: many workers reserving, measuring or failing at random never push a (engine, seed)
-    past its quota — and the quota is used up when attempts suffice."""
-    limits = {("gp", 0): 40, ("gp", 1): 25, ("random", 0): 30}
+    """INV-61: concurrent reservations never push a unit past its quota."""
+    limits = {
+        unit("gp", 0, instrument="BTCUSDT"): 40,
+        unit("gp", 1, instrument="BTCUSDT"): 25,
+        unit("random", 0, instrument="ETHUSDT", direction="short"): 30,
+    }
     s = TrialScheduler(limits)
-    measured: Counter[tuple[str, int]] = Counter()
+    measured: Counter[Key] = Counter()
     guard = threading.Lock()
 
     def worker(i: int) -> None:
         rng = random.Random(i)
         for _ in range(400):
             key = rng.choice(list(limits))
-            if not s.reserve(*key):
+            if not s.reserve(key):
                 continue
             ok = rng.random() < 0.6
             with guard:
                 measured[key] += ok
-            s.settle(*key, measured=ok)
+            s.settle(key, measured=ok)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(16)]
     for t in threads:
@@ -66,4 +70,4 @@ def test_quota_never_exceeded_concurrently() -> None:
     for t in threads:
         t.join()
     assert dict(measured) == limits
-    assert all(s.exhausted(*k) for k in limits)
+    assert all(s.exhausted(k) for k in limits)

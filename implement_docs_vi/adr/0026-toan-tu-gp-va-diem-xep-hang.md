@@ -1,6 +1,6 @@
 # ADR-0026 — Engine C-gp: toán tử có kiểu và điểm xếp hạng
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận · **Được sửa đổi bởi** [ADR-0030](0030-diem-chinh-cua-xep-hang-gp-la-thu-hang-quan-the.md) (số hạng chính là thứ hạng quần thể)
 - **Ngày:** 2026-09-23
 - **Task:** P2-11 · **Kiến trúc:** §3.1.11 (C-gp), §3.1.6 #1, §3.3.1, D20 · **Vấn đề mở:** —
 

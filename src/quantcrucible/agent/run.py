@@ -9,6 +9,7 @@ the same run — C-random replays its seeded sequence past the proposals it alre
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -20,6 +21,7 @@ from quantcrucible.agent.compare import (
 )
 from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
+from quantcrucible.agent.evolution.archive import scope_args
 from quantcrucible.agent.evolution.feature_map import FeatureMap
 from quantcrucible.agent.monitor import EarlyStop, stopped_keys
 from quantcrucible.agent.pipeline import (
@@ -30,7 +32,7 @@ from quantcrucible.agent.pipeline import (
     session_evaluator,
 )
 from quantcrucible.agent.runlock import RunLockError, campaign_run_lock
-from quantcrucible.agent.scheduler import Key, TrialScheduler, quotas
+from quantcrucible.agent.scheduler import Key, TrialScheduler, campaign_scopes, quotas
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.pbo_gate import periods_per_year
 from quantcrucible.validation.research_run import ResearchSession
@@ -43,31 +45,44 @@ class EvolveError(RuntimeError):
     """The campaign cannot run engines (no trial budget, unknown or deferred engine)."""
 
 
-def engine_seed(engine: str, seed: int) -> int:
-    return 1_000_003 * ENGINE_SEED_BASE[engine] + seed
+def engine_seed(
+    engine: str, seed: int, instrument: str | None = None, direction: str | None = None
+) -> int:
+    """A distinct RNG stream per unit of search.
+
+    Folding the scope in is not cosmetic: without it every scope of one (engine, seed) would
+    draw the **same** sequence, so "independent search per scope" would be false at the RNG level
+    while producing perfectly plausible results. The two sides of one contract must differ too.
+
+    The two-argument form is unchanged, so runs recorded before P3-12 keep their streams.
+    """
+    base = 1_000_003 * ENGINE_SEED_BASE[engine] + seed
+    if instrument is None and direction is None:
+        return base
+    scope = f"{instrument}|{direction}"
+    return base ^ (int(hashlib.sha256(scope.encode()).hexdigest()[:12], 16) << 8)
 
 
 def _submitted(session: ResearchSession, key: Key) -> int:
-    engine, seed = key
-    events = session.ledger.events_for(session.campaign_id, engine=engine, seed=seed)
+    events = session.ledger.events_for(session.campaign_id, *scope_args(key))
     return sum(1 for event, _island, _detail in events if event == Event.CANDIDATE_SUBMITTED)
 
 
 def _engine(session: ResearchSession, key: Key, run_label: str) -> Engine:
-    engine, seed = key
-    if engine == "gp":
+    rng_seed = engine_seed(key.engine, key.seed, key.instrument, key.direction)
+    if key.engine == "gp":
         gp_settings = session.lock["research"].get("gp", {})
         return GpSearch(
-            session.ledger, session.campaign_id, seed, engine_seed(engine, seed),
+            session.ledger, session.campaign_id, key, rng_seed,
             FeatureMap.from_lock(session.lock), periods_per_year(session.timeframe),
-            float(gp_settings.get("param_only_max", 0.30)), f"{run_label}-{engine}-s{seed}",
+            float(gp_settings.get("param_only_max", 0.30)), f"{run_label}-{key}",
         )  # fmt: skip
-    if engine == "random":
-        e = RandomSearch(seed=engine_seed(engine, seed))
+    if key.engine == "random":
+        e = RandomSearch(seed=rng_seed)
         for _ in range(_submitted(session, key)):  # resume: replay what was already submitted
             e.next()
         return e
-    raise EvolveError(f"engine {engine!r} is not runnable yet (runnable: {RUNNABLE})")
+    raise EvolveError(f"engine {key.engine!r} is not runnable yet (runnable: {RUNNABLE})")
 
 
 def run_quotas(session: ResearchSession, engines: Sequence[str]) -> dict[Key, int]:
@@ -85,8 +100,8 @@ def run_quotas(session: ResearchSession, engines: Sequence[str]) -> dict[Key, in
     idle = [e for e in engines if shares[e] <= 0]
     if idle:
         raise EvolveError(f"engine(s) {idle} have no budget share in this campaign")
-    all_quotas = quotas(budget, shares, int(research["seeds"]))
-    return {k: v for k, v in all_quotas.items() if k[0] in engines}
+    all_quotas = quotas(budget, shares, int(research["seeds"]), campaign_scopes(session.lock))
+    return {k: v for k, v in all_quotas.items() if k.engine in engines}
 
 
 def evolve(
@@ -114,7 +129,7 @@ def _run_locked(
     session: ResearchSession, limits: dict[Key, int], workers: int, label: str
 ) -> RunStats:
     measured = {  # read under the lock: no other run is adding trials meanwhile
-        k: len(session.ledger.trials(session.campaign_id, engine=k[0], seed=k[1])) for k in limits
+        k: len(session.ledger.trials(session.campaign_id, *scope_args(k))) for k in limits
     }
     mode = monitor_mode(session.ledger, session.campaign_id)
     rule = divergence_rule(session.ledger, session.campaign_id)

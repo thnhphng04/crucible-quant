@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
@@ -45,11 +46,17 @@ def add_months(d: date, months: int) -> date:
     raise AssertionError("unreachable")
 
 
-def data_fetch(config: Path, root: Path) -> int:
+def data_fetch(config: Path, root: Path, market: str | None = None) -> int:
     from quantcrucible.data.ccxt_source import CcxtSource
     from quantcrucible.data.holdout_split import carve
 
     cfg = load_user_config(config).research.data
+    requested = market or ("perp" if cfg.market == "usdt_m_perpetual" else "spot")
+    if requested != ("perp" if cfg.market == "usdt_m_perpetual" else "spot"):
+        sys.stderr.write("--market must match research.data.market in the config\n")
+        return 2
+    if requested == "perp":
+        return data_fetch_perp(config, root)
     now = datetime.now(UTC)
     today = now.date()
     holdout_start = add_months(today, -cfg.holdout_months)
@@ -73,6 +80,57 @@ def data_fetch(config: Path, root: Path) -> int:
     return 0
 
 
+def data_fetch_perp(config: Path, root: Path) -> int:
+    """Prepare all four perpetual inputs before the write-once carve is attempted."""
+    from quantcrucible.data.manifest import write_manifest
+    from quantcrucible.data.perp_carve import carve_perp
+    from quantcrucible.data.perp_pipeline import prepare_perpetual
+    from quantcrucible.data.perp_source import PerpSource, common_window
+
+    cfg = load_user_config(config).research.data
+    if cfg.market != "usdt_m_perpetual":
+        raise ValueError("research.data.market must be usdt_m_perpetual")
+    today = datetime.now(UTC).date()
+    start = datetime.combine(cfg.start, time(), tzinfo=UTC)
+    end = datetime.combine(today, time(), tzinfo=UTC)  # only completed bars
+    prepared = prepare_perpetual(
+        PerpSource(),
+        root / "data" / "perp-minutes",
+        cfg.symbols,
+        cfg.timeframe,
+        start,
+        end,
+        funding_interval_hours=cfg.funding_interval_hours,
+    )
+    common_start, common_end = common_window(
+        {s: (c.start, c.end) for s, c in prepared.coverage.items()}
+    )
+    if common_start != start or common_end != end:
+        raise ValueError("perpetual series do not cover the configured common window")
+    directory = root / "data" / "perp"
+    summary = carve_perp(
+        prepared.data,
+        add_months(today, -cfg.holdout_months),
+        today + timedelta(days=1),
+        in_sample_dir=directory,
+        holdout_dir=root / "holdout" / "perp",
+        lock_path=root / "holdout" / "perp.lock",
+    )
+    coverage = {
+        symbol: f"{item.start.date().isoformat()}/{item.end.date().isoformat()}"
+        for symbol, item in prepared.coverage.items()
+    }
+    files = list(directory.glob("*.parquet")) + [
+        path for path in directory.glob("*.json") if path.name != "manifest.json"
+    ]
+    manifest = write_manifest(directory / "manifest.json", files, "binanceusdm", coverage)
+    sys.stdout.write(
+        f"perp common window {common_start.date()}/{common_end.date()}; "
+        f"{len(manifest.files)} IS files checksummed; holdout {summary.holdout_range} locked\n"
+    )
+    return 0
+
+
 def second_source_dir(root: Path, exchange: str) -> Path:
     return root / "data" / f"is-{exchange}"
 
@@ -85,6 +143,8 @@ def data_fetch_second(config: Path, root: Path) -> int:
     from quantcrucible.data.store import parse_range
 
     cfg = load_user_config(config).research.data
+    if cfg.market == "usdt_m_perpetual":
+        return data_fetch_second_perp(config, root)
     if cfg.second_exchange is None:
         sys.stderr.write("research.data.second_exchange is not set\n")
         return 2
@@ -95,6 +155,52 @@ def data_fetch_second(config: Path, root: Path) -> int:
     )  # fmt: skip
     for symbol, rows in written.items():
         sys.stdout.write(f"{cfg.second_exchange} in-sample {symbol}: {rows} bars\n")
+    return 0
+
+
+def data_fetch_second_perp(config: Path, root: Path) -> int:
+    """Download an independent venue's perpetual IS bundle, never its holdout window."""
+    from quantcrucible.core.perp_inputs import write_bundle
+    from quantcrucible.data.holdout_split import read_holdout_lock
+    from quantcrucible.data.manifest import write_manifest
+    from quantcrucible.data.perp_pipeline import prepare_perpetual
+    from quantcrucible.data.perp_source import PerpSource
+    from quantcrucible.data.source import timeframe_delta
+    from quantcrucible.data.store import file_name, write_bars
+
+    cfg = load_user_config(config).research.data
+    if cfg.second_exchange is None:
+        sys.stderr.write("research.data.second_exchange is not set\n")
+        return 2
+    manifest = read_holdout_lock(root / "holdout" / "perp.lock")
+    cut = date.fromisoformat(str(manifest["range"]).split("/")[0])
+    start = datetime.combine(cfg.start, time(), tzinfo=UTC)
+    end = datetime.combine(cut, time(), tzinfo=UTC) - timeframe_delta(cfg.timeframe)
+    prepared = prepare_perpetual(
+        PerpSource(exchange_id=cfg.second_exchange),
+        root / "data" / f"perp-second-{cfg.second_exchange}-minutes",
+        cfg.symbols,
+        cfg.timeframe,
+        start,
+        end,
+        funding_interval_hours=cfg.funding_interval_hours,
+    )
+    directory = root / "data" / f"perp-second-{cfg.second_exchange}"
+    for symbol, (trade, bundle) in prepared.data.items():
+        write_bars(directory / file_name(symbol, cfg.timeframe), trade)
+        write_bundle(directory, bundle)
+    files = list(directory.glob("*.parquet")) + [
+        path for path in directory.glob("*.json") if path.name != "manifest.json"
+    ]
+    coverage = {
+        symbol: f"{item.start.date()}/{item.end.date()}"
+        for symbol, item in prepared.coverage.items()
+    }
+    saved = write_manifest(directory / "manifest.json", files, cfg.second_exchange, coverage)
+    sys.stdout.write(
+        f"{cfg.second_exchange} perpetual IS: {len(saved.files)} files checksummed; "
+        f"window {start.date()}/{end.date()}\n"
+    )
     return 0
 
 
@@ -111,7 +217,9 @@ def holdout_reharden(root: Path) -> int:
 
 def _session(config: Path, root: Path, label: str = "default") -> ResearchSession:
     """The open campaign (verified against config/user.yaml, or a new one) and its IS data."""
-    from quantcrucible.config.lock import read_lock
+    from quantcrucible.config.lock import LockTamperedError, read_lock, sha256_file
+    from quantcrucible.core.perp_inputs import read_bundle
+    from quantcrucible.data.manifest import verify_manifest
     from quantcrucible.data.store import ResearchStore, parse_range
     from quantcrucible.ledger.db import Ledger
     from quantcrucible.validation.research_run import ResearchSession
@@ -126,18 +234,69 @@ def _session(config: Path, root: Path, label: str = "default") -> ResearchSessio
     lock = read_lock(lock_path)
     data = cfg.research.data
     holdout = [parse_range(lock["holdout_range"])]
-    store = ResearchStore(root / "data" / "is", holdout)
+    is_dir = root / "data" / ("perp" if data.market == "usdt_m_perpetual" else "is")
+    store = ResearchStore(is_dir, holdout)
+    bars = {s: store.bars(s, data.timeframe) for s in data.symbols}
+    perps = {}
+    if data.market == "usdt_m_perpetual":
+        manifest_path = is_dir / "manifest.json"
+        expected = lock.get("derived", {}).get("perp_manifest_sha256")
+        if expected != sha256_file(manifest_path):
+            raise LockTamperedError("perpetual IS manifest differs from the campaign lock")
+        manifest = verify_manifest(manifest_path, is_dir)
+        if manifest.source != "binanceusdm" or set(manifest.coverage) != set(data.symbols):
+            raise LockTamperedError("perpetual IS manifest has the wrong source or symbols")
+        for symbol, trade in bars.items():
+            stem = symbol.replace("/", "-").replace(":", "-")
+            names = {
+                "mark": f"{stem}_{data.timeframe}.mark.parquet",
+                "funding": f"{stem}.funding.parquet",
+                "paths": f"{stem}_{data.timeframe}.paths.parquet",
+                "brackets": f"{stem}.brackets.json",
+            }
+            bundle = read_bundle(is_dir, symbol, data.timeframe, names)
+            bundle.aligned_with(trade)
+            perps[symbol] = bundle
     second: dict[str, Bars] = {}
+    second_perps = {}
     if data.second_exchange is not None:
-        second_dir = second_source_dir(root, data.second_exchange)
+        second_dir = (
+            root / "data" / f"perp-second-{data.second_exchange}"
+            if data.market == "usdt_m_perpetual"
+            else second_source_dir(root, data.second_exchange)
+        )
+        if data.market == "usdt_m_perpetual" and not second_dir.is_dir():
+            raise LockTamperedError("second perpetual IS bundle is missing")
         if second_dir.exists():
             second_store = ResearchStore(second_dir, holdout)
             second = {s: second_store.bars(s, data.timeframe) for s in data.symbols}
+            if data.market == "usdt_m_perpetual":
+                expected_second = lock.get("derived", {}).get("second_perp_manifest_sha256")
+                if expected_second != sha256_file(second_dir / "manifest.json"):
+                    raise LockTamperedError(
+                        "second perpetual IS manifest differs from campaign lock"
+                    )
+                second_manifest = verify_manifest(second_dir / "manifest.json", second_dir)
+                if second_manifest.source != data.second_exchange or set(
+                    second_manifest.coverage
+                ) != set(data.symbols):
+                    raise LockTamperedError("second perpetual manifest has wrong source or symbols")
+                for symbol, trade in second.items():
+                    stem = symbol.replace("/", "-").replace(":", "-")
+                    names = {
+                        "mark": f"{stem}_{data.timeframe}.mark.parquet",
+                        "funding": f"{stem}.funding.parquet",
+                        "paths": f"{stem}_{data.timeframe}.paths.parquet",
+                        "brackets": f"{stem}.brackets.json",
+                    }
+                    bundle = read_bundle(second_dir, symbol, data.timeframe, names)
+                    bundle.aligned_with(trade)
+                    second_perps[symbol] = bundle
     return ResearchSession(
         ledger=ledger, lock=lock, campaign_id=campaign_id,
-        is_data={s: store.bars(s, data.timeframe) for s in data.symbols},
+        is_data=bars,
         sandbox=SandboxRunner(ensure_image(root), label=label), results_dir=root / "results",
-        second_is_data=second,
+        second_is_data=second, perp_data=perps, second_perp_data=second_perps,
     )  # fmt: skip
 
 
@@ -176,7 +335,8 @@ def portfolio(config: Path, root: Path, calibrate: bool) -> int:
     from quantcrucible.validation.research_run import calibrate_members, evaluate_portfolio
 
     session = _session(config, root)
-    if not session.second_is_data:
+    perpetual = session.lock["research"].get("data", {}).get("market") == "usdt_m_perpetual"
+    if not session.second_is_data and not perpetual:
         sys.stderr.write("no second-source data: run data-fetch-second first (gate ⑥′)\n")
         return 2
     built, outcome = evaluate_portfolio(session)
@@ -202,7 +362,8 @@ def portfolio(config: Path, root: Path, calibrate: bool) -> int:
             built, outcome = evaluate_portfolio(session)
     sys.stdout.write(f"campaign {session.campaign_id} · portfolio {built.portfolio_hash}\n")
     for m in built.members:
-        sys.stdout.write(f"  member {m.candidate_id} (trial #{m.trial_id}) weight {m.weight:.3f}\n")
+        allocation = "risk 1%" if perpetual else f"weight {m.weight:.3f}"
+        sys.stdout.write(f"  member {m.candidate_id} (trial #{m.trial_id}) {allocation}\n")
     _write_results(outcome.results)
     sys.stdout.write(f"verdict: {'PASS' if outcome.passed else 'REJECTED'}\n")
     return 0 if outcome.passed else 1
@@ -252,10 +413,80 @@ def campaign_abandon(reason: str, root: Path) -> int:
     return 0
 
 
+def campaign_dryrun(config: Path, root: Path) -> int:
+    """Preview a campaign lock and admission checks without modifying the ledger or lock."""
+    from quantcrucible.config.lock import dry_run_lock, sha256_file
+    from quantcrucible.data.holdout_split import read_holdout_lock
+    from quantcrucible.data.manifest import verify_manifest
+    from quantcrucible.ledger.db import Ledger
+    from quantcrucible.validation.run import _check_trial_budget, derived_settings
+
+    cfg = load_user_config(config)
+    perpetual = cfg.research.data.market == "usdt_m_perpetual"
+    holdout_lock = root / "holdout" / "perp.lock" if perpetual else root / "holdout.lock"
+    manifest = read_holdout_lock(holdout_lock)  # manifest only; never holdout prices
+    derived = derived_settings(cfg.research.evolve_scope)
+    if perpetual:
+        is_dir = root / "data" / "perp"
+        data_manifest_path = is_dir / "manifest.json"
+        data_manifest = verify_manifest(data_manifest_path, is_dir)
+        if data_manifest.source != "binanceusdm" or set(data_manifest.coverage) != set(
+            cfg.research.data.symbols
+        ):
+            raise CampaignNotOpened("perpetual IS manifest has the wrong source or symbols")
+        derived["perp_manifest_sha256"] = sha256_file(data_manifest_path)
+        if cfg.research.data.second_exchange is not None:
+            second_dir = root / "data" / f"perp-second-{cfg.research.data.second_exchange}"
+            second_path = second_dir / "manifest.json"
+            second_manifest = verify_manifest(second_path, second_dir)
+            if second_manifest.source != cfg.research.data.second_exchange or set(
+                second_manifest.coverage
+            ) != set(cfg.research.data.symbols):
+                raise CampaignNotOpened("second perpetual IS manifest has wrong source or symbols")
+            derived["second_perp_manifest_sha256"] = sha256_file(second_path)
+
+    ledger_path = root / "ledger" / "crucible.db"
+    if ledger_path.exists():
+        connection = sqlite3.connect(ledger_path.resolve().as_uri() + "?mode=ro", uri=True)
+        connection.execute("PRAGMA query_only = ON")
+        ledger = Ledger(connection, str(ledger_path))
+    else:
+        ledger = Ledger.open(":memory:")
+    try:
+        base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        campaign_id, n = base, 1
+        while ledger.campaign(campaign_id) is not None:
+            n += 1
+            campaign_id = f"{base}-{n}"
+        preview = dry_run_lock(
+            cfg,
+            ledger,
+            campaign_id,
+            root / "config" / "evaluation.lock.yaml",
+            str(manifest["range"]),
+            sha256_file(holdout_lock),
+            derived,
+        )
+        problems = list(preview.problems)
+        if cfg.research.holdout_pass is None:
+            problems.append("research.holdout_pass must be set before a campaign opens")
+        try:
+            _check_trial_budget(cfg, ledger, str(manifest["range"]))
+        except CampaignNotOpened as exc:
+            problems.append(str(exc))
+    finally:
+        ledger.close()
+    sys.stdout.write(preview.text)
+    for problem in problems:
+        sys.stderr.write(f"refused: {problem}\n")
+    return 2 if problems else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="quantcrucible")
     sub = parser.add_subparsers(dest="command", required=True)
     fetch = sub.add_parser("data-fetch", help="download research data and carve the holdout")
+    fetch.add_argument("--market", choices=["spot", "perp"], help="must match research.data.market")
     fetch.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     fetch.add_argument("--root", type=Path, default=Path("."))
     second = sub.add_parser(
@@ -282,6 +513,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     aband.add_argument("--reason", required=True)
     aband.add_argument("--root", type=Path, default=Path("."))
+    dry = sub.add_parser("campaign-dryrun", help="preview the lock without opening a campaign")
+    dry.add_argument("--config", type=Path, default=Path("config/user.yaml"))
+    dry.add_argument("--root", type=Path, default=Path("."))
     evo = sub.add_parser("evolve", help="run engine C on the campaign until its quotas are used")
     evo.add_argument("--engine", action="append", choices=["random", "gp"], required=True)
     evo.add_argument("--workers", type=int, default=8)
@@ -304,7 +538,9 @@ def main(argv: list[str] | None = None) -> int:
 
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "data-fetch":
-        return data_fetch(args.config, args.root)
+        return data_fetch(args.config, args.root, args.market)
+    if args.command == "campaign-dryrun":
+        return campaign_dryrun(args.config, args.root)
     if args.command == "data-fetch-second":
         return data_fetch_second(args.config, args.root)
     if args.command == "holdout-reharden":
@@ -363,13 +599,13 @@ def evolve(engines: Sequence[str], workers: int, config: Path, root: Path) -> in
         sys.stderr.write(f"refused: {e}\n")
         return 2
     summary = {
-        f"{e}-s{s}": {
-            "proposed": stats.proposed.get((e, s), 0),
-            "trials": stats.trials.get((e, s), 0),
-            "passed": stats.passed.get((e, s), 0),
-            "starved": (e, s) in stats.starved,
+        str(k): {
+            "proposed": stats.proposed.get(k, 0),
+            "trials": stats.trials.get(k, 0),
+            "passed": stats.passed.get(k, 0),
+            "starved": k in stats.starved,
         }
-        for (e, s) in sorted(set(stats.proposed) | set(stats.trials))
+        for k in sorted(set(stats.proposed) | set(stats.trials))
     }
     report = {"campaign": session.campaign_id, "run": label, **summary}
     sys.stdout.write(json.dumps(report, indent=1) + "\n")

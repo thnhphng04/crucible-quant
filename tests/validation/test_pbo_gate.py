@@ -128,7 +128,7 @@ def test_g4_passes_a_stable_edge_and_keeps_pbo_private(ledger: Ledger, tmp_path:
     assert "pbo" not in result.report.feedback
     job = runner.jobs[0]
     assert job.kind == "grid_backtest" and job.options["grid"][0] == PARAMS
-    assert job.options["risk"]["target_vol"] == 0.10  # same sizing as gate ③
+    assert job.options["risk"]["max_risk_pct"] == 0.01  # same sizing as gate ③
     assert job.timeout_s is not None and job.timeout_s >= 300
     assert result.detail is not None
     saved = pd.read_parquet(result.detail["matrix_path"])

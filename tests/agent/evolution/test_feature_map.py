@@ -13,6 +13,7 @@ from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GateResultRecord, GenerationEvent, TrialRecord
 from quantcrucible.validation.gates import G3_IS, G4_PBO
 from quantcrucible.validation.run import FEATURE_MAP, derived_settings
+from tests.factories import unit
 
 LOCK = {"derived": {"feature_map": FEATURE_MAP}}
 
@@ -99,7 +100,7 @@ def test_archive_keeps_the_best_eligible_entry_per_cell(ledger: Ledger) -> None:
     _candidate(ledger, "c", "gp", 0, 2.00, ["trend"], g4_pass=False)  # rejected at ④
     _candidate(ledger, "d", "gp", 0, 2.00, ["trend"], g3_pass=False)  # rejected at ③
     _candidate(ledger, "e", "gp", 0, 0.50, ["breakout"])  # other cell
-    archive = rebuild(ledger, "c1", "gp", 0, fm)
+    archive = rebuild(ledger, "c1", unit("gp", 0), fm)
     assert sorted(e.candidate_id for e in archive.elites()) == ["b", "e"]
     assert len(archive) == 2
 
@@ -109,10 +110,12 @@ def test_rebuilding_from_the_ledger_reproduces_the_archive(ledger: Ledger) -> No
     for i, s in enumerate([0.2, 1.4, 0.9, 2.2, 1.1, 0.4]):
         _candidate(ledger, f"x{i}", "gp", 1, s, ["trend", "momentum"][i % 2 :], trades=20 + 30 * i)
     incremental = Archive()
-    for entry in load_entries(ledger, "c1", "gp", 1, fm):
+    for entry in load_entries(ledger, "c1", unit("gp", 1), fm):
         incremental.add(entry)
-    again = rebuild(ledger, "c1", "gp", 1, fm)
-    assert incremental.elites() == again.elites() == rebuild(ledger, "c1", "gp", 1, fm).elites()
+    again = rebuild(ledger, "c1", unit("gp", 1), fm)
+    assert (
+        incremental.elites() == again.elites() == rebuild(ledger, "c1", unit("gp", 1), fm).elites()
+    )
 
 
 def test_engines_never_share_an_archive(ledger: Ledger) -> None:
@@ -120,8 +123,8 @@ def test_engines_never_share_an_archive(ledger: Ledger) -> None:
     _candidate(ledger, "g", "gp", 0, 1.0, ["trend"])
     _candidate(ledger, "r", "random", 0, 1.0, ["trend"])
     _candidate(ledger, "g2", "gp", 1, 1.0, ["trend"])
-    gp0 = rebuild(ledger, "c1", "gp", 0, fm)
-    rnd = rebuild(ledger, "c1", "random", 0, fm)
+    gp0 = rebuild(ledger, "c1", unit("gp", 0), fm)
+    rnd = rebuild(ledger, "c1", unit("random", 0), fm)
     assert [e.candidate_id for e in gp0.elites()] == ["g"]
     assert [e.candidate_id for e in rnd.elites()] == ["r"]
     assert coverage([gp0, rnd]) == 1  # same cell, counted once
@@ -131,6 +134,6 @@ def test_the_archive_never_reads_private_metrics(ledger: Ledger) -> None:
     """Only gate ③'s `public` (and a future ④ `public`) feed an entry — never PBO/CPCV."""
     fm = FeatureMap.from_lock(LOCK)
     _candidate(ledger, "a", "gp", 0, 1.0, ["trend"])
-    [entry] = load_entries(ledger, "c1", "gp", 0, fm)
+    [entry] = load_entries(ledger, "c1", unit("gp", 0), fm)
     assert set(entry.public) == {"sharpe_is", "sortino_is", "max_drawdown", "total_return",
                                  "n_trades"}  # fmt: skip

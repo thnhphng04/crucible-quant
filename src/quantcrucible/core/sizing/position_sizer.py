@@ -1,9 +1,13 @@
-"""PositionSizer — ``Signal`` → venue quantity (Architecture §3.4, P3, P4).
+"""PositionSizer — ``Signal`` → venue quantity (Architecture §3.4, P3, P4′).
 
-Volatility enters the size **exactly once** (the vol-targeting leg); ``stop_distance`` only caps
-the loss at the stop, as a ``min`` — never multiplied in. Doubling both the volatility estimate
-and the ATR behind the stop therefore halves the size whenever the cap does not bind (the ½-size
-test, INV-05).
+``Q = R / d`` with ``R = max_risk_pct × equity`` and ``d = stop_distance``: every position loses
+exactly ``R`` if price reaches its stop, whatever the instrument's volatility. Volatility still
+reaches the size exactly once, through ``d`` (typically k × ATR), never through a vol-targeting
+leg — ADR-0031 retired P4 and with it ``target_vol``, IDM and the portfolio scale.
+
+Lot rounding floors, so realized risk lands in ``[R − lot_step·d, R]`` and never above it
+(INV-90). A caller that needs the shortfall bounded must check it: the sizer reports a quantity,
+not a refusal.
 """
 
 from __future__ import annotations
@@ -54,46 +58,25 @@ def round_to_lot(qty: float, instrument: InstrumentSpec) -> float:
 
 @dataclass(frozen=True, slots=True)
 class PositionSizer:
-    target_vol: float  # annualized portfolio volatility target (D7)
-    max_risk_pct: float  # max loss at the stop, fraction of equity (D12)
+    max_risk_pct: float  # the loss at the stop, as a fraction of equity (D12)
 
     def __post_init__(self) -> None:
-        if not 0 < self.target_vol <= 1:
-            raise ValueError(f"target_vol must be in (0, 1], got {self.target_vol}")
         if not 0 < self.max_risk_pct < 1:
             raise ValueError(f"max_risk_pct must be in (0, 1), got {self.max_risk_pct}")
 
-    def size(
-        self,
-        signal: Signal,
-        instrument: InstrumentSpec,
-        account: Account,
-        vol_estimate: float,
-        n_active: int,
-        idm: float,
-        portfolio_scale: float = 1.0,
-    ) -> float:
+    def size(self, signal: Signal, instrument: InstrumentSpec, account: Account) -> float:
         """Unsigned quantity in venue units (the direction stays on the signal).
 
-        ``vol_estimate`` is the instrument's annualized volatility; ``portfolio_scale`` is the
-        uniform factor from the portfolio-level step (§3.4), applied to the vol leg only so the
-        stop cap stays a hard bound.
+        ``Q = R / (d · unit_value)`` with ``R = max_risk_pct × equity``. ``signal.strength`` does
+        not scale ``R``: the portfolio cap is defined on ``R``, so a strength-scaled budget would
+        make that cap non-binding in a way nothing tracks (ADR-0031).
         """
-        if n_active < 1:
-            raise ValueError("n_active must be >= 1")
-        if signal.direction == "flat" or signal.strength == 0.0:
+        if signal.direction == "flat":
             return 0.0
-        if not (math.isfinite(vol_estimate) and vol_estimate > 0):
-            return 0.0  # no volatility estimate yet ⇒ no position
-        if not (instrument.price > 0 and instrument.unit_value > 0):
+        if not (account.equity > 0 and instrument.price > 0 and instrument.unit_value > 0):
             return 0.0
-        # 1. vol targeting — the ONLY place volatility enters the size
-        inst_target_vol = self.target_vol * idm / n_active
-        notional = account.equity * inst_target_vol / vol_estimate * signal.strength
-        qty_vol = notional * portfolio_scale / (instrument.price * instrument.unit_value)
-        # 2. stop-based risk cap — MIN, not multiply
-        qty_cap = (
-            account.equity * self.max_risk_pct / (signal.stop_distance * instrument.unit_value)
-        )
-        # 3. venue units
-        return round_to_lot(min(qty_vol, qty_cap), instrument)
+        risk = account.equity * self.max_risk_pct
+        denominator = signal.stop_distance * instrument.unit_value
+        if not (math.isfinite(denominator) and denominator > 0):
+            return 0.0
+        return round_to_lot(risk / denominator, instrument)

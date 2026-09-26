@@ -62,7 +62,9 @@ export function Comparison() {
         {data.units.length ? (
           <TableWrap>
             <table>
-              <caption>Mỗi arm là một cặp engine × seed với quota trial riêng.</caption>
+              <caption>
+                Mỗi arm là một bộ (instrument, direction, engine, seed) với quota trial riêng.
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">Arm</th>
@@ -73,9 +75,10 @@ export function Comparison() {
               </thead>
               <tbody>
                 {data.units.map((unit) => (
-                  <tr key={arm(unit.engine, unit.seed)}>
+                  <tr key={unit.unit}>
                     <td>
                       <ArmBadge engine={unit.engine} seed={unit.seed} />
+                      <div className="scope">{unit.instrument}-{unit.direction}</div>
                     </td>
                     <td>
                       <div>

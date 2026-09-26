@@ -294,6 +294,50 @@ def check_block(body: str, tunables: frozenset[str]) -> list[Violation]:
     return [Violation(e.line, e.message) for e in check_units(tree)]
 
 
+def check_direction(body: str, direction: str) -> list[Violation]:
+    """Every ``Signal(...)`` in the block emits this scope's side or ``flat`` (INV-91), at
+    strength 1.0 (ADR-0031: strength must not become a second risk lever).
+
+    The arguments are checked as literals. A computed direction or strength is refused outright
+    — a scope whose side depends on the data is not a scope, and the whole point of the check is
+    that it can be decided before the strategy ever runs.
+    """
+    try:
+        tree = ast.parse(textwrap.dedent(body))
+    except SyntaxError:
+        return []  # check_block reports the syntax error; do not report it twice
+    out: list[Violation] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id != "Signal" or not node.args:
+            continue
+        emitted = node.args[0]
+        if not (isinstance(emitted, ast.Constant) and isinstance(emitted.value, str)):
+            out.append(Violation(node.lineno, "Signal direction must be a literal string"))
+            continue
+        if emitted.value not in (direction, "flat"):
+            out.append(
+                Violation(
+                    node.lineno,
+                    f"direction {emitted.value!r} is not this scope's side "
+                    f"({direction!r} or 'flat')",
+                )
+            )
+        if len(node.args) < 2:
+            continue
+        strength = node.args[1]
+        if not (isinstance(strength, ast.Constant) and isinstance(strength.value, int | float)):
+            out.append(Violation(node.lineno, "Signal strength must be a literal number"))
+        else:
+            expected = 0.0 if emitted.value == "flat" else 1.0
+            if float(strength.value) != expected:
+                out.append(
+                    Violation(node.lineno, f"strength must be {expected} for {emitted.value!r}")
+                )
+    return out
+
+
 def check_params(tunables: tuple[Tunable, ...], params: Mapping[str, float | int]) -> list[str]:
     problems: list[str] = []
     declared = {t.name: t for t in tunables}
@@ -342,10 +386,9 @@ class StaticGuardrail:
         if problems:
             return reject("; ".join(problems))
         names = frozenset(t.name for t in parsed.tunables)
-        violations = [
-            v for b in parsed.blocks if b.name in parsed.editable(locked_scope)
-            for v in check_block(b.body, names)
-        ]  # fmt: skip
+        editable = [b for b in parsed.blocks if b.name in parsed.editable(locked_scope)]
+        violations = [v for b in editable for v in check_block(b.body, names)]
+        violations += [v for b in editable for v in check_direction(b.body, candidate.direction)]
         if violations:
             return GateResult(
                 False, self.id, float(len(violations)),
