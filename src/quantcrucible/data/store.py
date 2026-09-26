@@ -30,7 +30,15 @@ def parse_range(text: str) -> DateRange:
 
 
 def file_name(symbol: str, timeframe: str) -> str:
-    return f"{symbol.replace('/', '-')}_{timeframe}.parquet"
+    """A filename for one symbol's bars, safe on every filesystem the project touches.
+
+    The colon matters: ccxt spells a linear perpetual ``BASE/QUOTE:SETTLE``, and on NTFS a colon
+    does not fail — it opens an **alternate data stream**. ``BTC/USDT:USDT`` would have written
+    its bars into a stream attached to a file named ``BTC-USDT``, which is the spot pair's own
+    filename. Nothing raises, ``exists()`` is true, and the bytes are invisible to a directory
+    listing, dropped by any copy off NTFS, and unseen by the sandbox's bind mount.
+    """
+    return f"{symbol.replace('/', '-').replace(':', '-')}_{timeframe}.parquet"
 
 
 def write_bars(path: Path, bars: Bars) -> None:

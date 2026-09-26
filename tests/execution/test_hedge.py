@@ -19,6 +19,7 @@ import numpy as np
 
 from quantcrucible.core.strategy.base import Bars, Features, FeatureView, Signal, Strategy
 from quantcrucible.execution.engine import BacktestResult, run_backtest
+from quantcrucible.execution.risk import RiskSettings
 from tests.factories import make_bars
 
 
@@ -89,6 +90,21 @@ def test_a_long_and_a_short_on_one_contract_hold_independent_positions() -> None
     assert longs.fills and shorts.fills
     assert {f.position_side for f in longs.fills} == {"LONG"}
     assert {f.position_side for f in shorts.fills} == {"SHORT"}
+
+
+def test_the_default_sizer_trades_a_short_end_to_end() -> None:
+    """Every test above injects `FixedNotional`, so none of them sees the path a gate runs.
+    `run_backtest` without a `sizer` builds `RiskSizer`, and that is what must trade a short."""
+    bars = make_bars(200, seed=6, symbol="A/USDT")
+    res = run_backtest(
+        AlwaysShort(),
+        {"A/USDT": bars},
+        risk=RiskSettings(max_risk_pct=0.001),
+        lookback=50,
+    )
+    assert res.fills, "the default sizer produced no fills for a short strategy"
+    assert res.fills[0].side == "SELL"
+    assert res.n_trades >= 1
 
 
 def test_equity_is_finite_and_the_run_is_not_truncated() -> None:

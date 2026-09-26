@@ -351,7 +351,7 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 
 ### ◐ P3-07 Funding, mark price, liquidation, intrabar path
 **Goal:** the three things Nautilus does not model. **Arch:** §3.5, ADR-0032. **Needs:** P3-05, P3-06
-**Files:** new `execution/perp_account.py`, new `execution/path_summary.py`, `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
+**Files:** new `execution/perp_account.py`, new `core/path_summary.py` (P3-16), `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
 **Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox.
 
 ### ◐ P3-08 Joint-account backtest and the admission rule
@@ -391,8 +391,59 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 
 ### ◐ P3-15 Review API, UI, legacy regression, quality gate
 **Goal:** the new results are readable and the v4 ones still are. **Arch:** ADR-0029, ADR-0033. **Needs:** P3-14, P3-10
-**Files:** `review/repository.py` (`SUPPORTED_SCHEMA` 6→7, an account-equity endpoint), `review/app.py`, `ui/src/`.
+**Files:** `review/repository.py` (`READABLE_SCHEMAS` = v6 and v7, an account-equity endpoint), `review/app.py`, `ui/src/`.
 **Accept when:** starting equity plus the summed contributions equals account equity within rounding tolerance; a v4 campaign still renders; INV-79 and INV-80 unchanged; the full quality gate green.
+
+## Phase 3 (continued) — wiring the perpetual layer in
+
+The modules above are built and tested; **nothing outside their own cluster imports them**. The
+root cause is one line: `SandboxJob.bars` is the only data a container ever sees, and it carries
+trade bars alone. These tasks wire them in, fetch real data, and take the phase through its gate.
+
+### ✅ P3-16 `path_summary` to `core/`, segments cut at funding settlements
+**Goal:** a level that changes inside a bar can be answered exactly. **Arch:** §3.5, ADR-0032. **Needs:** —
+**Files:** `execution/path_summary.py` → `core/path_summary.py` (`data` may not import `execution`, and summaries are built at fetch time), `execution/perp_account.py` (`resolve_bar` takes one liquidation price per segment), ADR-0032 and its VI mirror.
+**Accept when:** two paths with identical whole-bar summaries give different answers once a threshold comes into force mid-bar; `lows` come from minute lows and `highs` from minute highs; a missing minute is refused, never filled; `lint-imports` green.
+
+### ✅ P3-17 `PerpSource` that actually works
+**Goal:** five years of four series, resumable. **Arch:** §6.1, D18. **Needs:** P3-16
+**Files:** `data/perp_source.py` (it fetches exactly one 1000-row page today, and `end` is unused), `data/store.py` (`file_name` leaves the colon of `BTC/USDT:USDT` in a filename), new `data/perp_store.py`.
+**Accept when:** a paginating fake exchange yields the full row count; an interrupted fetch resumes without re-downloading; a missing API key refuses the bracket snapshot rather than defaulting it; summaries rebuild from the stored minute closes, so the timeframe knob stays free.
+
+### ✅ P3-18 The `PerpInputs` data contract and the sandbox payload — ADR-0034
+**Goal:** the container can receive mark, funding and paths. **Arch:** §3.3.3, ADR-0032. **Needs:** P3-17
+**Files:** new `core/perp_inputs.py` (schema and the single slicing API), `validation/sandbox.py`, `validation/sandbox_runner.py`.
+**Accept when:** INV-99 — raw minute bars never enter a container; an IS job never receives an OOS sidecar; settlement lands correctly at 1d, 4h and 8h; the bundle is required for `backtest`/`grid_backtest` and its absence fails the gate closed; measured payload size recorded.
+
+### ✅ P3-19 Account-driven sizing for N = 1; quantity and stop stand still
+**Goal:** gate ③/④ size from the perpetual account, not from a zero-margin venue. **Arch:** §3.4, P4′. **Needs:** P3-18
+**Files:** `execution/nautilus_bridge.py` (`_equity`, the rebalance band, the stop re-issued every bar), `execution/engine.py`.
+**Accept when:** price and ATR move while a position is open and neither its quantity nor its stop changes; risk at the stop is measured on account equity; a liquidation terminates that configuration instead of diverging from the venue's book; zero equity yields no inf or nan.
+
+### ✅ P3-20 Signal-driven joint replay for N > 1 — ADR-0035
+**Goal:** the shared account sizes and admits, rather than replaying quantities sized elsewhere. **Arch:** §3.2.1, §3.4. **Needs:** P3-19
+**Files:** `execution/joint_account.py`, `execution/admission.py` (called for the first time), `execution/perp_account.py`.
+**Accept when:** one member with ample capital reproduces the N = 1 venue equity curve within a tight tolerance — without that, this is a second execution engine nobody checks; INV-92 holds; the kill switch is called; contributions reconcile **while positions are still open**.
+
+### ✅ P3-21 Gates ③/④/⑥′ and the portfolio run on the account
+**Goal:** the pipeline calls the perpetual layer. **Arch:** §3.2, §3.2.1. **Needs:** P3-20
+**Files:** `validation/is_gates.py`, `validation/pbo_gate.py`, `validation/robustness.py`, `validation/portfolio.py`, `validation/run.py`.
+**Accept when:** gate ③ returns are net of funding; a liquidated strategy fails ③ saying so; the PBO grid never mixes scopes; legacy campaigns still run through `_summarize`, which cannot be deleted.
+
+### ✅ P3-22 Perpetual holdout — completes P3-10
+**Goal:** a second holdout that does not touch the first. **Arch:** §4.2, P6. **Needs:** P3-18
+**Files:** `data/holdout_split.py`, `cli.py`, the evaluator process.
+**Accept when:** INV-94; it lives **inside** the existing holdout directory, so the guard hook covers it with no change to the hook; missing OOS funding or mark fails closed.
+
+### ✅ P3-23 Account equity endpoint and UI — completes P3-15
+**Goal:** the reconciliation is visible. **Arch:** ADR-0029. **Needs:** P3-20
+**Files:** `review/repository.py`, `review/app.py`, `ui/src/lib/types.ts`, `ui/src/screens/Portfolios.tsx`.
+**Accept when:** starting equity plus the summed contributions equals account equity within rounding, including with positions open; absent data reads `Chưa có`, never `0`.
+
+### ☐ P3-24 Real fetch, preflight, dry-run lock
+**Goal:** the phase gate's fifth condition. **Arch:** §6.1, D18. **Needs:** P3-17
+**Files:** `cli.py`, `config/schema.py`, `config/lock.py`, `config/user.yaml`.
+**Accept when:** perpetual OHLCV, mark, funding and brackets share enough coverage to lock; `common_window` returns 2020-09-14; a dry run changes no lock, opens no campaign and claims no holdout.
 
 **Phase-3 gate:** fixtures prove the joint-account path and the real-data preflight passes. **No real campaign opens inside this phase** — its shape is a separate decision, and the headroom is 1,185 trials.
 
@@ -406,6 +457,17 @@ that path (P3-10), and the account-equity endpoint and contribution chart (P3-15
 
 That piece was deferred out of P3-07 into P3-08 and then not built. Recording it here rather than
 marking the tasks done is the point: the phase gate above is not met yet.
+
+**Five defects found in review, all fixed (INV-92c, INV-93, INV-93c, INV-95b).** Each was code
+whose tests passed while the path a campaign actually takes was broken. `RiskSizer` returned 0
+for every short, so the bridge's short branch was unreachable and every hedge test that proved
+otherwise had injected its own sizer. `PerpAccount.close` added the whole realized loss to the
+free balance, so a gap past bankruptcy drained the account through a wallet that is supposed to
+be isolated. The replay's `sort_key` promised closes before opens and sorted by instrument, so
+whether an entry was funded depended on the alphabet. Fills outside the replay window were
+clamped into the nearest bar instead of refused. And the review reader accepted only the newest
+schema, which is not the one any existing ledger has — a reader forbidden to migrate cannot also
+demand one.
 
 ---
 

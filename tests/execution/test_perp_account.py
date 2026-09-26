@@ -103,6 +103,38 @@ def test_funding_moves_the_liquidation_price() -> None:
     assert acc.liquidation_price("A", "long") > before  # closer to the entry from below
 
 
+def test_a_loss_beyond_the_margin_stops_at_the_isolated_wallet() -> None:
+    """Isolated means isolated, and `close` is the one place that can break it.
+
+    A close through the bankruptcy price is reachable: the mark can gap past liquidation between
+    two bars, or a stop can fill far below it. Adding the whole realized loss to the free balance
+    lets one wallet drain the account, which is exactly what the venue's isolated mode prevents —
+    and it makes a wallet's worst case unknowable in advance, so the 10% portfolio cap stops
+    bounding anything.
+    """
+    acc = account(balance=10_000.0)
+    acc.open("A", "long", qty=1.0, price=50_000.0, leverage=10)  # margin 5_000
+    assert acc.free == pytest.approx(5_000.0)
+    pnl = acc.close("A", "long", price=20_000.0)  # a 30_000 move against a 5_000 wallet
+    assert pnl == pytest.approx(-5_000.0)
+    assert acc.free == pytest.approx(5_000.0)
+
+
+def test_an_unrealized_loss_beyond_the_margin_is_not_negative_equity() -> None:
+    """The same bound, read through `equity`: a wallet marked past bankruptcy contributes zero,
+    not a negative number the free balance would have to absorb."""
+    acc = account(balance=10_000.0)
+    acc.open("A", "long", qty=1.0, price=50_000.0, leverage=10)
+    assert acc.equity({"A": 20_000.0}) == pytest.approx(5_000.0)
+
+
+def test_a_profitable_close_is_untouched_by_the_bound() -> None:
+    acc = account(balance=10_000.0)
+    acc.open("A", "long", qty=1.0, price=50_000.0, leverage=10)
+    assert acc.close("A", "long", price=51_000.0) == pytest.approx(1_000.0)
+    assert acc.free == pytest.approx(11_000.0)
+
+
 def test_a_liquidated_wallet_cannot_draw_on_free_usdt() -> None:
     """Isolated means isolated: the loss stops at that wallet, and the account keeps the rest."""
     acc = account(balance=100_000.0)
@@ -118,6 +150,16 @@ def test_opening_without_enough_free_balance_is_refused() -> None:
     acc = account(balance=1_000.0)
     with pytest.raises(Liquidated, match="cannot fund"):
         acc.open("A", "long", qty=1.0, price=50_000.0, leverage=10)
+
+
+def test_opening_an_occupied_wallet_is_refused_without_changing_free_balance() -> None:
+    acc = account()
+    acc.open("A", "long", qty=1.0, price=50_000.0, leverage=10)
+    free = acc.free
+    with pytest.raises(ValueError, match="already open"):
+        acc.open("A", "long", qty=0.5, price=50_000.0, leverage=10)
+    assert acc.wallet("A", "long").qty == pytest.approx(1.0)
+    assert acc.free == pytest.approx(free)
 
 
 def test_leverage_above_the_bracket_is_refused() -> None:

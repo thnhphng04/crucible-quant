@@ -36,13 +36,19 @@ def test_target_is_the_position_sizer_on_the_stop_distance() -> None:
     assert sizer.target("A", FLAT, bars, 100_000) == 0.0
 
 
-def test_a_short_is_still_flat_on_a_spot_cash_venue() -> None:
-    """Current behaviour, not a desired one: the spot venue cannot hold a short. P3-06 flips
-    this, and `PositionSizer` already sizes a short — the refusal is the venue's, not the
-    sizer's."""
+def test_a_short_is_sized_by_the_same_rule_as_a_long() -> None:
+    """The venue has been a USDT-M perpetual since P3-06, so a short is traded rather than
+    refused. The sizer stays **unsigned** — `nautilus_bridge` applies the direction — so the two
+    sides get the same quantity for the same stop distance.
+
+    While this returned 0 the bridge's short branch was unreachable: every gate ran the default
+    sizer, so a short strategy produced no fills and gate ③ rejected it on `min_trades`.
+    """
     bars = make_bars(60, seed=1, vol=0.03)
     sizer = RiskSizer(["A"], RiskSettings())
-    assert sizer.target("A", Signal("short", 1.0, 1.0), bars, 100_000) == 0.0
+    short = sizer.target("A", Signal("short", 1.0, 1.0), bars, 100_000)
+    assert short > 0
+    assert short == pytest.approx(sizer.target("A", LONG, bars, 100_000))
 
 
 def test_vol_estimate_does_not_change_the_size() -> None:

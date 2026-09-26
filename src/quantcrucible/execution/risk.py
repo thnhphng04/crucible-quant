@@ -48,7 +48,10 @@ class RiskSizer:
         )  # per symbol: each base currency has its own precision
 
     def target(self, symbol: str, signal: Signal, window: Bars, equity: float) -> float:
-        if signal.direction != "long":  # spot, cash account: long or flat. Hedge mode is P3-06
+        # Unsigned, both sides (P3-06): the venue is a USDT-M perpetual and the direction rides
+        # on the signal, which `nautilus_bridge` applies. Refusing a short here left the bridge's
+        # short branch unreachable on the path every gate runs.
+        if signal.direction == "flat":
             return 0.0
         spec = InstrumentSpec(
             price=float(window.close[-1]), lot_step=self._lot_step.get(symbol, 0.0)

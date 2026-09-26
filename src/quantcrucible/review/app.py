@@ -71,6 +71,10 @@ def create_app(root: Path, static_dir: Path | None = None) -> FastAPI:
     def portfolios(cid: str) -> object:
         return _read(repo.portfolios, cid)
 
+    @app.get("/api/campaigns/{cid}/account/{portfolio_hash}")
+    def account(cid: str, portfolio_hash: str) -> object:
+        return _read(repo.account, cid, portfolio_hash)
+
     @app.get("/api/campaigns/{cid}/archive")
     def archive(cid: str) -> object:
         return _read(repo.archive, cid)

@@ -13,18 +13,29 @@ Every member is re-run in the sandbox from its archived source (ADR-0013):
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Mapping, Sequence
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
+from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars
+from quantcrucible.execution.nautilus_bridge import CostModel
+from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import GateContext, GateResult
-from quantcrucible.validation.is_gates import backtest_options
-from quantcrucible.validation.portfolio import Member, Portfolio, combine, load_returns
+from quantcrucible.validation.is_gates import backtest_options, write_signal_stream
+from quantcrucible.validation.portfolio import (
+    Member,
+    Portfolio,
+    combine,
+    consolidate_on_account,
+    load_returns,
+)
 from quantcrucible.validation.portfolio_dsr import (
     G6P_ROBUSTNESS,
     dsr_counts,
@@ -42,22 +53,41 @@ class RerunError(RuntimeError):
     """A member could not be re-run in the sandbox."""
 
 
+def rerun_member_report(
+    member: Member,
+    source: str,
+    bars: Mapping[str, Bars],
+    options: Mapping[str, Any],
+    runner: JobRunner,
+    perp: Mapping[str, PerpBundle] | None = None,
+) -> dict[str, Any]:
+    """One member's raw sandbox result on ``bars`` (its own universe)."""
+    missing = [s for s in member.universe if s not in bars]
+    if missing:
+        raise RerunError(f"{member.candidate_id}: no data for {missing}")
+    universe = {s: bars[s] for s in member.universe}
+    needed = [s for s in member.universe if ":" in s]
+    if needed and not all(s in (perp or {}) for s in needed):
+        # Fail closed (INV-94): gate ⑥′ re-runs on stressed costs and on a second source, and a
+        # perpetual member re-run without its mark and funding would be a different market.
+        raise RerunError(f"{member.candidate_id}: no perpetual inputs for {needed}")
+    slice_ = {s: (perp or {})[s] for s in needed} or None
+    res = runner.run(SandboxJob("backtest", source, universe, member.params, options, perp=slice_))
+    if not res.ok or res.report is None:
+        raise RerunError(f"{member.candidate_id}: sandbox {res.error}")
+    return cast("dict[str, Any]", res.report["result"])
+
+
 def rerun_member(
     member: Member,
     source: str,
     bars: Mapping[str, Bars],
     options: Mapping[str, Any],
     runner: JobRunner,
+    perp: Mapping[str, PerpBundle] | None = None,
 ) -> pd.Series:
     """One member's per-bar returns on ``bars`` (its own universe), via the sandbox."""
-    missing = [s for s in member.universe if s not in bars]
-    if missing:
-        raise RerunError(f"{member.candidate_id}: no data for {missing}")
-    universe = {s: bars[s] for s in member.universe}
-    res = runner.run(SandboxJob("backtest", source, universe, member.params, options))
-    if not res.ok or res.report is None:
-        raise RerunError(f"{member.candidate_id}: sandbox {res.error}")
-    out: dict[str, Any] = res.report["result"]
+    out = rerun_member_report(member, source, bars, options, runner, perp)
     return pd.Series(
         np.asarray(out["returns"], dtype=np.float64), index=pd.to_datetime(out["ts"][1:])
     )
@@ -69,10 +99,11 @@ def rerun_portfolio(
     bars: Mapping[str, Bars],
     options: Mapping[str, Any],
     runner: JobRunner,
+    perp: Mapping[str, PerpBundle] | None = None,
 ) -> pd.DataFrame:
     """Every member re-run; columns = member trial ids, inner-joined on common timestamps."""
     series = {
-        m.trial_id: rerun_member(m, archive.get(m.strategy_hash), bars, options, runner)
+        m.trial_id: rerun_member(m, archive.get(m.strategy_hash), bars, options, runner, perp)
         for m in portfolio.members
     }
     return pd.concat(series, axis=1, join="inner")
@@ -93,6 +124,80 @@ def primary_member_returns(ledger: Ledger, members: Sequence[Member]) -> pd.Data
     return pd.concat({m.trial_id: load_returns(paths[m.trial_id]) for m in members}, axis=1)
 
 
+def _has_perpetual(members: Sequence[Member]) -> bool:
+    return any(":" in symbol for member in members for symbol in member.universe)
+
+
+def _write_rerun_streams(
+    directory: Path,
+    members: Sequence[Member],
+    reports: Mapping[int, Mapping[str, Any]],
+) -> dict[int, Path]:
+    streams: dict[int, Path] = {}
+    for member in members:
+        stream = reports[member.trial_id].get("signals_stream") or {}
+        if not stream:
+            raise RerunError(
+                f"{member.candidate_id}: sandbox returned no signal stream; a perpetual "
+                "portfolio must be replayed from signals"
+            )
+        dummy_returns = directory / "returns" / f"{member.trial_id}.parquet"
+        path = write_signal_stream(dummy_returns, stream)
+        if path is None:
+            raise RerunError(f"{member.candidate_id}: empty signal stream")
+        streams[member.trial_id] = path
+    return streams
+
+
+def account_returns(
+    portfolio: Portfolio,
+    archive: StrategyArchive,
+    bars: Mapping[str, Bars],
+    options: Mapping[str, Any],
+    runner: JobRunner,
+    perp: Mapping[str, PerpBundle] | None,
+) -> pd.Series:
+    """Perpetual portfolio returns from one shared account replay, not member weighting."""
+    if perp is None:
+        raise RerunError("perpetual portfolio has no perpetual inputs")
+    reports = {
+        m.trial_id: rerun_member_report(
+            m, archive.get(m.strategy_hash), bars, options, runner, perp
+        )
+        for m in portfolio.members
+    }
+    with tempfile.TemporaryDirectory(prefix="qc-robustness-signals-") as tmp:
+        replay = consolidate_on_account(
+            portfolio.members,
+            _write_rerun_streams(Path(tmp), portfolio.members, reports),
+            bars,
+            perp,
+            settings=RiskSettings(**options["risk"]),
+            costs=CostModel(**options.get("costs", {})),
+            initial_cash=float(options.get("initial_cash", 100_000.0)),
+            leverage=int(options.get("leverage", 5)),
+            max_portfolio_risk_pct=float(options.get("max_portfolio_risk_pct", 0.10)),
+        )
+    return pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:]))
+
+
+def account_options(lock: Mapping[str, Any], options: Mapping[str, Any]) -> dict[str, Any]:
+    """Backtest options plus account-level defaults used outside the sandbox."""
+    data: Mapping[str, Any] = lock.get("research", {}).get("data", {})
+    out = dict(options)
+    out.setdefault("leverage", int(data.get("leverage", 5)))
+    out.setdefault("initial_cash", 100_000.0)
+    out.setdefault("max_portfolio_risk_pct", 0.10)
+    return out
+
+
+def is_perpetual_portfolio(portfolio: Portfolio, lock: Mapping[str, Any]) -> bool:
+    """True when the frozen portfolio must be consolidated through the USDT-M account."""
+    data: Mapping[str, Any] = lock.get("research", {}).get("data", {})
+    market = str(data.get("market", "")).lower()
+    return market in {"perp", "usdt_m_perpetual"} or _has_perpetual(portfolio.members)
+
+
 class RobustnessGate:
     id = G6P_ROBUSTNESS
     cost = 4
@@ -104,19 +209,26 @@ class RobustnessGate:
         settings: Mapping[str, Any] = ctx.lock["derived"].get("robustness", {})
         mult = float(settings.get("cost_multiplier", COST_MULTIPLIER))
         max_drop = float(settings.get("max_sharpe_drop", MAX_SHARPE_DROP))
-        base = backtest_options(ctx.lock, seed=0)
+        base = account_options(ctx.lock, backtest_options(ctx.lock, seed=0))
         ppy = portfolio.periods_per_year
         weights = weights_of(portfolio.members)
         cols = [m.trial_id for m in portfolio.members]
         problems: list[str] = []
+        perpetual = is_perpetual_portfolio(portfolio, ctx.lock)
 
         # ── costs × 2 on the primary source ──────────────────────────────────────────
         stressed_costs = {k: float(v) * mult for k, v in base["costs"].items()}
-        stressed = rerun_portfolio(
-            portfolio, archive, ctx.services["is_data"], {**base, "costs": stressed_costs},
-            runner,
-        )  # fmt: skip
-        stressed_ret = combine(stressed[cols], weights, portfolio.rule.rebalance)
+        perp: Mapping[str, PerpBundle] | None = ctx.services.get("perp_data")
+        stressed_options = {**base, "costs": stressed_costs}
+        if perpetual:
+            stressed_ret = account_returns(
+                portfolio, archive, ctx.services["is_data"], stressed_options, runner, perp
+            )
+        else:
+            stressed = rerun_portfolio(
+                portfolio, archive, ctx.services["is_data"], stressed_options, runner, perp
+            )
+            stressed_ret = combine(stressed[cols], weights, portfolio.rule.rebalance)
         sharpe_stressed = annual_sharpe(stressed_ret, ppy)
         stats, n_variants = ctx.ledger.trial_stats(), ctx.ledger.total_portfolio_variants()
         dsr = portfolio_dsr(stressed_ret.to_numpy(), stats, n_variants, ppy)
@@ -139,15 +251,26 @@ class RobustnessGate:
         if not second:
             problems.append("no second-source data (research.data.second_exchange)")
         else:
-            alt = rerun_portfolio(portfolio, archive, second, base, runner)
-            primary = primary_member_returns(ctx.ledger, portfolio.members)
-            common = alt.index.intersection(primary.dropna().index)
+            if perpetual:
+                second_perp: Mapping[str, PerpBundle] | None = ctx.services.get("second_perp_data")
+                if second_perp is None:
+                    problems.append("no second-source perpetual inputs (second_perp_data)")
+                    alt_ret = pd.Series(dtype=np.float64)
+                    primary_ret = pd.Series(dtype=np.float64)
+                else:
+                    alt_ret = account_returns(portfolio, archive, second, base, runner, second_perp)
+                    primary_ret = portfolio.returns
+            else:
+                alt = rerun_portfolio(portfolio, archive, second, base, runner, perp)
+                primary = primary_member_returns(ctx.ledger, portfolio.members)
+                alt_ret = combine(alt[cols], weights, portfolio.rule.rebalance)
+                primary_ret = combine(primary[cols], weights, portfolio.rule.rebalance)
+            common = alt_ret.index.intersection(primary_ret.dropna().index)
             if len(common) < 60:
                 problems.append(f"only {len(common)} common bars with the second source")
             else:
-                rebalance = portfolio.rule.rebalance
-                s_alt = annual_sharpe(combine(alt.loc[common, cols], weights, rebalance), ppy)
-                s_pri = annual_sharpe(combine(primary.loc[common, cols], weights, rebalance), ppy)
+                s_alt = annual_sharpe(alt_ret.loc[common], ppy)
+                s_pri = annual_sharpe(primary_ret.loc[common], ppy)
                 drop = 1.0 - s_alt / s_pri if s_pri > 0 else float("inf")
                 detail.update({
                     "sharpe_primary_common": s_pri, "sharpe_second": s_alt, "sharpe_drop": drop,

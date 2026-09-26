@@ -13,12 +13,35 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 import yaml
 
 from quantcrucible.ledger.records import LEGACY_DIRECTION, LEGACY_INSTRUMENT
 
 SUPPORTED_SCHEMA = 7  # bumped by migration 007 (P3-11): trials and events carry a scope
+# v6 is read too. This module never migrates, so refusing everything below the newest schema
+# left it unable to open the only ledger that exists — every campaign run so far predates the
+# scope columns. The difference is two absent columns whose meaning is known exactly: a row
+# written before P3-11 belongs to the legacy scope, which is what a NULL already reads as on v7.
+# Anything older is refused, because there the reader has no account of what else is missing.
+READABLE_SCHEMAS = (6, SUPPORTED_SCHEMA)
+
+
+def _has_scope_columns(db: sqlite3.Connection) -> bool:
+    return any(r[1] == "instrument" for r in db.execute("PRAGMA table_info(trials)"))
+
+
+def _scope(db: sqlite3.Connection, alias: str = "") -> str:
+    """The `instrument, direction` select fragment for whichever schema is open.
+
+    On v6 they become NULL literals, so every query downstream — grouping, ordering, filtering —
+    sees the same shape it sees for a legacy row on v7 and needs no second code path.
+    """
+    if not _has_scope_columns(db):
+        return "NULL AS instrument, NULL AS direction"
+    prefix = f"{alias}." if alias else ""
+    return f"{prefix}instrument, {prefix}direction"
 
 
 def unit_label(instrument: str | None, direction: str | None, engine: str, seed: int | str) -> str:
@@ -57,11 +80,10 @@ class ReviewRepository:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA query_only = ON")
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        if version != SUPPORTED_SCHEMA:
+        if version not in READABLE_SCHEMAS:
             conn.close()
-            raise ReviewDataError(
-                f"Ledger schema v{version}; giao diện hỗ trợ v{SUPPORTED_SCHEMA}."
-            )
+            readable = ", ".join(f"v{v}" for v in READABLE_SCHEMAS)
+            raise ReviewDataError(f"Ledger schema v{version}; giao diện đọc được {readable}.")
         try:
             conn.execute("BEGIN")
             yield conn
@@ -212,9 +234,10 @@ class ReviewRepository:
         with self.connection() as db:
             campaign = self._campaign(db, campaign_id)
             protocol = self._protocol(db, campaign_id)
+            scope = _scope(db)
             rows = db.execute(
-                """WITH units AS (
-                   SELECT instrument, direction, engine, seed, COUNT(*) trials,
+                f"""WITH units AS (
+                   SELECT {scope}, engine, seed, COUNT(*) trials,
                      SUM(CASE WHEN EXISTS(SELECT 1 FROM gate_results g WHERE g.campaign_id=t.campaign_id
                        AND g.candidate_id=t.candidate_id AND g.gate='g4_pbo' AND g.passed=1) THEN 1 ELSE 0 END) passed
                    FROM trials t WHERE campaign_id=?
@@ -223,12 +246,12 @@ class ReviewRepository:
                 (campaign_id,),
             ).fetchall()
             checkpoints = db.execute(
-                """SELECT instrument, direction, engine, seed, ts, detail FROM generation_log
+                f"""SELECT {scope}, engine, seed, ts, detail FROM generation_log
                    WHERE campaign_id=? AND event='DEGRADATION_CHECKPOINT' ORDER BY id""",
                 (campaign_id,),
             ).fetchall()
             warnings = db.execute(
-                """SELECT DISTINCT instrument, direction, engine, seed FROM generation_log
+                f"""SELECT DISTINCT {scope}, engine, seed FROM generation_log
                    WHERE campaign_id=? AND event='DEGRADATION_WARNING'
                    ORDER BY instrument, direction, engine, seed""",
                 (campaign_id,),
@@ -270,15 +293,15 @@ class ReviewRepository:
             args.extend([f"%{value}%", f"%{value}%"])
         clause = " AND ".join(where)
         with self.connection() as db:
-            base = """WITH c AS (
+            base = f"""WITH c AS (
               SELECT t.campaign_id,t.candidate_id,t.engine,t.seed,t.island,t.strategy_hash,t.source,
                      t.sharpe_is,t.verdict,t.gate_failed,t.ts,t.id trial_id,t.cell_id,
-                     t.instrument,t.direction
+                     {_scope(db, "t")}
               FROM trials t WHERE t.campaign_id=?
               UNION ALL
               SELECT g.campaign_id,json_extract(g.detail,'$.candidate_id'),g.engine,g.seed,g.island,
                      g.strategy_hash,'evolution',NULL,'PRE_TRIAL',NULL,g.ts,NULL,g.cell_id,
-                     g.instrument,g.direction
+                     {_scope(db, "g")}
               FROM generation_log g WHERE g.campaign_id=? AND g.event='CANDIDATE_SUBMITTED'
                 AND json_extract(g.detail,'$.candidate_id') IS NOT NULL
                 AND NOT EXISTS(SELECT 1 FROM trials t WHERE t.campaign_id=g.campaign_id
@@ -347,6 +370,67 @@ class ReviewRepository:
                 "gates": [{**dict(r), "detail": _json(r["detail"], {})} for r in gates],
                 "snapshot_at": self.snapshot_at(),
             }
+
+    def account(self, campaign_id: str, portfolio_hash: str) -> dict[str, Any]:
+        """The shared account's equity curve and its per-slot decomposition (P3-23, ADR-0035).
+
+        The screen's promise is arithmetic — ``initial_cash + Σ contributions == equity`` at every
+        bar, including while positions are open — so the residual is **measured from what was
+        stored** and served alongside it. A reader should be able to see a drift, not be told
+        there is none.
+
+        A portfolio built before the account replay existed has no curve. That reads as absent
+        rather than as a flat line at zero, which would be a claim about the account.
+        """
+        with self.connection() as db:
+            self._campaign(db, campaign_id)  # 404 for an unknown campaign, as every route does
+
+        path = (
+            self.root / "results" / "account" / campaign_id / f"{portfolio_hash}.parquet"
+        ).resolve()
+        allowed = (self.root / "results" / "account").resolve()
+        if allowed not in path.parents or not path.is_file():
+            # INV-80: the hash comes out of the database and must not address a file outside
+            # `results/`. An escape and an honestly absent curve are the same answer here.
+            return {
+                "status": "missing", "portfolio_hash": portfolio_hash, "initial_cash": None,
+                "points": [], "slots": [], "max_residual": None, "reconciles": None,
+                "snapshot_at": self.snapshot_at(),
+            }  # fmt: skip
+
+        frame = pd.read_parquet(path)
+        equity = frame["equity"].to_numpy(dtype=float)
+        initial = float(frame["initial_cash"].iloc[0]) if len(frame) else 0.0
+        slots = [c for c in frame.columns if c not in ("ts", "equity", "initial_cash")]
+        summed = frame[slots].to_numpy(dtype=float).sum(axis=1) if slots else np.zeros(len(frame))
+        residual = np.abs(initial + summed - equity)
+        worst = float(residual.max()) if len(residual) else 0.0
+        return {
+            "status": "ok",
+            "portfolio_hash": portfolio_hash,
+            "initial_cash": initial,
+            "points": [
+                {
+                    "ts": str(pd.Timestamp(t).date()),
+                    "equity": float(e),
+                    "residual": float(r),
+                }
+                for t, e, r in zip(frame["ts"], equity, residual, strict=True)
+            ],
+            "slots": [
+                {
+                    "slot": name,
+                    "final": float(frame[name].to_numpy(dtype=float)[-1]) if len(frame) else 0.0,
+                    "values": [float(v) for v in frame[name].to_numpy(dtype=float)],
+                }
+                for name in slots
+            ],
+            "max_residual": worst,
+            # A tolerance, not equality: the arithmetic is exact by construction but the curve
+            # has been through parquet, so float64 round-tripping is the only slack allowed.
+            "reconciles": bool(worst <= max(1e-6, abs(initial) * 1e-12)),
+            "snapshot_at": self.snapshot_at(),
+        }
 
     def _strategy_source(self, strategy_hash: str) -> dict[str, Any]:
         path = (self.root / "results" / "strategies" / f"{strategy_hash}.py").resolve()

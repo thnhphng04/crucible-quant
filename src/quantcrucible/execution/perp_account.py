@@ -20,12 +20,12 @@ margin and never reaches the account's free balance or the other side.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from quantcrucible.core.path_summary import SegmentedPath
 from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.execution.margin import BracketTable
-from quantcrucible.execution.path_summary import PathSummary
 
 
 class Liquidated(RuntimeError):
@@ -50,6 +50,19 @@ class Wallet:
     def unrealized(self, mark: float) -> float:
         move = mark - self.entry
         return move * self.qty if self.side == "long" else -move * self.qty
+
+    def bounded_pnl(self, price: float) -> float:
+        """The PnL this wallet can actually realize: a loss stops at its own margin.
+
+        Beyond that the position is bankrupt and the venue's insurance fund, not the free
+        balance, carries the rest. Without the bound one wallet can drain the account, and a
+        wallet's worst case stops being knowable — which is what the portfolio risk cap counts on.
+        """
+        return max(self.unrealized(price), -self.margin)
+
+    def value(self, mark: float) -> float:
+        """What this wallet is worth to the account: margin plus mark-to-market, never below 0."""
+        return self.margin + self.bounded_pnl(mark)
 
 
 @dataclass(slots=True)
@@ -88,10 +101,8 @@ class PerpAccount:
         """Free balance, plus every wallet's margin and its mark-to-market."""
         total = self.balance
         for wallet in self._wallets.values():
-            total += wallet.margin
             mark = marks.get(wallet.symbol)
-            if mark is not None:
-                total += wallet.unrealized(mark)
+            total += wallet.margin if mark is None else wallet.value(mark)
         return total
 
     def kill_switch_tripped(self, marks: Mapping[str, float], max_drawdown: float) -> bool:
@@ -108,6 +119,8 @@ class PerpAccount:
     def open(
         self, symbol: str, side: ScopeDirection, qty: float, price: float, leverage: int
     ) -> Wallet:
+        if (symbol, side) in self._wallets:
+            raise ValueError(f"{symbol} {side} is already open")
         table = self._table(symbol)
         notional = qty * price
         margin = table.initial_margin(notional, leverage)  # raises above the bracket
@@ -122,13 +135,24 @@ class PerpAccount:
         return wallet
 
     def close(self, symbol: str, side: ScopeDirection, price: float) -> float:
-        """Realize the position and return its margin plus PnL to the free balance."""
+        """Realize the position and return its margin plus PnL to the free balance.
+
+        The loss is bounded by the wallet's own margin (:meth:`Wallet.bounded_pnl`). A fill
+        through the bankruptcy price is reachable — the mark can gap past liquidation between
+        bars — and it must not reach the free balance or the other side.
+        """
         wallet = self._wallets.pop((symbol, side), None)
         if wallet is None:
             raise Liquidated(f"{symbol} {side} is not open")
-        pnl = wallet.unrealized(price)
+        pnl = wallet.bounded_pnl(price)
         self.balance += wallet.margin + pnl
         return pnl
+
+    def is_bankrupt(self, symbol: str, side: ScopeDirection, price: float) -> bool:
+        """Whether closing at ``price`` would take more than the wallet's whole margin — i.e.
+        the venue would have liquidated rather than filled."""
+        wallet = self._wallets.get((symbol, side))
+        return wallet is not None and wallet.unrealized(price) <= -wallet.margin
 
     def liquidate(self, symbol: str, side: ScopeDirection) -> float:
         """Wipe out one wallet. Its margin is lost and nothing else is: that is what isolated
@@ -171,40 +195,49 @@ class ClearanceRefused(RuntimeError):
 class BarOutcome:
     """What one bar did to one side.
 
-    ``ambiguous`` means the stop and the liquidation were first reached in the same minute. The
-    order inside that minute is unknown, so ``event`` reports the worse of the two and the flag
-    says the result was assumed, not observed.
+    ``minute`` is the offset within the bar at which the reported event happened, or ``None``
+    when nothing happened. ``ambiguous`` means the stop and the liquidation were first reached
+    in the same minute: the order inside that minute is unknown, so ``event`` reports the worse
+    of the two and the flag says the result was assumed, not observed.
     """
 
     event: str  # open | stop | liquidation
     ambiguous: bool = False
+    minute: int | None = None
 
 
 def resolve_bar(
-    account: PerpAccount,
-    symbol: str,
     side: ScopeDirection,
     stop: float,
-    path: PathSummary,
+    path: SegmentedPath,
+    liquidations: Sequence[float],
 ) -> BarOutcome:
     """Whether a bar's intrabar path stopped the position out, liquidated it, or neither.
 
     Both levels sit on the same side of the entry — below a long, above a short — so one path
-    summary answers both questions. A tie is resolved pessimistically and flagged.
+    answers both questions. The **stop is constant** for the life of the position (P3-16: it is
+    placed once at entry and never re-issued), while the **liquidation price moves at every
+    funding settlement inside the bar**, which is why ``liquidations`` is one price per segment
+    rather than a single number.
+
+    A tie is resolved pessimistically and flagged. Note that with a stop honouring the clearance
+    rule the plain liquidation branch is rare by construction: the levels are ordered, so on one
+    monotone series the stop is reached first unless the liquidation moved under it mid-bar.
     """
-    liquidation = account.liquidation_price(symbol, side)
     above = side == "short"
     stop_at = path.first_touch(stop, above=above)
-    liq_at = path.first_touch(liquidation, above=above)
+    liq_at = path.first_touch_stepwise(liquidations, above=above)
     if stop_at is None and liq_at is None:
         return BarOutcome("open")
     if liq_at is None:
-        return BarOutcome("stop")
+        return BarOutcome("stop", minute=stop_at)
     if stop_at is None:
-        return BarOutcome("liquidation")
+        return BarOutcome("liquidation", minute=liq_at)
     if liq_at == stop_at:
-        return BarOutcome("liquidation", ambiguous=True)  # the worse outcome, and say so
-    return BarOutcome("liquidation" if liq_at < stop_at else "stop")
+        return BarOutcome("liquidation", ambiguous=True, minute=liq_at)  # worse, and say so
+    if liq_at < stop_at:
+        return BarOutcome("liquidation", minute=liq_at)
+    return BarOutcome("stop", minute=stop_at)
 
 
 def assert_clearance(

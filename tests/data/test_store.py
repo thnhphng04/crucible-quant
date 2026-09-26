@@ -12,6 +12,7 @@ from quantcrucible.data.store import (
     ResearchStore,
     file_name,
     parse_range,
+    read_bars,
     write_bars,
 )
 from tests.factories import make_bars
@@ -59,3 +60,26 @@ def test_contaminated_file_refused(root: Path) -> None:
 )
 def test_add_months(d: date, months: int, expected: date) -> None:
     assert add_months(d, months) == expected
+
+
+def test_a_perpetual_symbol_becomes_a_legal_filename() -> None:
+    """ccxt spells a linear perpetual `BASE/QUOTE:SETTLE`. Replacing only the slash leaves the
+    colon, and a colon does not fail on NTFS — it opens an **alternate data stream**. So
+    `BTC/USDT:USDT` wrote its bars into a stream hanging off a file called `BTC-USDT`, which is
+    the spot pair's own filename. Nothing raised, `exists()` was true, and the bytes were
+    invisible to a directory listing, absent from any copy to a non-NTFS filesystem, and unseen
+    by the container's bind mount.
+    """
+    name = file_name("BTC/USDT:USDT", "1d")
+    assert not (set(name) & set(':*?"<>|')), name
+    assert name.endswith("_1d.parquet")
+    assert file_name("BTC/USDT", "1d") != name  # and it must not collide with the spot pair
+
+
+def test_a_perpetual_file_is_a_real_file_a_listing_can_see(tmp_path: Path) -> None:
+    """`exists()` is not enough to catch the stream: it returns true for one. The listing is."""
+    bars = make_bars(10, symbol="BTC/USDT:USDT")
+    name = file_name("BTC/USDT:USDT", "1d")
+    write_bars(tmp_path / name, bars)
+    assert [p.name for p in tmp_path.iterdir()] == [name]
+    assert len(read_bars(tmp_path / name, "BTC/USDT:USDT", "1d")) == 10

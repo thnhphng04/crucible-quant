@@ -78,6 +78,12 @@ def test_tightening_is_allowed() -> None:
         ({"research": {"data": {"start": "yesterday"}}}, "date"),
         ({"research": {"data": {"symbols": []}}}, "symbols"),
         ({"research": {"data": {"second_exchange": "binance"}}}, "second_exchange"),
+        ({"research": {"data": {"market": "perp"}}}, "not one of"),
+        ({"research": {"data": {"market": "usdt_m_perpetual"}}}, "symbols"),
+        ({"research": {"data": {"symbols": ["BTC/USDT:USDT"]}}}, "market"),
+        ({"research": {"data": {"leverage": 0}}}, "leverage"),
+        ({"research": {"data": {"funding_interval_hours": 5}}}, "divide 24"),
+        ({"research": {"data": {"funding_interval_hours": 0}}}, "funding_interval_hours"),
         ({"research": {"calibration": {"enabled": "yes"}}}, "true/false"),
     ],
 )
@@ -89,6 +95,25 @@ def test_invalid_values_rejected(data: dict[str, Any], message: str) -> None:
 def test_holdout_pass_optional_until_used() -> None:
     assert parse_user_config({}).research.holdout_pass is None
     assert parse_user_config({"research": {"holdout_pass": 0.5}}).research.holdout_pass == 0.5
+
+
+def test_perpetual_market_requires_contract_symbols_and_locks_venue_assumptions() -> None:
+    config = parse_user_config(
+        {
+            "research": {
+                "data": {
+                    "market": "usdt_m_perpetual",
+                    "exchange": "binance",
+                    "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
+                    "leverage": 20,
+                    "funding_interval_hours": 8,
+                }
+            }
+        }
+    )
+    assert config.research.data.market == "usdt_m_perpetual"
+    assert config.research.data.leverage == 20
+    assert config.research.data.funding_interval_hours == 8
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])

@@ -22,7 +22,10 @@ import yaml
 
 from quantcrucible.config.loader import parse_user_config
 from quantcrucible.config.lock import open_campaign, read_lock, sha256_file
+from quantcrucible.core.path_summary import segment_bar
+from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.data.holdout_split import carve
+from quantcrucible.data.perp_carve import carve_perp
 from quantcrucible.holdout.campaign import HoldoutRefused, claim, find_frozen
 from quantcrucible.holdout.evaluator_proc import evaluate, main
 from quantcrucible.ledger.db import Ledger
@@ -39,6 +42,8 @@ from tests.validation.test_pbo_gate import ZOO, cand
 
 HOLDOUT = (date(2024, 1, 1), date(2024, 12, 31))
 SYMBOL = "BTC/USDT"
+PERP_SYMBOL = "BTC/USDT:USDT"
+BRACKETS = ({"cap": 1e9, "max_leverage": 100, "mmr": 0.004, "amount": 0.0},)
 
 
 class FakeRunner:
@@ -55,6 +60,25 @@ class FakeRunner:
         rets = net + rng.normal(0, 0.01, len(bars))
         result = {"ts": [str(t) for t in bars.ts], "returns": rets[1:].tolist()}
         return SandboxResult(True, {"ok": True, "result": result}, "", "", 0, False, None, 0.1)
+
+
+class SignalOnlyRunner:
+    """Holdout perp portfolios request signals only; the host account prices the portfolio."""
+
+    def __init__(self) -> None:
+        self.jobs: list[SandboxJob] = []
+
+    def run(self, job: SandboxJob) -> SandboxResult:
+        self.jobs.append(job)
+        if job.kind != "signals":
+            raise AssertionError(f"perp holdout must not run standalone {job.kind!r} jobs")
+        stream = {
+            symbol: [[str(job.params["side"]), 1.0, 10.0, None] for _ in range(len(bars))]
+            for symbol, bars in job.bars.items()
+        }
+        return SandboxResult(
+            True, {"ok": True, "result": {"signals": stream}}, "", "", 0, False, None, 0.1
+        )
 
 
 @dataclass
@@ -109,6 +133,74 @@ def build_project(
     return Project(root, ledger, p.portfolio_hash)
 
 
+def perp_bundle(trades: Any) -> PerpBundle:
+    return PerpBundle(
+        symbol=trades.symbol,
+        timeframe=trades.timeframe,
+        marks=trades,
+        funding=np.zeros((0, 4), dtype=np.float64),
+        paths=tuple(
+            segment_bar([0, 1], [float(trades.low[k])] * 2, [float(trades.high[k])] * 2, cuts=[])
+            for k in range(len(trades))
+        ),
+        brackets=BRACKETS,
+    )
+
+
+def build_perp_project(tmp_path: Path) -> Project:
+    root = tmp_path / "proj"
+    cfg = parse_user_config(
+        {
+            "research": {
+                "holdout_pass": -100.0,
+                "data": {"market": "usdt_m_perpetual", "symbols": [PERP_SYMBOL]},
+            }
+        }
+    )
+    bars = make_bars(2600, seed=2, symbol=PERP_SYMBOL, start="2018-01-01")
+    carve(
+        {PERP_SYMBOL: bars}, HOLDOUT[0], HOLDOUT[1], in_sample_dir=root / "data" / "is",
+        holdout_dir=root / "holdout", lock_path=root / "holdout.lock", harden=False,
+    )  # fmt: skip
+    carve_perp(
+        {PERP_SYMBOL: (bars, perp_bundle(bars))}, HOLDOUT[0], HOLDOUT[1],
+        in_sample_dir=root / "data" / "perp", holdout_dir=root / "holdout" / "perp",
+        lock_path=root / "holdout" / "perp.lock", harden=False,
+    )  # fmt: skip
+    (root / "ledger").mkdir(parents=True)
+    ledger = Ledger.open(root / "ledger" / "crucible.db")
+    open_campaign(
+        cfg, ledger, "c1", root / "config" / "evaluation.lock.yaml",
+        holdout_range=f"{HOLDOUT[0]}/{HOLDOUT[1]}",
+        holdout_lock_hash=sha256_file(root / "holdout.lock"), derived=derived_settings("joint"),
+    )  # fmt: skip
+    s_hash = StrategyArchive(root / "results" / "strategies").put(ZOO)
+    ts = pd.date_range("2018-01-02", periods=1500, freq="D")
+    returns_dir = root / "results" / "returns" / "c1"
+    returns_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(2):
+        path = returns_dir / f"m{i}.parquet"
+        rets = np.random.default_rng(i).normal(0.004, 0.01, len(ts))
+        pd.DataFrame({"ts": ts, "ret": rets}).to_parquet(path, index=False)
+        tid = ledger.record_trial(
+            TrialRecord(
+                run_id="r", campaign_id="c1", candidate_id=f"m{i}", engine="manual", seed=0,
+                strategy_hash=s_hash, params={"side": "long" if i == 0 else "short"},
+                instrument=PERP_SYMBOL, direction="long" if i == 0 else "short",
+                universe=PERP_SYMBOL, timeframe="1d", timerange="t", source="manual",
+                sharpe_is=1.0, returns_path=str(path), verdict="PASS",
+            )
+        )  # fmt: skip
+        ledger.record_gate_result(
+            GateResultRecord(campaign_id="c1", candidate_id=f"m{i}", gate=G4_PBO, passed=True,
+                             reason="x", trial_id=tid)
+        )  # fmt: skip
+    p = build_and_record(ledger, "c1", PortfolioRule(), 365, root / "results")
+    passes(ledger, "c1", p.portfolio_hash)
+    freeze_campaign(ledger, "c1", p.portfolio_hash)
+    return Project(root, ledger, p.portfolio_hash)
+
+
 def passes(ledger: Ledger, campaign_id: str, p_hash: str) -> None:
     """⑤ and ⑥′ passes computed on the ledger as it is now (what PortfolioPipeline records)."""
     for gate in (G5_DSR, G6P_ROBUSTNESS):
@@ -155,6 +247,22 @@ def test_members_run_on_warmup_plus_the_holdout_only(tmp_path: Path) -> None:
     assert n_holdout > 300 and len(bars) - n_holdout == 400  # the locked lookback as warm-up
     assert bars.ts[-1] < np.datetime64(HOLDOUT[1])
     assert runner.jobs[0].kind == "backtest" and len(runner.jobs) == 2
+
+
+def test_perp_holdout_uses_one_account_signal_replay(tmp_path: Path) -> None:
+    proj = build_perp_project(tmp_path)
+    runner = SignalOnlyRunner()
+    verdict = evaluate(proj.root, proj.portfolio_hash, runner)
+    assert verdict.verdict == "PASS"
+    assert [job.kind for job in runner.jobs] == ["signals", "signals"]
+    for job in runner.jobs:
+        assert job.perp is None  # signal generation does not price; account replay does
+        (bars,) = job.bars.values()
+        start = np.datetime64(HOLDOUT[0])
+        assert int(np.sum(bars.ts >= start)) > 300
+        assert len(bars) - int(np.sum(bars.ts >= start)) == 400
+    access = proj.ledger.holdout_access("c1")
+    assert access is not None and access.verdict == "PASS" and access.sharpe_oos is not None
 
 
 def test_second_opening_raises(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

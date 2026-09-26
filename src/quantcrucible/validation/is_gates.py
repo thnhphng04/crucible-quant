@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.validation.artifacts import measurement_path, write_parquet_once
 from quantcrucible.validation.gates import (
@@ -38,6 +39,74 @@ def universe_bars(candidate: StrategyCandidate, ctx: GateContext) -> dict[str, B
     if missing or not candidate.universe:
         raise ValueError(f"no IS data for {missing or 'an empty universe'}")
     return {s: data[s] for s in candidate.universe}
+
+
+def is_perpetual(symbol: str) -> bool:
+    """ccxt spells a perpetual ``BASE/QUOTE:SETTLE``. Read off the symbol rather than a config
+    flag, so the requirement cannot be switched off by a lock that forgot to name the market —
+    and so a spot campaign, which has no mark and no funding, is unaffected."""
+    return ":" in symbol
+
+
+def perp_inputs(candidate: StrategyCandidate, ctx: GateContext) -> dict[str, PerpBundle] | None:
+    """The mark, funding, path and bracket bundle for a perpetual candidate, or ``None`` for spot.
+
+    Fails closed (INV-94): a perpetual candidate with no bundle would be backtested on a market
+    with no funding cost and no liquidation, and would report a Sharpe that looks like every
+    other Sharpe.
+    """
+    perps = [s for s in candidate.universe if is_perpetual(s)]
+    if not perps:
+        return None
+    available: Mapping[str, PerpBundle] = ctx.services.get("perp_data") or {}
+    missing = [s for s in perps if s not in available]
+    if missing:
+        raise ValueError(
+            f"no perpetual inputs for {', '.join(missing)}: mark, funding, intrabar paths and "
+            "leverage brackets are required, and refusing is the only honest answer"
+        )
+    return {s: available[s] for s in perps}
+
+
+def write_signal_stream(returns_path: Path, stream: Mapping[str, Any]) -> Path | None:
+    """Persist the signal stream beside the returns curve, under the same unique id.
+
+    A portfolio replay sizes from signals rather than from fills (ADR-0035), so this is where the
+    stream has to be captured. Sharing the returns file's id means the ledger's ``returns_path``
+    locates it with no new column and no ambiguity when a candidate is measured twice.
+    """
+    if not stream:
+        return None
+    rows = [
+        (
+            symbol,
+            bar,
+            str(sig[0]),
+            float(sig[1]),
+            float(sig[2]),
+            # `Signal.take_profit` is optional; a float column carries the absence as NaN, and
+            # `load_signal_stream` turns it back into None. Writing 0.0 would be a *value*, and
+            # `Signal` rejects a take profit of zero.
+            float("nan") if sig[3] is None else float(sig[3]),
+        )
+        for symbol, signals in stream.items()
+        for bar, sig in enumerate(signals)
+    ]
+    path = signals_path_for(returns_path)
+    write_parquet_once(
+        path,
+        pd.DataFrame(
+            rows, columns=["symbol", "bar", "direction", "strength", "stop_distance", "take_profit"]
+        ),
+    )
+    return path
+
+
+def signals_path_for(returns_path: Path) -> Path:
+    """Where a trial's signal stream lives, given the returns path the ledger recorded."""
+    parts = list(returns_path.parts)
+    parts[parts.index("returns")] = "signals"
+    return Path(*parts)
 
 
 def risk_settings(lock: Mapping[str, Any]) -> dict[str, Any]:
@@ -65,10 +134,12 @@ def risk_settings(lock: Mapping[str, Any]) -> dict[str, Any]:
 def backtest_options(lock: Mapping[str, Any], seed: int) -> dict[str, Any]:
     """Everything a sandbox backtest job needs from the campaign lock: costs, lookback, sizing."""
     derived: Mapping[str, Any] = lock["derived"]
+    data: Mapping[str, Any] = lock["research"].get("data", {})
     return {
         "costs": dict(derived["costs"]),
         "lookback": int(derived.get("lookback", 400)),
         "risk": risk_settings(lock),
+        "leverage": int(data.get("leverage", 5)),
         "seed": seed,
     }
 
@@ -119,9 +190,14 @@ class InSampleGate:
         results_dir = Path(ctx.services["results_dir"])
         limits: Mapping[str, Any] = ctx.lock["research"]["constraints"]
         options = backtest_options(ctx.lock, candidate.seed)
+        try:
+            perp = perp_inputs(candidate, ctx)
+        except ValueError as exc:
+            return GateResult(passed=False, gate=self.id, value=None, reason=str(exc))
         job = SandboxJob(
-            "backtest", candidate.source, universe_bars(candidate, ctx), candidate.params, options
-        )
+            "backtest", candidate.source, universe_bars(candidate, ctx), candidate.params,
+            options, perp=perp,
+        )  # fmt: skip
         res = runner.run(job)
         if not res.ok or res.report is None:
             return sandbox_failure(self.id, res)
@@ -140,6 +216,7 @@ class InSampleGate:
                 }
             ),
         )
+        write_signal_stream(path, out.get("signals_stream") or {})
         problems: list[str] = []
         # written as `not (ok)` so a NaN on either side fails closed instead of passing
         if not public["n_trades"] >= limits["min_trades"]:

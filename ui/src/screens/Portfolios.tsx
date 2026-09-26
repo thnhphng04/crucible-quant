@@ -7,6 +7,7 @@ import { Badge } from '../components/Badge'
 import { Header } from '../components/Header'
 import { Metric, MetricGrid, Panel, Row, TableWrap } from '../components/Panel'
 import { Empty, ErrorBox, Loading } from '../components/States'
+import { AccountPanel } from './AccountPanel'
 
 export function Portfolios() {
   const { cid } = useParams()
@@ -70,6 +71,11 @@ export function Portfolios() {
           <Empty text="Campaign chưa hợp nhất portfolio variant nào." />
         )}
       </Panel>
+      {data.items.length ? (
+        // The newest variant only: one account belongs to one portfolio, and rendering a panel
+        // per variant would fetch a curve for each of them to answer a question nobody asked.
+        <AccountPanel cid={cid ?? ''} portfolioHash={data.items[0].portfolio_hash} />
+      ) : null}
       <Panel
         title="Calibration timeline"
         note="Calibration chạy một lần trước khi freeze; mỗi lần đo vẫn là một dòng trials."

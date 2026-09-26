@@ -174,6 +174,14 @@ PROTOCOL: dict[str, Any] = {
     "no win or loss. Reporting one requires a new protocol version, not a reinterpretation",
     "complete": "every unit of every arm has used its whole quota; short of that the "
     "report shows progress and withholds the decision",
+    "replay": "one shared USDT account sizes every position itself from signals, never from "
+    "quantities sized in a standalone run (ADR-0035). Per bar, in this order: exits decided at "
+    "the previous close fill at this open; funding; liquidation and stops on the mark and the "
+    "intrabar path, cut at each settlement; one equity snapshot; then admission in canonical "
+    "order on that snapshot. Entries fill at the next bar's open (ADR-0003) with the stop "
+    "anchored to the signal bar's close and fixed for the position's life. A wallet's loss stops "
+    "at its own isolated margin; a fill through the bankruptcy price is a liquidation, not a "
+    "fill; several funding events in one bar are never summed (ADR-0032)",
     "monitor": {
         "mode": "warn",
         "signal": "is_oos_diverging over DEGRADATION_CHECKPOINT points",

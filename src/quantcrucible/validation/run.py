@@ -24,6 +24,7 @@ from quantcrucible.core.strategy.base import Bars, ScopeDirection
 from quantcrucible.core.strategy.template import parse, template_hash
 from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.data.holdout_split import read_holdout_lock
+from quantcrucible.data.manifest import verify_manifest
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import TrialSource
@@ -101,7 +102,8 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
             "research.holdout_pass (D4) is not set in config/user.yaml: it is locked with the "
             "campaign, so decide it before a new campaign opens"
         )
-    holdout_lock = root / "holdout.lock"
+    perpetual = cfg.research.data.market == "usdt_m_perpetual"
+    holdout_lock = root / "holdout" / "perp.lock" if perpetual else root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # range + hashes only: no prices
     _check_trial_budget(cfg, ledger, str(manifest["range"]))
     base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -109,11 +111,30 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
         n += 1
         campaign_id = f"{base}-{n}"
+    derived = derived_settings(cfg.research.evolve_scope)
+    if perpetual:
+        is_dir = root / "data" / "perp"
+        perp_manifest = is_dir / "manifest.json"
+        data_manifest = verify_manifest(perp_manifest, is_dir)
+        if data_manifest.source != "binanceusdm" or set(data_manifest.coverage) != set(
+            cfg.research.data.symbols
+        ):
+            raise CampaignNotOpened("perpetual IS manifest has the wrong source or symbols")
+        derived["perp_manifest_sha256"] = sha256_file(perp_manifest)
+        if cfg.research.data.second_exchange is not None:
+            second_dir = root / "data" / f"perp-second-{cfg.research.data.second_exchange}"
+            second_path = second_dir / "manifest.json"
+            second_manifest = verify_manifest(second_path, second_dir)
+            if second_manifest.source != cfg.research.data.second_exchange or set(
+                second_manifest.coverage
+            ) != set(cfg.research.data.symbols):
+                raise CampaignNotOpened("second perpetual IS manifest has wrong source or symbols")
+            derived["second_perp_manifest_sha256"] = sha256_file(second_path)
     open_campaign(
         cfg, ledger, campaign_id, lock_path,
         holdout_range=str(manifest["range"]),
         holdout_lock_hash=sha256_file(holdout_lock),
-        derived=derived_settings(cfg.research.evolve_scope),
+        derived=derived,
     )  # fmt: skip
     return campaign_id
 

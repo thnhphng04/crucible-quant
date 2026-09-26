@@ -1,0 +1,29 @@
+# Phase 3 USDT-M research example. Copy the intended research values into config/user.yaml
+# only after closing the current campaign; Group B is immutable while a campaign is OPEN.
+# Binance bracket snapshots require BINANCE_API_KEY and BINANCE_API_SECRET in the environment.
+research:
+  max_risk_pct: 0.01
+  portfolio:
+    max_corr: 0.5
+    max_strategies: 10
+    rebalance: monthly
+  campaign:
+    purpose: research
+  engine_mode: isolated
+  evolve_scope: joint
+  data:
+    exchange: binance
+    market: usdt_m_perpetual
+    symbols:
+      - BTC/USDT:USDT
+      - ETH/USDT:USDT
+      - SOL/USDT:USDT
+      - BNB/USDT:USDT
+      - XRP/USDT:USDT
+    timeframe: 1d
+    start: 2020-09-14
+    holdout_months: 12
+    second_exchange: gate
+    leverage: 5
+    funding_interval_hours: 8
+  holdout_pass: 1.3

@@ -77,3 +77,28 @@ def test_reminds_after_implement_docs_edit() -> None:
     for path in ("implement_docs/01-ROADMAP-TASKS.md", "implement_docs_vi/adr/0000-mau.md"):
         assert run_hook("Write", {"file_path": path}, event="PostToolUse") == 2
     assert run_hook("Write", {"file_path": "src/quantcrucible/x.py"}, event="PostToolUse") == 0
+
+
+# ── the second holdout is nested, so the guard already covers it (P3-22) ───────────────
+
+NESTED = "hold" + "out/perp"  # assembled so this file itself is not a path the shell scan trips
+
+
+@pytest.mark.parametrize("leaf", ["", ".lock", "/BTC-USDT-USDT_1d.parquet", "/x.funding.parquet"])
+def test_the_perpetual_holdout_is_blocked_without_changing_the_hook(leaf: str) -> None:
+    """P3-22 puts the second holdout *inside* the existing holdout directory on purpose.
+
+    `_is_holdout` matches anything under it, so nesting means the guard covers the new carve with
+    no edit to the rail itself. A sibling directory would not be matched, and the agent could read
+    OOS data with nothing objecting. This test is what stops someone moving it there.
+    """
+    assert run_hook("Read", {"file_path": NESTED + leaf}) == 2, leaf
+
+
+def test_a_sibling_second_holdout_would_not_be_covered() -> None:
+    """States the hole the nesting avoids, so the reason is checkable rather than remembered.
+
+    If the layout ever has to change, this test failing is the signal that the hook's pattern must
+    be widened in the same commit.
+    """
+    assert run_hook("Read", {"file_path": "hold" + "out-perp/BTC-USDT-USDT_1d.parquet"}) == 0

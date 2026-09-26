@@ -351,7 +351,7 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 
 ### ◐ P3-07 Funding, mark price, thanh lý, đường giá trong nến
 **Mục tiêu:** ba thứ Nautilus không mô hình. **Kiến trúc:** §3.5, ADR-0032. **Cần:** P3-05, P3-06
-**File:** thêm mới `execution/perp_account.py`, thêm mới `execution/path_summary.py`, `validation/sandbox.py` và `sandbox_runner.py` (kênh dữ liệu vào container mở rộng).
+**File:** thêm mới `execution/perp_account.py`, thêm mới `core/path_summary.py` (P3-16), `validation/sandbox.py` và `sandbox_runner.py` (kênh dữ liệu vào container mở rộng).
 **Đạt khi:** INV-93, INV-94; first touch khớp với quét vét cạn theo phút; chạm đồng thời bị gắn cờ mơ hồ và giải theo kết quả bất lợi hơn; nến phút không bao giờ vào sandbox.
 
 ### ◐ P3-08 Backtest tài khoản chung và luật kết nạp
@@ -391,8 +391,59 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 
 ### ◐ P3-15 Review API, UI, hồi quy legacy, cổng chất lượng
 **Mục tiêu:** kết quả mới đọc được và kết quả v4 vẫn đọc được. **Kiến trúc:** ADR-0029, ADR-0033. **Cần:** P3-14, P3-10
-**File:** `review/repository.py` (`SUPPORTED_SCHEMA` 6→7, endpoint equity tài khoản), `review/app.py`, `ui/src/`.
+**File:** `review/repository.py` (`READABLE_SCHEMAS` = v6 và v7, endpoint equity tài khoản), `review/app.py`, `ui/src/`.
 **Đạt khi:** equity ban đầu cộng tổng đóng góp bằng equity tài khoản trong sai số làm tròn; campaign v4 vẫn hiển thị được; INV-79 và INV-80 giữ nguyên; toàn bộ cổng chất lượng xanh.
+
+## Giai đoạn 3 (tiếp) — nối tầng perpetual vào
+
+Các module phía trên đã dựng và đã test; **không gì ngoài cụm của chính chúng import tới**. Nguyên
+nhân gốc là một dòng: `SandboxJob.bars` là dữ liệu duy nhất container từng thấy, và nó chỉ mang
+nến giao dịch. Các task này nối dây, tải dữ liệu thật, và đưa giai đoạn qua cổng của nó.
+
+### ✅ P3-16 `path_summary` xuống `core/`, cắt đoạn tại mốc funding
+**Mục tiêu:** một mức thay đổi giữa nến được trả lời chính xác. **Kiến trúc:** §3.5, ADR-0032. **Cần:** —
+**File:** `execution/path_summary.py` → `core/path_summary.py` (`data` không được import `execution`, mà summary dựng lúc fetch), `execution/perp_account.py` (`resolve_bar` nhận một giá thanh lý cho mỗi đoạn), ADR-0032 và mirror VI của nó.
+**Đạt khi:** hai path có summary cả nến giống hệt nhau cho kết quả khác nhau khi một ngưỡng có hiệu lực giữa nến; `lows` lấy từ low của phút và `highs` từ high của phút; phút thiếu bị từ chối, không bao giờ điền khuyết; `lint-imports` xanh.
+
+### ✅ P3-17 `PerpSource` dùng được thật
+**Mục tiêu:** năm năm của bốn chuỗi, nối lại được. **Kiến trúc:** §6.1, D18. **Cần:** P3-16
+**File:** `data/perp_source.py` (hiện lấy đúng một trang 1000 dòng, và `end` không được dùng), `data/store.py` (`file_name` để nguyên dấu hai chấm của `BTC/USDT:USDT` trong tên file), thêm mới `data/perp_store.py`.
+**Đạt khi:** fake exchange nhiều trang cho đủ số dòng; lần fetch bị ngắt nối lại mà không tải lại; thiếu API key thì từ chối snapshot bracket chứ không đặt mặc định; summary dựng lại được từ minute close đã lưu, nên knob timeframe không kẹt.
+
+### ✅ P3-18 Hợp đồng dữ liệu `PerpInputs` và payload sandbox — ADR-0034
+**Mục tiêu:** container nhận được mark, funding và path. **Kiến trúc:** §3.3.3, ADR-0032. **Cần:** P3-17
+**File:** thêm mới `core/perp_inputs.py` (schema và một API cắt duy nhất), `validation/sandbox.py`, `validation/sandbox_runner.py`.
+**Đạt khi:** INV-99 — nến phút thô không bao giờ vào container; job IS không bao giờ nhận sidecar OOS; settlement rơi đúng ở 1d, 4h và 8h; bundle bắt buộc với `backtest`/`grid_backtest` và thiếu nó thì gate fail closed; kích thước payload đo được ghi lại.
+
+### ✅ P3-19 Sizing theo tài khoản cho N = 1; quantity và stop đứng yên
+**Mục tiêu:** gate ③/④ sizing từ tài khoản perpetual, không phải từ venue có margin bằng 0. **Kiến trúc:** §3.4, P4′. **Cần:** P3-18
+**File:** `execution/nautilus_bridge.py` (`_equity`, rebalance band, cái stop bị đặt lại mỗi bar), `execution/engine.py`.
+**Đạt khi:** giá và ATR đổi trong lúc vị thế mở mà quantity lẫn stop đều không đổi; rủi ro tại stop đo trên equity của tài khoản; một liquidation kết thúc cấu hình đó thay vì phân kỳ khỏi sổ của venue; equity bằng 0 không sinh inf hay nan.
+
+### ✅ P3-20 Joint replay theo tín hiệu cho N > 1 — ADR-0035
+**Mục tiêu:** tài khoản chung sizing và admit, chứ không replay quantity đã sized ở nơi khác. **Kiến trúc:** §3.2.1, §3.4. **Cần:** P3-19
+**File:** `execution/joint_account.py`, `execution/admission.py` (lần đầu được gọi), `execution/perp_account.py`.
+**Đạt khi:** một member với vốn dư dả tái tạo đường equity N = 1 của venue trong dung sai chặt — không có điều đó thì đây là một engine thực thi thứ hai không ai kiểm; INV-92 giữ; kill switch được gọi; đóng góp đối soát khớp **khi vẫn còn vị thế mở**.
+
+### ✅ P3-21 Gate ③/④/⑥′ và danh mục chạy trên tài khoản
+**Mục tiêu:** pipeline gọi tới tầng perpetual. **Kiến trúc:** §3.2, §3.2.1. **Cần:** P3-20
+**File:** `validation/is_gates.py`, `validation/pbo_gate.py`, `validation/robustness.py`, `validation/portfolio.py`, `validation/run.py`.
+**Đạt khi:** returns gate ③ đã trừ funding; chiến lược bị thanh lý trượt ③ và nói đúng như vậy; lưới PBO không bao giờ trộn scope; campaign legacy vẫn chạy qua `_summarize`, thứ không xoá được.
+
+### ✅ P3-22 Holdout perpetual — hoàn tất P3-10
+**Mục tiêu:** một holdout thứ hai không đụng cái đầu tiên. **Kiến trúc:** §4.2, P6. **Cần:** P3-18
+**File:** `data/holdout_split.py`, `cli.py`, tiến trình evaluator.
+**Đạt khi:** INV-94; nó nằm **bên trong** thư mục holdout đang có nên guard hook che sẵn mà không phải sửa hook; thiếu funding hoặc mark ở OOS thì fail closed.
+
+### ✅ P3-23 Endpoint equity tài khoản và UI — hoàn tất P3-15
+**Mục tiêu:** phép đối soát nhìn thấy được. **Kiến trúc:** ADR-0029. **Cần:** P3-20
+**File:** `review/repository.py`, `review/app.py`, `ui/src/lib/types.ts`, `ui/src/screens/Portfolios.tsx`.
+**Đạt khi:** equity ban đầu cộng tổng đóng góp bằng equity tài khoản trong sai số làm tròn, kể cả khi còn vị thế mở; thiếu dữ liệu đọc ra `Chưa có`, không bao giờ `0`.
+
+### ☐ P3-24 Tải thật, preflight, dry-run lock
+**Mục tiêu:** điều kiện thứ năm của cổng giai đoạn. **Kiến trúc:** §6.1, D18. **Cần:** P3-17
+**File:** `cli.py`, `config/schema.py`, `config/lock.py`, `config/user.yaml`.
+**Đạt khi:** perpetual OHLCV, mark, funding và bracket đủ coverage chung để khoá; `common_window` trả về 2020-09-14; một lần dry run không đổi lock nào, không mở campaign và không claim holdout.
 
 **Cổng giai đoạn 3:** fixture chứng minh đường tài khoản chung và preflight dữ liệu thật đạt. **Không campaign thật nào mở trong giai đoạn này** — hình dạng của nó là quyết định riêng, và headroom là 1.185 trial.
 
@@ -406,6 +457,17 @@ evaluator holdout trên đường đó (P3-10), và endpoint equity tài khoản
 
 Mảnh này bị hoãn từ P3-07 sang P3-08 rồi không được làm. Ghi lại ở đây thay vì đánh dấu task đã
 xong chính là điều đáng làm: cổng giai đoạn phía trên chưa đạt.
+
+**Năm lỗi tìm ra khi review, đã sửa hết (INV-92c, INV-93, INV-93c, INV-95b).** Cả năm đều là code
+có test xanh trong khi đường mà một campaign thật sự đi thì hỏng. `RiskSizer` trả 0 cho mọi
+short, nên nhánh short của bridge không bao giờ chạy tới và mọi test hedge chứng minh điều ngược
+lại đều đã tự tiêm sizer riêng. `PerpAccount.close` cộng toàn bộ lỗ đã thực hiện vào số dư tự do,
+nên một cú gap qua điểm phá sản rút cạn tài khoản qua đúng cái ví lẽ ra phải isolated. `sort_key`
+của replay hứa close trước open rồi sắp theo instrument, nên một lệnh vào có được cấp vốn hay
+không lại phụ thuộc bảng chữ cái. Fill ngoài cửa sổ replay bị kẹp vào nến gần nhất thay vì bị từ
+chối. Và reader của review chỉ nhận schema mới nhất, thứ mà không ledger nào hiện có đang mang —
+một reader bị cấm migrate thì không thể đồng thời đòi hỏi phải có một cái trước khi nó chịu
+đọc.
 
 ---
 

@@ -21,6 +21,7 @@ Nothing here knows about positions or accounts; :mod:`quantcrucible.execution.pe
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from quantcrucible.core.strategy.base import ScopeDirection
@@ -60,6 +61,26 @@ class BracketTable:
         caps = [b.cap for b in self.brackets]
         if caps != sorted(caps) or len(set(caps)) != len(caps):
             raise ValueError(f"{self.symbol}: brackets must be in ascending order of cap")
+
+    @classmethod
+    def from_rows(cls, symbol: str, rows: Iterable[Mapping[str, float | int]]) -> BracketTable:
+        """Build a table from the plain rows a data source hands over.
+
+        ``data`` may not import ``execution`` (import-linter), so ``PerpSource.fetch_brackets``
+        returns dicts and the conversion happens here, on the execution side of that boundary.
+        """
+        return cls(
+            symbol=symbol,
+            brackets=tuple(
+                Bracket(
+                    cap=float(r["cap"]),
+                    max_leverage=int(r["max_leverage"]),
+                    mmr=float(r["mmr"]),
+                    amount=float(r["amount"]),
+                )
+                for r in sorted(rows, key=lambda r: float(r["cap"]))
+            ),
+        )
 
     def bracket_for(self, notional: float) -> Bracket:
         for bracket in self.brackets:

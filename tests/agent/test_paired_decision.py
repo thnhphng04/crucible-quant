@@ -111,3 +111,22 @@ def test_an_individual_scope_carries_no_win_or_loss() -> None:
 def test_the_protocol_names_the_wider_unit() -> None:
     assert PROTOCOL["version"] == 5
     assert "instrument" in PROTOCOL["unit"] and "direction" in PROTOCOL["unit"]
+
+
+def test_the_protocol_fixes_the_joint_account_replay_order() -> None:
+    """The order a bar is replayed in decides the measured result — funding before liquidation
+    changes who survives, and the equity snapshot before admission is what makes every entry on
+    a bar size from one number. `joint_account` said that order was hashed into the protocol
+    while it was only a comment in the source, which is the same hole ADR-0028 closed for the
+    ranking: a measurement rule that can drift silently."""
+    replay = PROTOCOL["replay"]
+    for earlier, later in (
+        ("funding", "liquidation"),
+        ("liquidation", "equity snapshot"),
+        ("equity snapshot", "admission"),
+    ):
+        assert replay.index(earlier) < replay.index(later), (earlier, later)
+    assert "next bar's open" in replay  # ADR-0003 survives the rewrite
+    assert "never from" in replay  # sizes from signals, not from a standalone run's quantities
+    assert "isolated" in replay
+    assert "never summed" in replay  # several settlements in one bar stay separate

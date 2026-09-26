@@ -175,6 +175,30 @@ export interface PortfolioData extends Snapshot {
   ledger_trials: number
 }
 
+/** One bar of the shared account (P3-23). `residual` is measured, not asserted: the screen shows
+ *  it so a drift in the decomposition is visible rather than taken on trust. */
+export interface AccountPoint {
+  ts: string
+  equity: number
+  residual: number
+}
+
+export interface AccountSlot {
+  slot: string
+  final: number
+  values: number[]
+}
+
+export interface AccountData extends Snapshot {
+  status: 'ok' | 'missing'
+  portfolio_hash: string
+  initial_cash: number | null
+  points: AccountPoint[]
+  slots: AccountSlot[]
+  max_residual: number | null
+  reconciles: boolean | null
+}
+
 export interface ArchiveRow {
   candidate_id: string
   engine: string
