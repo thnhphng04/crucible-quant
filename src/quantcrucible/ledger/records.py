@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any, Literal
 
 CampaignStatus = Literal["OPEN", "FROZEN", "BURNED", "ABANDONED"]  # ABANDONED: ADR-0019
+CampaignPurpose = Literal["research", "harness_test"]  # harness_test: never frozen (§3.1.11)
 TrialSource = Literal["evolution", "param_opt", "manual"]
 
 
@@ -38,6 +39,10 @@ class Event(StrEnum):
     CALIBRATION_FINISHED = "CALIBRATION_FINISHED"  # detail: every attempt (ADR-0017 amendment)
     CALIBRATION_STARTED = "CALIBRATION_STARTED"  # detail: budget, technical retry or not
     CALIBRATION_CONFIRMATION = "CALIBRATION_CONFIRMATION"  # detail: status, params, trial id
+    MIGRATION = "MIGRATION"  # engine C-gp: detail from/to island, candidate ids (§3.1.5, P2-12)
+    DEGRADATION_CHECKPOINT = "DEGRADATION_CHECKPOINT"  # IS record vs its CPCV-OOS (§3.2, P2-14)
+    DEGRADATION_WARNING = "DEGRADATION_WARNING"  # divergence seen but not acted on (ADR-0028)
+    PROTOCOL_LOCKED = "PROTOCOL_LOCKED"  # engine comparison protocol, before any trial (P2-15)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +81,7 @@ class GenerationEvent:
     strategy_hash: str | None = None
     drift_delta: float | None = None
     detail: dict[str, Any] | None = None
+    island: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -99,6 +105,7 @@ class TrialRecord:
     hypothesis: str | None = None
     cell_id: str | None = None
     gate_failed: str | None = None
+    island: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -120,6 +127,9 @@ class TrialRow:
     verdict: str
     hypothesis: str | None
     cell_id: str | None
+    seed: int = 0
+    island: str | None = None
+    timerange: str = ""
 
 
 @dataclass(frozen=True, slots=True)

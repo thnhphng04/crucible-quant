@@ -13,9 +13,11 @@ Splits, purging, embargo and path reconstruction come from ``purgedcv`` (ADR-000
 
 from __future__ import annotations
 
+import dataclasses
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -128,12 +130,40 @@ class DegradationPoint:
     oos_median_sharpe: float
 
 
-def is_oos_diverging(points: Sequence[DegradationPoint], min_points: int = 3) -> bool:
+@dataclass(frozen=True, slots=True)
+class DivergenceRule:
+    """Everything ``is_oos_diverging`` decides with, as data.
+
+    A campaign locks this rule in its protocol and the monitor is run with what was locked
+    (ADR-0028 amendment): the thresholds are the contract, so they belong in the hash. ``version``
+    covers the shape of the rule itself — bump it whenever the arithmetic changes, since new
+    thresholds cannot describe a new formula.
+    """
+
+    version: int = 1
+    min_points: int = 3
+    flat_slope: float = 1e-9  # a fitted slope this small is arithmetic noise, not a moving line
+
+    @classmethod
+    def from_locked(cls, raw: Mapping[str, Any]) -> DivergenceRule:
+        fields = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in raw.items() if k in fields})
+
+
+DEFAULT_DIVERGENCE = DivergenceRule()
+
+
+def is_oos_diverging(
+    points: Sequence[DegradationPoint], rule: DivergenceRule = DEFAULT_DIVERGENCE
+) -> bool:
     """The p-hacking signal of §3.2: the IS record line rises while the same strategies' CPCV-OOS
-    median is flat or falling (OLS slopes over the checkpoints). Needs ``min_points``."""
-    if len(points) < min_points:
+    median is flat or falling (OLS slopes over the checkpoints). Needs ``rule.min_points``.
+
+    A line that does not move has a fitted slope of ~1e-17 whose sign is meaningless, so both
+    slopes are read against ``rule.flat_slope``: an IS line that stands still never diverges."""
+    if len(points) < rule.min_points:
         return False
     x = np.arange(len(points), dtype=np.float64)
     is_slope = float(np.polyfit(x, [p.is_sharpe for p in points], 1)[0])
     oos_slope = float(np.polyfit(x, [p.oos_median_sharpe for p in points], 1)[0])
-    return is_slope > 0 and oos_slope <= 0
+    return is_slope > rule.flat_slope and oos_slope <= rule.flat_slope

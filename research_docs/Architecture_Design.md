@@ -13,6 +13,8 @@
 > **Changes 0.3 → 0.4** (source: reading the MadEvolve repo, §3.1.10): **strategy template with a fixed region + an evolvable region**, enforced by hash (§3.3.1) · **parameters declared as `TUNABLE`** — the source of the PBO grid and the ≤ 6-parameter rule (§3.3.1, §3.2) · **evaluator contract splitting public/private metrics** (§3.3.2) · **sandbox specification** for running generated code (§3.3.3) · the Coding Team uses **diff/block-rewrite patches, strict, retry with the error** (§3.1.2) · **asynchronous pipeline**, migration/curation counted in candidates (§3.1.8) · **fixed feature-map bin bounds** (§3.1.3) · island integration test (§3.1.5, phase 2) · parameter-optimizer evaluations **are trials** (§4.1)
 >
 > **Changes 0.4 → 0.5** (source: full text of the MadEvolve paper, arXiv 2605.23007): **multi-engine architecture** — 4-agent QuantEvolve + a MadEvolve-style simple loop + random search running in parallel, isolated/collaborative modes (§3.1.11) · **parameter optimizer switched off inside the evolution loop**, calibration only once before the freeze (§3.3.1, §3.2.1) · **module-wise evolution**: entry / exit+stop / regime regions (§3.3.1) · **minimum trade count + holding time** (gate ③) · **indicator correlation constraint** (§3.3.1) · **IS→OOS degradation curve** on CPCV (§3.2) · **pessimistic fill model + cost-sensitivity check** (§3.5, gate ⑥′) · **multiple seeds** (§3.1.8)
+>
+> **Changes 0.5 → 0.6** (user decision 22 Sep 2026, source: [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only)): **the no-LLM engine C is the focus** — C-gp (GP, typed grammar) main + C-random control; engines A/B **deferred**, design kept (§3.1.11, D19) · phase 2 builds C (§7) · the generator has no bias on trading frequency · GP may mutate `TUNABLE` values, with a cap on parameter-only children; SPP median + plateau from the gate-④ grid (§3.2, D20); calibration 5b unchanged
 
 ---
 
@@ -110,6 +112,8 @@ Six principles drawn from the research. Every technical decision defers to them.
 ### 3.1. Agent Layer — following the QuantEvolve architecture (arXiv 2510.18569)
 
 Replacing the earlier Generator/Critic/Scheduler design, the agent layer uses QuantEvolve's **quality-diversity evolutionary** architecture: **feature map (MAP-Elites) + island model + 4 agents**.
+
+> 🆕 **v0.6:** phase 2 builds the **no-LLM engine C** first (§3.1.11, D19). Sections §3.1.1–3.1.10 describe engines A/B, now deferred; what C reuses is the feature map (§3.1.3), the islands (§3.1.5), the §3.1.6 constraints and the non-LLM operating parameters (§3.1.8).
 
 > 📖 Source: Yun, Lee & Jeon — *QuantEvolve: Automating Quantitative Strategy Discovery through Multi-Agent Evolutionary Framework*, AI Tech Lab, Qraft Technologies. Read directly from the original PDF. Critical assessment: [[00-RESEARCH-SYNTHESIS]].
 
@@ -419,39 +423,44 @@ Layer 2 — trace regression (runs in a sandbox, after ①a)
 
 > **Conclusion:** the repo is worth using as a **source of engineering patterns** (L1–L5 are all cheap and proven to run), **not** as a code base — its quality-diversity part (X3, X4) is looser than the QuantEvolve paper we follow, and its trial recording (X1, X2) runs against P2. How to use it: reimplement to our design, referring to `transformer/patcher.py`, `transformer/blocks.py` and `transformer/parallel.py` (MIT — copying with attribution is allowed).
 
-#### 3.1.11. 🆕 Multiple strategy-generation engines
+#### 3.1.11. 🆕 Multiple strategy-generation engines — engine C first (v0.6)
+
+> 🆕 **v0.6 (22 Sep 2026, user decision — D19):** **engine C (no LLM) is the focus.** Phase 2 builds only C, in two arms: **C-gp** (GP evolution over a typed grammar — the main engine) and **C-random** (i.i.d. random sampling from the same grammar — the control). Engines A and B are **deferred**: the §3.1.1–3.1.10 design stays as is, is built later, and must then be compared against C. Groundwork: [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only).
 
 The system runs **several candidate-generation engines** in parallel, sharing everything downstream: template, DSL, sandbox, gates, ledger, the portfolio-construction rule (§3.2.1), holdout. Only *generation* differs.
 
 ```
-                    ┌─► Engine A: 4-agent QuantEvolve ──┐
-config/user.yaml ───┤                                    ├─► scheduler ─► sandbox ─► gates ⓪–④ ─► ledger
- (budget shares)    ├─► Engine B: simple loop ──────────┤  (enforces shares)                         │
-                    └─► Engine C: random search ────────┘                                              ▼
+                    ┌─► Engine C-gp: GP, typed grammar ─────┐
+config/user.yaml ───┤                                        ├─► scheduler ─► sandbox ─► gates ⓪–④ ─► ledger
+ (budget shares)    ├─► Engine C-random: i.i.d. samples ────┤  (enforces shares)                         │
+                    └─► (deferred, D19) Engines A, B ────────┘                                              ▼
                                                                portfolio built from candidates passing ④ from ALL engines
 ```
 
 | Engine | How it generates | LLM calls / candidate | Role |
 |---|---|---|---|
-| **A — QuantEvolve** | §3.1.1–3.1.9: Research Agent (6-tag hypothesis) → Coding Team → Evaluation Team → insight repository | 5–10 | Main system: deep, hypothesis-driven, accumulates knowledge |
-| **B — Simple loop** | MadEvolve-style: pick a parent (rank-based power law) + 2–3 inspirations → **one** LLM call returning a diff or a rewrite of the evolvable region → evaluate → archive. No hypothesis, no Evaluation Team, no insights | 1 (+ retries) | Cheap, produces many small variants; the control for the agent layers |
-| **C — Random search** | No LLM: random combinations of DSL operators, random parameters within `TUNABLE` bounds | 0 | Control for "does the LLM beat chance at all" — kept for the whole project at a small share |
+| **C-gp — GP evolution** 🆕 | Strongly-typed GP over the DSL's syntax trees (§3.1.6), rendered into the evolvable region (§3.3.1). Operators: subtree crossover, subtree/point mutation, mutation of `TUNABLE` values within bounds. Parents come from its own archive — the §3.1.3 feature map + §3.1.5 islands, reused without an LLM. Fitness = the §3.1.6 #1 ranking score, reading `public` metrics only (§3.3.2) | 0 | **Main engine (phase 2)** |
+| **C-random — Random sampling** | No LLM: i.i.d. samples from the **same** typed grammar and the same generator that initializes C-gp; parameters uniform within `TUNABLE` bounds; no selection, reads no results | 0 | Control for "does evolution beat chance at all" — kept for the whole project |
+| **A — QuantEvolve** (deferred, D19) | §3.1.1–3.1.9: Research Agent (6-tag hypothesis) → Coding Team → Evaluation Team → insight repository | 5–10 | Built later; must then beat C-gp and C-random |
+| **B — Simple loop** (deferred, D19) | MadEvolve-style: pick a parent (rank-based power law) + 2–3 inspirations → **one** LLM call returning a diff or a rewrite of the evolvable region → evaluate → archive. No hypothesis, no Evaluation Team, no insights | 1 (+ retries) | Built later; the control for A's agent layers |
+
+**Rules shared by engine C:** (1) mutating `TUNABLE` values is evolution, not an optimizer — every evaluated child is **one** trial, with no parameter sweep around a candidate (§3.3.1 still applies). **Parameter-only** children are at most `param_only_max` (provisional 30%) of C-gp's offspring, the mutation type logged in `generation_log.detail`; such a child keeps its parent's `strategy_hash`, so gate ④ counts it as a variant of the same code (PBO configuration set, §3.2); (2) the grammar is **typed** — only same-scale series are compared, never a price against a constant (scale invariance, §3.1.6); (3) **no bias on trading frequency** — fees and slippage are the backtest's job (§3.5), selection is the gates' and DSR/PBO's; (4) deterministic per seed.
 
 **Two modes:**
 
 | Mode | When | Archive | Purpose |
 |---|---|---|---|
 | `isolated` | Phase 2 — the harness-test campaign | One archive per engine, **no exchange** | Clean comparison |
-| `collaborative` | From phase 3 | Separate archives, **top 10% periodically transferred** between A ↔ B (like island migration). C receives no migrants | A contributes depth, B contributes variant volume |
+| `collaborative` | Once A/B are built (D19) | Separate archives, **top 10% periodically transferred** between the evolving engines (C-gp, A, B — like island migration). C-random never receives migrants | Combines depth and variant volume |
 
-**Budget is split by statistical trials**, not by LLM calls or GPU hours — otherwise engine B (5–10× cheaper) would consume all of `N`. The scheduler in the asynchronous pipeline (§3.1.8) enforces the shares declared in `user.yaml` (§10.1). Phase 2 uses **fixed shares**. After phase 2, allocation may adapt to **trial efficiency** (strategies passing ④ per 100 trials) — **never** to IS Sharpe.
+**Budget is split by statistical trials**, not by LLM calls or CPU/GPU hours — otherwise the cheapest engine would consume all of `N`. The scheduler in the asynchronous pipeline (§3.1.8) enforces the shares declared in `user.yaml` (§10.1). Phase 2 uses **fixed shares**; in the comparison campaign **every engine × seed gets the same trial quota**. After phase 2, allocation may adapt to **trial efficiency** (strategies passing ④ per 100 trials) — **never** to IS Sharpe.
 
-**The phase-2 comparison** (`isolated` mode, same data, same gates, same trial budget, ≥ 3 seeds per engine). Compared on:
+**The phase-2 comparison** (`isolated` mode, C-gp and C-random, same data, same gates, same trial budget, ≥ 3 seeds per engine). Compared on:
 
 1. Trial efficiency: strategies passing ④ per 100 trials
 2. Coverage: feature-map cells holding a strategy that passed ④
 3. DSR of a portfolio built per §3.2.1 from each engine alone, at the same `N`
-4. Cost: LLM calls and GPU hours per strategy passing ④
+4. Cost: CPU hours per strategy passing ④
 5. IS→OOS degradation on CPCV (§3.2)
 
 **Do not** compare the IS Sharpe of the best strategy — that is best-of-N.
@@ -460,9 +469,9 @@ config/user.yaml ───┤                                    ├─► sched
 
 | Outcome | Action |
 |---|---|
-| A beats both B and C by more than the seed-to-seed spread | Keep A as the main engine; B runs alongside in `collaborative` mode |
-| A **ties** with B | **B becomes the main engine** (5–10× cheaper). Re-add A's components (e.g. the 6-tag hypothesis) only if a dedicated ablation shows they pay off |
-| Neither A nor B beats C | The problem lies in the DSL, the data, or the gates — **stop and find the cause** before building further |
+| C-gp beats C-random by more than the seed-to-seed spread | Keep C-gp as the main engine; C-random keeps running at a small share as a permanent control |
+| C-gp **ties** with C-random | **C-random becomes the main engine** (simpler, no selection loop). Re-add GP components only if a dedicated ablation shows they pay off |
+| Neither arm produces strategies passing ④ at a meaningful rate | The problem lies in the DSL, the data, or the gates — **stop and find the cause** before building further, including before reopening A/B |
 
 > ⚠️ **Running in parallel does not give free trials.** Every engine evaluates on the same IS data ⇒ every trial adds to the same `N`. The benefit is diversity + a permanent control, not volume. Strategies produced in the harness-test campaign (phase 2) **may not enter the portfolio**.
 
@@ -510,6 +519,7 @@ class Gate(Protocol):
 - **Configuration set** = a **pre-registered parameter grid** around the candidate, 🆕 built automatically from the `TUNABLE` declarations (§3.3.1): each free parameter (≤ 6) takes 3–5 values within ±30% (fixed step in `evaluation.lock.yaml`), plus the variants the refinement loop *actually tried* for this hypothesis (read from the ledger). `M` is capped (e.g. ≤ 200, sampled if exceeded).
 - **Selection rule** = highest IS Sharpe — the same rule the evolution loop uses.
 - **Meaning:** low PBO ⇒ the parameter-selection rule is OOS-stable in this region. High PBO ⇒ the chosen parameters won on noise. PBO does **not** replace DSR: it does not penalize the number of hypotheses tried across the project.
+- 🆕 **v0.6 — parameter stability (D20).** From the same grid (IS, no trials spent) also compute: the **grid's median Sharpe** (System Parameter Permutation, Walton) and the **plateau** = share of neighbouring configurations whose IS Sharpe is ≥ 50% of the candidate's. Both are IS-only, hence `public` metrics (§3.3.2), used as a **secondary term** in C-gp's ranking score; never used to pick a configuration from the grid (the grid is not trials, ADR-0011). PBO and CPCV stay `private`.
 - At portfolio level, if several portfolio-construction rules are tried (§3.2.1), run an additional CSCV whose configuration set is those portfolio variants.
 
 **🆕 IS→OOS degradation curve (v0.5, after MadEvolve Figure 11 — but without the holdout).** Every `K` candidates, take each engine's current IS record holder and record its median Sharpe across the **CPCV OOS paths** (a *private* metric, §3.3.2). Plot two lines: the IS record and that same strategy's CPCV-OOS. An OOS line that is flat or falling while IS rises = a p-hacking signal ⇒ **stop that engine early**. MadEvolve measures this curve on the *test set* for every champion — for us that would mean opening the holdout thousands of times, violating P6.
@@ -716,7 +726,7 @@ CREATE TABLE generation_log (
     ts             TIMESTAMP NOT NULL,
     run_id         TEXT NOT NULL,
     campaign_id    TEXT NOT NULL,        -- research campaign (§4.2)
-    engine         TEXT NOT NULL,        -- 🆕 quantevolve | simple_loop | random (§3.1.11)
+    engine         TEXT NOT NULL,        -- 🆕 gp | random | quantevolve | simple_loop (§3.1.11)
     seed           INTEGER NOT NULL,     -- 🆕 B7
     evolve_scope   TEXT,                 -- 🆕 entry | exit | regime | joint (§3.3.1)
     agent          TEXT NOT NULL,        -- data | research | coding | eval
@@ -725,6 +735,7 @@ CREATE TABLE generation_log (
     event          TEXT NOT NULL,        -- LLM_CALL | PATCH_FAIL | COMPILE_FAIL | AST_REJECT | TEMPLATE_TAMPER | DRIFT_REJECT | SANDBOX_VIOLATION | ...
     strategy_hash  TEXT,                 -- NULL if no code was produced yet
     drift_delta    REAL,                 -- normalized Δ (gate ⓪), if any
+    island         TEXT,                 -- 🆕 v0.6: the island the candidate evolved on (§3.1.5); parents + mutation type in detail
     detail         JSON
 );
 
@@ -749,7 +760,8 @@ CREATE TABLE trials (
     returns_path   TEXT NOT NULL,        -- needed for N_eff clustering and DSR
     candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: links gate_results; N_eff clusters live in trial_clusters
     gate_failed    TEXT,                 -- NULL if everything passed
-    verdict        TEXT NOT NULL         -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer veto after backtest)
+    verdict        TEXT NOT NULL,        -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer veto after backtest)
+    island         TEXT                  -- 🆕 v0.6 (§3.1.5)
 );
 
 -- Portfolio variants evaluated (§3.2.1) — each row is also a selection
@@ -917,7 +929,8 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 │   ├── engines/                   🆕 §3.1.11
 │   │   ├── quantevolve.py         ← engine A (4 agents)
 │   │   ├── simple_loop.py         ← engine B (parent + inspirations → 1 LLM call)
-│   │   └── random_search.py       ← engine C (no LLM)
+│   │   ├── gp_search.py           ← engine C-gp (GP, no LLM — main, v0.6)
+│   │   └── random_search.py       ← engine C-random (no LLM — control)
 │   ├── scheduler.py               🆕 enforces trial-budget shares across engines
 │   └── prompts/                   ← templates following the paper's Appendix A
 ├── validation/
@@ -1105,8 +1118,8 @@ This is exactly the basket Hurst-Ooi-Pedersen use (**29 commodities + 11 indices
 |---|---|---|---|
 | **0** | **Harness + ledger + oracle suite**. No agent yet. Hand-write one EMA crossover strategy and run it through all 8 steps. 🆕 Template + sandbox + `EvaluationReport` | 🔒 **The pipeline REJECTS all 4 levels of leaky oracle** | 2–3 weeks |
 | **1** | Full validation layer (CPCV/PBO/DSR/MinBTL) + Risk & Sizing | 🔒 The hand-written strategy clears every gate; the ledger separates audit/trials correctly, `N_eff` + `V[SR]` are computable; DSR matches a published numerical example in the original paper; PBO matches hand-computed fixtures from the CSCV/PBO definition and the result of an independent implementation on the same input; the ½ sizing test (§3.4) passes | 2–3 weeks |
-| **2** | The **QuantEvolve** agent loop (4 agents + feature map + islands), **crypto only** | 🔒 ≥150 generations run autonomously, every `s_new` reaches the ledger, the feature map does not collapse into one bin. 🆕 Island integration test passes (§3.1.5). 🆕 **Multi-engine A/B/C comparison in `isolated` mode** per §3.1.11 — decision rule locked before running (internal validation of K4, §3.1) + Research Agent model A/B (§3.1.9) | **6–8 weeks** |
-| **3** | Expand breadth: 15–30 weakly-correlated instruments. 🆕 Switch the engines to `collaborative` | 🔒 Vol targeting works; no instrument holds >20% of the risk | 2–3 weeks |
+| **2** | 🆕 v0.6: the **no-LLM engine C** (C-gp + C-random, feature map + islands), **crypto only**. Engines A/B deferred (D19) | 🔒 ≥150 C-gp generations run autonomously, every `s_new` reaches the ledger, the feature map does not collapse into one bin. Island integration test passes (§3.1.5). **C-gp vs C-random comparison in `isolated` mode** per §3.1.11 — decision rule locked before running | **4–6 weeks** |
+| **3** | Expand breadth: 15–30 weakly-correlated instruments. 🆕 `collaborative` mode only once A/B are built (D19) | 🔒 Vol targeting works; no instrument holds >20% of the risk | 2–3 weeks |
 | **4** | IB adapter → forex + international equities | 🔒 Sessions/calendars correct, no look-ahead introduced | 3–4 weeks |
 | **5** | Multi-asset futures — **including building the roll module yourself** from free data (see 6.1) | 🔒 Self-built continuous contracts match a reference source; roll gaps produce no fabricated returns | **5–7 weeks** |
 | **6** | 🔴 SSI adapter → VN30F1M | 🔒 Reconciliation correct on reconnect with open positions | 3–6 weeks |
@@ -1166,14 +1179,16 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D8 | Maximum tolerable drawdown | 🟡 Provisional default | 20% | Kill-switch; part of D4 |
 | D9 | Portfolio-construction parameters (ρ, K, rebalancing) | 🟡 Provisional default | 0.5 / 20 / monthly (§3.2.1) | ⚠️ Must be frozen **before the first portfolio evaluation** — after that, every change is a `portfolio_variant` |
 | D10 | Drift thresholds Δ | 🟡 Provisional default | 0.05 / 0.15, normalized Δ (§3.1.7) | Calibrate in phase 2 before using them to abort automatically |
-| D11 | Research Agent model | 🟡 Provisional default | Non-reasoning, `gpt-oss-120b` (§3.1.9) | Internal A/B in phase 2 |
+| D11 | Research Agent model | 🟡 Provisional default | Non-reasoning, `gpt-oss-120b` (§3.1.9) | Internal A/B once engine A is built (deferred, D19) |
 | D12 | Maximum loss per trade at the stop (`max_risk_pct`) | 🟡 Provisional default | 1% of equity | Risk cap in sizing (§3.4) |
 | D13 | PBO parameter grid; number of drift micro-scenarios | 🟡 Provisional default | 3–5 values within ±30%, `M` ≤ 200; ~20 scenarios | §3.2, §3.1.7 |
-| D14 | Engine budget shares; mode | 🟡 Provisional default | A 0.5 / B 0.4 / C 0.1; `isolated` in phase 2 | §3.1.11 |
+| D14 | Engine budget shares; mode | 🟡 Provisional default | Phase 2: C-gp 0.5 / C-random 0.5 (same quota per engine × seed); A, B = 0 (deferred); `isolated` | §3.1.11, D19 |
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
 | D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
 | D18 | Research data (phase 0) | 🟡 Provisional default | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP vs USDT from 2018; holdout = last 12 months; second source for ⑥′ = Gate.io (`second_exchange`) | ADR-0002, ADR-0015, §6.1 |
+| D19 | Focus engine | ✅ Decided (22 Sep 2026) | **No-LLM engine C**: C-gp (GP, typed grammar) main + C-random control; A/B deferred, design kept; the generator has no bias on trading frequency | §3.1.11, §7, [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only). Reopening A/B is the user's call |
+| D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 
@@ -1208,10 +1223,12 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
     rebalance: monthly
   pbo_grid: {values_per_param: 5, range: 0.30, max_configs: 200}   # D13
   drift: {allow_below: 0.05, reject_at: 0.15, n_scenarios: 20}      # D10, D13
-  engines: {quantevolve: 0.5, simple_loop: 0.4, random: 0.1}       # D14
+  engines: {gp: 0.5, random: 0.5, quantevolve: 0, simple_loop: 0}   # D14, D19 — A/B deferred
   engine_mode: isolated         # D14 — isolated | collaborative
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
+  gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
+  campaign: {purpose: research, trial_budget: null}   # harness_test = the phase-2 engine comparison: no portfolio, no freeze (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: the ⑥′ source (ADR-0015)

@@ -16,6 +16,7 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 import yaml
 
 from quantcrucible.config.schema import (
+    DEFERRED_ENGINES,
     DSR_MIN_FLOOR,
     MINBTL_TARGET_SHARPE_CEILING,
     PBO_MAX_CEILING,
@@ -104,9 +105,20 @@ def _validate(cfg: UserConfig) -> None:
             f"research.minbtl_target_sharpe must be in (0, {MINBTL_TARGET_SHARPE_CEILING}]"
             " (a higher target loosens gate ②)"
         )
-    shares = (r.engines.quantevolve, r.engines.simple_loop, r.engines.random)
-    if any(s < 0 for s in shares) or abs(sum(shares) - 1.0) > 1e-9:
+    shares = dataclasses.asdict(r.engines)
+    if any(s < 0 for s in shares.values()) or abs(sum(shares.values()) - 1.0) > 1e-9:
         problems.append("research.engines shares must be >= 0 and sum to 1")
+    deferred = [e for e in DEFERRED_ENGINES if shares[e] != 0]
+    if deferred:
+        problems.append(
+            f"research.engines {deferred} are deferred (D19, arch v0.6): their share must be 0"
+        )
+    if not 0 <= r.gp.param_only_max <= 1:
+        problems.append("research.gp.param_only_max must be in [0, 1]")
+    if not 0 < r.gp.plateau_threshold <= 1:
+        problems.append("research.gp.plateau_threshold must be in (0, 1]")
+    if r.campaign.trial_budget is not None and r.campaign.trial_budget <= 0:
+        problems.append("research.campaign.trial_budget must be > 0")
     if not r.drift.allow_below < r.drift.reject_at:
         problems.append("research.drift.allow_below must be < reject_at")
     positive = {

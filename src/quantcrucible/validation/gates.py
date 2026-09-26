@@ -81,6 +81,10 @@ class StrategyCandidate:
     trial_source: TrialSource = "manual"
     agent: str = "human"
     model_used: str = "none"
+    island: str | None = None
+    parents: tuple[str, ...] = ()  # strategy_hash of each parent (engine C-gp)
+    mutation: str | None = None  # how this candidate was bred (engine C-gp), None if sampled
+    descriptors: Mapping[str, Any] | None = None  # e.g. {"categories": [...]} for the feature map
 
     @property
     def strategy_hash(self) -> str:
@@ -155,7 +159,12 @@ class GatePipeline:
         archive = ctx.services.get("archive")  # StrategyArchive — later stages re-run members
         if archive is not None:
             archive.put(c.source)
-        ledger.log_event(self._event(c, Event.CANDIDATE_SUBMITTED, s_hash))
+        lineage: dict[str, Any] = {}
+        if c.parents or c.mutation:
+            lineage = {"parents": list(c.parents), "mutation": c.mutation}
+        if c.descriptors:
+            lineage["descriptors"] = dict(c.descriptors)
+        ledger.log_event(self._event(c, Event.CANDIDATE_SUBMITTED, s_hash, lineage))
         results: list[GateResult] = []
         trial_id: int | None = None
         for gate in self.gates:
@@ -174,7 +183,7 @@ class GatePipeline:
                         returns_path=result.measurement.returns_path,
                         verdict="PASS" if result.passed else f"REJECT_{gate.id}",
                         evolve_scope=c.evolve_scope, hypothesis=c.hypothesis, cell_id=c.cell_id,
-                        gate_failed=None if result.passed else gate.id,
+                        gate_failed=None if result.passed else gate.id, island=c.island,
                     )
                 )  # fmt: skip
             ledger.record_gate_result(
@@ -219,6 +228,6 @@ class GatePipeline:
         return GenerationEvent(
             run_id=c.run_id, campaign_id=c.campaign_id, engine=c.engine, seed=c.seed,
             agent=c.agent, model_used=c.model_used, event=event, evolve_scope=c.evolve_scope,
-            cell_id=c.cell_id, strategy_hash=s_hash,
+            cell_id=c.cell_id, strategy_hash=s_hash, island=c.island,
             detail={"candidate_id": c.candidate_id, **(detail or {})},
         )  # fmt: skip

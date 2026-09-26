@@ -7,8 +7,8 @@ reject events and — from ③ on — the ``trials`` row.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass, replace
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.data.holdout_split import read_holdout_lock
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.ledger.records import TrialSource
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import (
     GateContext,
@@ -36,13 +37,27 @@ from quantcrucible.validation.gates import (
     strategy_hash,
 )
 from quantcrucible.validation.guardrail import DynamicGuardrail, StaticGuardrail
-from quantcrucible.validation.is_gates import InSampleGate, MinBtlGate
+from quantcrucible.validation.is_gates import DAYS_PER_YEAR, InSampleGate, MinBtlGate
 from quantcrucible.validation.pbo import DEFAULT_SPLITS
 from quantcrucible.validation.pbo_gate import PboGate
 from quantcrucible.validation.robustness import COST_MULTIPLIER, MAX_SHARPE_DROP
 from quantcrucible.validation.sandbox import SandboxRunner
+from quantcrucible.validation.statistical import max_trials_within
 
 DEFAULT_LOOKBACK = 400
+# Engine C's feature map (arch §3.1.3, P2-07): bounds fixed when a campaign opens, never
+# stretched by observed values. Provisional ranges for daily crypto; categories = the grammar's.
+FEATURE_MAP: dict[str, Any] = {
+    "bins": 16,
+    "bounds": {
+        "trades_per_year": [0.0, 150.0],
+        "max_drawdown": [0.0, 1.0],
+        "sharpe_is": [-1.0, 3.0],
+        "sortino_is": [-1.5, 4.5],
+        "total_return": [-1.0, 4.0],
+    },
+    "categories": ["trend", "momentum", "mean_reversion", "breakout"],
+}
 MAX_LEVERAGE = 1.0  # spot, cash account: gross exposure never above equity (ADR-0010)
 
 
@@ -67,6 +82,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "sizing": {"vol_span": VOL_SPAN, "max_leverage": MAX_LEVERAGE, "idm_cap": IDM_CAP},
         "pbo": {"n_splits": DEFAULT_SPLITS},
         "robustness": {"cost_multiplier": COST_MULTIPLIER, "max_sharpe_drop": MAX_SHARPE_DROP},
+        "feature_map": FEATURE_MAP,
     }
 
 
@@ -89,6 +105,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
         )
     holdout_lock = root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # range + hashes only: no prices
+    _check_trial_budget(cfg, ledger, str(manifest["range"]))
     base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     campaign_id, n = base, 1
     while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
@@ -103,6 +120,43 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     return campaign_id
 
 
+def _check_trial_budget(cfg: UserConfig, ledger: Ledger, holdout_range: str) -> None:
+    """Refuse a campaign whose trial budget, on top of the ledger's N (N never resets), needs
+    more IS history than there is before the holdout (gate ② at the locked target Sharpe)."""
+    budget = cfg.research.campaign.trial_budget
+    if budget is None:
+        return
+    is_end = date.fromisoformat(holdout_range[:10])
+    years = (is_end - cfg.research.data.start).days / DAYS_PER_YEAR
+    target = cfg.research.minbtl_target_sharpe
+    allowed = max_trials_within(years, target)
+    n_now = ledger.trial_stats().n_eff
+    if n_now + budget > allowed:
+        raise CampaignNotOpened(
+            f"trial_budget {budget} + N {n_now} already in the ledger exceeds what MinBTL allows "
+            f"for {years:.1f} years of IS data at target Sharpe {target:g} ({allowed} trials): "
+            "lower the budget or the number of seeds"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Provenance:
+    """Where an engine's candidate comes from (P2-03): recorded in both the audit log and, once
+    measured, its trial. ``parents`` are strategy hashes; ``mutation`` how it was bred."""
+
+    engine: str
+    seed: int
+    run_id: str
+    island: str | None = None
+    cell_id: str | None = None
+    parents: tuple[str, ...] = ()
+    mutation: str | None = None
+    descriptors: Mapping[str, Any] | None = None
+    agent: str = "engine"
+    model_used: str = "none"
+    trial_source: TrialSource = "evolution"
+
+
 def make_candidate(
     source: str,
     campaign_id: str,
@@ -110,13 +164,14 @@ def make_candidate(
     params: Mapping[str, float | int] | None = None,
     candidate_id: str | None = None,
     evolve_scope: str = "joint",
+    provenance: Provenance | None = None,
 ) -> StrategyCandidate:
     if params is None:
         params = default_params(list(parse(source).tunables))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
     first = min(b.ts[0] for b in is_data.values()).astype("datetime64[D]")
     last = max(b.ts[-1] for b in is_data.values()).astype("datetime64[D]")
-    return StrategyCandidate(
+    candidate = StrategyCandidate(
         candidate_id=candidate_id or f"manual-{strategy_hash(source)[:10]}-{stamp}",
         source=source,
         params=dict(params),
@@ -127,6 +182,15 @@ def make_candidate(
         campaign_id=campaign_id,
         evolve_scope=evolve_scope,
     )
+    if provenance is None:
+        return candidate
+    p = provenance
+    return replace(
+        candidate, run_id=p.run_id, engine=p.engine, seed=p.seed, island=p.island,
+        cell_id=p.cell_id, parents=p.parents, mutation=p.mutation, descriptors=p.descriptors,
+        agent=p.agent,
+        model_used=p.model_used, trial_source=p.trial_source,
+    )  # fmt: skip
 
 
 def run_candidate(

@@ -13,6 +13,8 @@ from typing import Literal
 Rebalance = Literal["weekly", "monthly", "quarterly"]
 EngineMode = Literal["isolated", "collaborative"]
 EvolveScope = Literal["entry", "exit", "regime", "joint"]
+CampaignPurpose = Literal["research", "harness_test"]
+DEFERRED_ENGINES = ("quantevolve", "simple_loop")  # engines A/B, deferred by D19 (arch v0.6)
 
 # Hard floors (§10.1): may only be tightened.
 DSR_MIN_FLOOR = 0.95
@@ -58,9 +60,30 @@ class Drift:
 
 @dataclass(frozen=True, slots=True)
 class Engines:
-    quantevolve: float = 0.5
-    simple_loop: float = 0.4
-    random: float = 0.1
+    """Trial-budget shares (D14). Arch v0.6 (D19): engine C first — C-gp and C-random;
+    the LLM engines A (quantevolve) and B (simple_loop) are deferred and must stay at 0."""
+
+    gp: float = 0.5
+    random: float = 0.5
+    quantevolve: float = 0.0
+    simple_loop: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class Gp:
+    """Parameters in engine C-gp (D20)."""
+
+    param_only_max: float = 0.30  # max share of offspring that only change TUNABLE values
+    plateau_threshold: float = 0.5  # neighbour counts as plateau if its IS Sharpe >= this x own
+
+
+@dataclass(frozen=True, slots=True)
+class Campaign:
+    """What a campaign is for. A ``harness_test`` campaign (phase-2 engine comparison, §3.1.11)
+    never builds a portfolio, freezes or opens a holdout; ``trial_budget`` caps its trials."""
+
+    purpose: CampaignPurpose = "research"
+    trial_budget: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +123,8 @@ class Research:
     pbo_grid: PboGrid = field(default_factory=PboGrid)
     drift: Drift = field(default_factory=Drift)
     engines: Engines = field(default_factory=Engines)
+    gp: Gp = field(default_factory=Gp)
+    campaign: Campaign = field(default_factory=Campaign)
     engine_mode: EngineMode = "isolated"
     evolve_scope: EvolveScope = "joint"
     constraints: Constraints = field(default_factory=Constraints)

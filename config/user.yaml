@@ -21,7 +21,9 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
     rebalance: monthly
   pbo_grid: {values_per_param: 5, range: 0.30, max_configs: 200}   # D13
   drift: {allow_below: 0.05, reject_at: 0.15, n_scenarios: 20}      # D10, D13
-  engines: {quantevolve: 0.5, simple_loop: 0.4, random: 0.1}       # D14
+  engines: {gp: 0.5, random: 0.5, quantevolve: 0, simple_loop: 0}   # D14, D19 — A/B deferred (arch v0.6)
+  gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
+  campaign: {purpose: harness_test, trial_budget: 600}   # phase-2 engine comparison (ADR-0027); never frozen
   engine_mode: isolated         # D14 — isolated | collaborative
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15

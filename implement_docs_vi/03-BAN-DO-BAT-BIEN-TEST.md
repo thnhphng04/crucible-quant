@@ -68,10 +68,30 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 | INV-56 | Trọng số và returns của danh mục chỉ phụ thuộc thành viên (ứng viên bị loại không thay đổi gì); một hash đã ghi luôn mang returns của artifact của nó | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_a_dropped_candidate_does_not_change_the_portfolio`, `::test_member_weights_use_the_members_window_only`, `::test_a_recorded_hash_must_match_its_artifact` | review 2 | ✅ |
 | INV-57 | Calibration chạy một lần cho mỗi chiến lược trong mỗi campaign với ngân sách đã khóa; chỉ lượt chưa đo được gì mới được retry | §3.2.1 5b, §3.3.1 | Code | `tests/validation/test_calibration.py::test_a_second_calibration_is_refused`, `::test_a_technical_retry_is_allowed_only_if_nothing_was_measured`, `::test_an_interrupted_search_is_not_resumed`, `::test_a_crashed_confirmation_is_not_reported_as_success`; `tests/ledger/test_db.py::test_calibration_runs_once_per_strategy` | review 2 | ✅ |
 
-## GĐ 2+ (điền khi giai đoạn được chia thành task)
+## GĐ 2 — engine C
 
-- Không key `private` nào xuất hiện trong prompt đã log (quét chuỗi trên log prompt) — §3.3.2.
-- Không gọi optimizer bên trong vòng tiến hóa — §3.3.1.
-- Tỷ lệ ngân sách engine được cưỡng chế trên các trial thống kê — §3.1.11.
-- Biên bin của feature map cố định theo campaign — §3.1.10.
-- Ngưỡng của cổng drift ⓪ được áp dụng đúng như đã khóa — §3.1.7.
+| ID | Bất biến | Kiến trúc | Cơ chế | Test | Task | ✓ |
+|---|---|---|---|---|---|---|
+| INV-60 | Mọi ứng viên của engine đều được đánh giá qua `submit` → `GatePipeline`; không engine nào gọi thẳng backtester | P2, §3.1.11 | Lint (agent không được import execution/sandbox) + Code | `lint-imports`, `tests/e2e/test_phase2_random.py::test_every_candidate_has_ledger_rows` | P2-09 | ✅ |
+| INV-61 | Hạn mức trial của mỗi (engine, seed) không bao giờ bị vượt | §3.1.11 | Code | `tests/agent/test_scheduler.py::test_quota_never_exceeded_concurrently`, `::test_existing_trials_count_against_the_quota` | P2-06 | ✅ |
+| INV-62 | Campaign thử harness không bao giờ bị đóng băng, nên không bao giờ claim hay mở holdout | §3.1.11, P6 | DB (`campaign_purposes` + trigger) | `tests/validation/test_run.py::test_harness_test_campaign_cannot_freeze`, `tests/ledger/test_db.py::test_harness_test_campaign_is_never_frozen` | P2-06 | ✅ |
+| INV-63 | Biên bin của feature map chỉ lấy từ lock của campaign | §3.1.3 | Code | `tests/agent/evolution/test_feature_map.py::test_bounds_only_from_lock`, `::test_out_of_range_lands_in_the_edge_bin` | P2-07 | ✅ |
+| INV-64 | Không chiến lược nào so một chuỗi theo thang giá với hằng số (bất biến theo thang giá) | §3.1.6, §3.1.11 | Code (cổng ①a) | `tests/validation/test_guardrail.py::test_price_vs_constant_rejected`, `::test_scale_invariant_rules_pass`, `::test_stop_must_be_in_price_units` | P2-04 | ✅ |
+| INV-65 | C-random không đọc kết quả nào | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ✅ |
+| INV-66 | Con chỉ đổi tham số ≤ `param_only_max`; mỗi con được đánh giá là một trial | §3.1.11, D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_param_only_cap`, `::test_a_parameter_only_child_keeps_the_parent_hash` | P2-11 | ✅ |
+| INV-67 | Tích hợp đảo: cha từ đảo đang xử lý, migrant không nhân bản, con của migrant ở đảo đích | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ✅ |
+| INV-68 | Điểm xếp hạng của engine chỉ đọc metric `public` | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
+| INV-69 | Run bị ngắt không để lại container sandbox nào | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
+| INV-70 | Giao thức so sánh được khóa trước trial đầu tiên của lần chạy | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
+| INV-71 | Các slot đánh giá đẩy mọi (engine, seed) tiến cùng nhau, nên một lần chạy dở dang vẫn so sánh được ngang bằng | §3.1.11, ADR-0027 | Code | `tests/agent/test_pipeline.py::test_the_slots_are_shared_fairly_between_engines_and_seeds` | P2-15 | ✅ |
+| INV-72 | Mỗi campaign chỉ có một lượt evolve tại một thời điểm: hai lượt sẽ tiêu cùng một hạn mức hai lần | §3.1.11, §4.1 | OS (khóa file) | `tests/agent/test_runlock.py::test_a_second_run_of_the_same_campaign_is_refused`, `::test_evolve_refuses_while_another_run_holds_the_campaign` | P2-15 | ✅ |
+| INV-73 | Không phát quyết định engine trước khi cả hai arm dùng hết hạn mức | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_report_before_the_quotas_are_used_is_progress_only`, `::test_an_unfinished_run_yields_no_engine_decision` | P2-15 | ✅ |
+| INV-74 | Một campaign chỉ được báo cáo theo đúng giao thức mà nó đã khóa | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_campaign_is_only_reported_under_the_protocol_it_locked` | P2-15 | ✅ |
+| INV-75 | Con render ra đúng code của cha thì tính vào `param_only_max` và bị bỏ khi đã chạm trần, bất kể toán tử nào tạo ra nó | D20, §3.3.1 | Code | `tests/agent/engines/test_gp_search.py::test_the_cap_holds_over_a_normal_run`, `::test_the_cap_holds_when_every_operator_only_moves_numbers`, `tests/agent/evolution/test_operators.py::test_a_structural_child_that_only_moved_numbers_counts_as_parameter_only` | P2-15 | ✅ |
+| INV-76 | Ngưỡng của monitor được băm dưới dạng dữ liệu và campaign chạy bằng đúng rule nó đã khóa; vân tay chỉ là kiểm tra phụ | §3.1.11, ADR-0028 | Code | `tests/agent/test_compare.py::test_the_protocol_hash_covers_the_monitor_thresholds`, `::test_the_monitor_runs_the_rule_its_campaign_locked`, `::test_the_fingerprint_scenarios_straddle_the_decision_boundary` | P2-15 | ✅ |
+| INV-77 | Trong campaign so sánh, monitor chỉ cảnh báo và không bao giờ dừng arm: thời điểm dừng không được phụ thuộc vào kết quả đang đo | §3.1.11, ADR-0028 | Code | `tests/agent/test_monitor.py::test_in_warn_mode_a_diverging_engine_keeps_running`, `tests/agent/test_compare.py::test_a_diverging_arm_no_longer_withholds_the_decision` | P2-15 | ✅ |
+| INV-78 | Cảnh báo phân kỳ đã ghi vẫn nằm trong báo cáo kể cả khi đường cong phục hồi | §3.1.11, ADR-0028 | Code | `tests/agent/test_compare.py::test_a_recovered_arm_keeps_the_warning_it_earned` | P2-15 | ✅ |
+| INV-79 | Giao diện review không bao giờ ghi ledger: mọi route là GET, kết nối dùng `mode=ro` + `query_only`, và file giống hệt từng byte sau một lượt đọc đầy đủ | ADR-0029 | Lint + Code | `tests/review/test_review_api.py::test_all_review_routes_are_get_only_and_do_not_change_the_ledger`, `::test_every_route_answers_over_http`, `lint-imports` ("the review UI is a read-only reader") | — | ✅ |
+| INV-80 | Giao diện review chỉ phục vụ artifact nằm trong `results/`, và từ chối schema ledger mà nó không được viết cho | ADR-0029 | Code | `tests/review/test_review_api.py::test_artifacts_outside_results_are_refused`, `::test_an_unsupported_schema_is_refused_instead_of_migrated` | — | ✅ |
+
+Hoãn cùng engine A/B (D19): không key `private` nào xuất hiện trong prompt đã log (§3.3.2); ngưỡng của cổng drift ⓪ được áp dụng đúng như đã khóa (§3.1.7).

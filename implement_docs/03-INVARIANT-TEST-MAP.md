@@ -68,10 +68,30 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 | INV-56 | A portfolio's weights and returns depend on its members only (a dropped candidate changes nothing); a recorded hash always carries its artifact's returns | §3.2.1 | Code | `tests/validation/test_portfolio.py::test_a_dropped_candidate_does_not_change_the_portfolio`, `::test_member_weights_use_the_members_window_only`, `::test_a_recorded_hash_must_match_its_artifact` | review 2 | ✅ |
 | INV-57 | Calibration runs once per strategy per campaign with the locked budget; only a run that measured nothing may be retried | §3.2.1 5b, §3.3.1 | Code | `tests/validation/test_calibration.py::test_a_second_calibration_is_refused`, `::test_a_technical_retry_is_allowed_only_if_nothing_was_measured`, `::test_an_interrupted_search_is_not_resumed`, `::test_a_crashed_confirmation_is_not_reported_as_success`; `tests/ledger/test_db.py::test_calibration_runs_once_per_strategy` | review 2 | ✅ |
 
-## Phase 2+ (fill in when the phase is broken into tasks)
+## Phase 2 — engine C
 
-- `private` keys absent from every logged prompt (string scan of the prompt log) — §3.3.2.
-- No optimizer call inside the evolution loop — §3.3.1.
-- Engine budget shares enforced over statistical trials — §3.1.11.
-- Feature-map bin bounds fixed per campaign — §3.1.10.
-- Drift gate ⓪ thresholds applied as locked — §3.1.7.
+| ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
+|---|---|---|---|---|---|---|
+| INV-60 | Every engine candidate is evaluated through `submit` → `GatePipeline`; no engine reaches the backtester directly | P2, §3.1.11 | Lint (agent may not import execution/sandbox) + Code | `lint-imports`, `tests/e2e/test_phase2_random.py::test_every_candidate_has_ledger_rows` | P2-09 | ✅ |
+| INV-61 | The trial quota of each (engine, seed) is never exceeded | §3.1.11 | Code | `tests/agent/test_scheduler.py::test_quota_never_exceeded_concurrently`, `::test_existing_trials_count_against_the_quota` | P2-06 | ✅ |
+| INV-62 | A harness-test campaign is never frozen, so it never claims or opens a holdout | §3.1.11, P6 | DB (`campaign_purposes` + trigger) | `tests/validation/test_run.py::test_harness_test_campaign_cannot_freeze`, `tests/ledger/test_db.py::test_harness_test_campaign_is_never_frozen` | P2-06 | ✅ |
+| INV-63 | Feature-map bin bounds come only from the campaign lock | §3.1.3 | Code | `tests/agent/evolution/test_feature_map.py::test_bounds_only_from_lock`, `::test_out_of_range_lands_in_the_edge_bin` | P2-07 | ✅ |
+| INV-64 | No strategy compares a price-scale series with a constant (scale invariance) | §3.1.6, §3.1.11 | Code (gate ①a) | `tests/validation/test_guardrail.py::test_price_vs_constant_rejected`, `::test_scale_invariant_rules_pass`, `::test_stop_must_be_in_price_units` | P2-04 | ✅ |
+| INV-65 | C-random reads no results | §3.1.11 | Code | `tests/agent/engines/test_random_search.py::test_random_engine_has_no_result_input` | P2-05 | ✅ |
+| INV-66 | Parameter-only children ≤ `param_only_max`; each evaluated child is one trial | §3.1.11, D20, §3.3.1 | Code | `tests/agent/evolution/test_operators.py::test_param_only_cap`, `::test_a_parameter_only_child_keeps_the_parent_hash` | P2-11 | ✅ |
+| INV-67 | Island integration: parent from the processed island, no duplicated migrant, a migrant's children on the destination island | §3.1.5 | Code | `tests/agent/evolution/test_islands.py::test_island_integration` | P2-12 | ✅ |
+| INV-68 | Engine ranking reads `public` metrics only | §3.3.2 | Code | `tests/agent/evolution/test_operators.py::test_ranking_ignores_private` | P2-11 | ✅ |
+| INV-69 | An interrupted run leaves no sandbox container | §3.3.3 | OS + Code | `tests/agent/test_pipeline.py::test_interrupt_kills_containers` (marker `docker`) | P2-08 | ✅ |
+| INV-70 | The comparison protocol is locked before the run's first trial | §3.1.11 | Code | `tests/agent/test_compare.py::test_protocol_predates_first_trial` | P2-15 | ✅ |
+| INV-71 | The evaluation slots advance every (engine, seed) together, so a partial run compares like with like | §3.1.11, ADR-0027 | Code | `tests/agent/test_pipeline.py::test_the_slots_are_shared_fairly_between_engines_and_seeds` | P2-15 | ✅ |
+| INV-72 | One evolve run per campaign at a time: two runs would spend the same quota twice | §3.1.11, §4.1 | OS (file lock) | `tests/agent/test_runlock.py::test_a_second_run_of_the_same_campaign_is_refused`, `::test_evolve_refuses_while_another_run_holds_the_campaign` | P2-15 | ✅ |
+| INV-73 | No engine decision before both arms used their quota | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_report_before_the_quotas_are_used_is_progress_only`, `::test_an_unfinished_run_yields_no_engine_decision` | P2-15 | ✅ |
+| INV-74 | A campaign is reported only under the protocol it locked | §3.1.11, ADR-0027 v2 | Code | `tests/agent/test_compare.py::test_a_campaign_is_only_reported_under_the_protocol_it_locked` | P2-15 | ✅ |
+| INV-75 | A child that renders to its parent's code counts against `param_only_max` and is dropped once the cap is reached, whatever operator made it | D20, §3.3.1 | Code | `tests/agent/engines/test_gp_search.py::test_the_cap_holds_over_a_normal_run`, `::test_the_cap_holds_when_every_operator_only_moves_numbers`, `tests/agent/evolution/test_operators.py::test_a_structural_child_that_only_moved_numbers_counts_as_parameter_only` | P2-15 | ✅ |
+| INV-76 | The monitor's thresholds are hashed as data and the campaign is run with the rule it locked; the fingerprint is only a secondary check | §3.1.11, ADR-0028 | Code | `tests/agent/test_compare.py::test_the_protocol_hash_covers_the_monitor_thresholds`, `::test_the_monitor_runs_the_rule_its_campaign_locked`, `::test_the_fingerprint_scenarios_straddle_the_decision_boundary` | P2-15 | ✅ |
+| INV-77 | In a comparison campaign the monitor warns and never stops an arm: the stopping time may not depend on the measured result | §3.1.11, ADR-0028 | Code | `tests/agent/test_monitor.py::test_in_warn_mode_a_diverging_engine_keeps_running`, `tests/agent/test_compare.py::test_a_diverging_arm_no_longer_withholds_the_decision` | P2-15 | ✅ |
+| INV-78 | A recorded divergence warning stays in the report even after the curve recovers | §3.1.11, ADR-0028 | Code | `tests/agent/test_compare.py::test_a_recovered_arm_keeps_the_warning_it_earned` | P2-15 | ✅ |
+| INV-79 | The review UI never writes the ledger: every route is a GET, the connection is `mode=ro` + `query_only`, and the file is byte-identical after a full read | ADR-0029 | Lint + Code | `tests/review/test_review_api.py::test_all_review_routes_are_get_only_and_do_not_change_the_ledger`, `::test_every_route_answers_over_http`, `lint-imports` ("the review UI is a read-only reader") | — | ✅ |
+| INV-80 | The review UI serves artifacts only from inside `results/`, and refuses a ledger schema it was not written for | ADR-0029 | Code | `tests/review/test_review_api.py::test_artifacts_outside_results_are_refused`, `::test_an_unsupported_schema_is_refused_instead_of_migrated` | — | ✅ |
+
+Deferred with engines A/B (D19): `private` keys absent from every logged prompt (§3.3.2); drift gate ⓪ thresholds applied as locked (§3.1.7).

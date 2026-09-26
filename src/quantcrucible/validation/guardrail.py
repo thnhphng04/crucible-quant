@@ -6,7 +6,9 @@
 2. TUNABLE declarations, and that the candidate's params are exactly those, within bounds;
 3. an AST whitelist over every editable block (AST_REJECT): only ``indicators`` / ``signal``
    methods built from whitelisted indicators, arithmetic, comparisons and ``Signal``; no imports,
-   loops, dunders, dynamic execution, indexing into bars (look-ahead) or undeclared constants.
+   loops, dunders, dynamic execution, indexing into bars (look-ahead) or undeclared constants;
+4. units (``core/strategy/dims.py``): no rule compares values in different units, e.g. a price
+   with a constant — rules must be scale-invariant (§3.1.6, §3.1.11).
 
 ①b executes the candidate in the sandbox and compares its signals on full, truncated and
 perturbed data (``validation/leak_check.py``, ADR-0005).
@@ -19,6 +21,7 @@ import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from quantcrucible.core.strategy.dims import check_units
 from quantcrucible.core.strategy.registry import INDICATORS
 from quantcrucible.core.strategy.template import (
     ParsedStrategy,
@@ -285,7 +288,10 @@ def check_block(body: str, tunables: frozenset[str]) -> list[Violation]:
         return [Violation(e.lineno or 0, f"syntax error: {e.msg}")]
     checker = _BlockChecker(tunables)
     checker.check_module(tree)
-    return checker.violations
+    if checker.violations:
+        return checker.violations
+    # units only on a structurally valid block: scale invariance (arch §3.1.6, §3.1.11 rule 2)
+    return [Violation(e.line, e.message) for e in check_units(tree)]
 
 
 def check_params(tunables: tuple[Tunable, ...], params: Mapping[str, float | int]) -> list[str]:

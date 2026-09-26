@@ -59,6 +59,14 @@ Add a dependency only in the task that needs it, with:
 
 LLM SDKs may be imported only under `quantcrucible.agent` (A4; `tests/test_architecture_boundaries.py`).
 
+## Front end (`ui/`, ADR-0029)
+
+- TypeScript strict, no `any` in application code; API payloads are typed once in `src/lib/types.ts`.
+- One component per file; `src/lib` holds fetching and formatting, `src/components` the shared pieces, `src/screens` one file per tab.
+- npm versions are **exact** (no `^`, no `latest`) and licensed MIT/Apache-2.0 — the same rule as Python dependencies.
+- Text is Vietnamese; missing data reads `Chưa có` and is never rendered as `0`.
+- `npm run build` typechecks, `npm test` runs Vitest, `npm run test:e2e` runs Playwright against `scripts/review_demo_server.py` — never the real ledger.
+
 ## Git
 
 - One task per branch: `p0-02-ledger`, `p1-06-sizing`, `chore/…`, `docs/…`.

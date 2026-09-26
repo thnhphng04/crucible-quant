@@ -19,6 +19,7 @@ from typing import Any, Self
 from quantcrucible.ledger.records import (
     CalibrationRun,
     Campaign,
+    CampaignPurpose,
     CampaignStatus,
     GateResultRecord,
     GenerationEvent,
@@ -37,8 +38,17 @@ MIGRATIONS = (
     "migration_002_no_replace.sql",
     "migration_003_claims_and_abandon.sql",
     "migration_004_calibration_runs.sql",
+    "migration_005_island.sql",
+    "migration_006_campaign_purposes.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
+# Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
+ADDED_COLUMNS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "migration_005_island.sql": (
+        ("generation_log", "island", "TEXT"),
+        ("trials", "island", "TEXT"),
+    ),
+}
 RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
 
 
@@ -52,13 +62,22 @@ def _ts(value: datetime) -> str:
     return value.isoformat()
 
 
+def _filters(**columns: Any) -> tuple[str, tuple[Any, ...]]:
+    """`` WHERE a = ? AND b = ?`` for the columns given a value (None = no filter)."""
+    used = {k: v for k, v in columns.items() if v is not None}
+    if not used:
+        return "", ()
+    return " WHERE " + " AND ".join(f"{k} = ?" for k in used), tuple(used.values())
+
+
 def _json(value: Any) -> str | None:
     return None if value is None else json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 class Ledger:
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection, path: str = ":memory:") -> None:
         self._conn = conn
+        self.path = path  # a worker thread opens its own connection to the same ledger
 
     @classmethod
     def open(cls, path: Path | str) -> Self:
@@ -66,16 +85,21 @@ class Ledger:
         conn = sqlite3.connect(str(path), isolation_level=None)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA recursive_triggers = ON")  # defence in depth; v2 triggers suffice
+        conn.execute("PRAGMA busy_timeout = 30000")  # evaluation slots write concurrently (P2-08)
         if str(path) != ":memory:":
             conn.execute("PRAGMA journal_mode = WAL")
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         for step in range(version, SCHEMA_VERSION):
+            for table, column, decl in ADDED_COLUMNS.get(MIGRATIONS[step], ()):
+                existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             script = files("quantcrucible.ledger").joinpath(MIGRATIONS[step]).read_text("utf-8")
             conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {step + 1};\nCOMMIT;")
         if version > SCHEMA_VERSION:
             conn.close()
             raise LedgerError(f"ledger schema v{version}, code expects v{SCHEMA_VERSION}")
-        return cls(conn)
+        return cls(conn, str(path))
 
     def close(self) -> None:
         self._conn.close()
@@ -106,13 +130,33 @@ class Ledger:
         lock_hash: str,
         holdout_lock_hash: str | None = None,
         started_at: datetime | None = None,
+        purpose: CampaignPurpose = "research",
+        trial_budget: int | None = None,
     ) -> Campaign:
         started = started_at or utc_now()
-        self._insert(
-            "INSERT INTO campaigns VALUES (?, ?, ?, ?, ?, 'OPEN')",
-            (campaign_id, _ts(started), holdout_range, lock_hash, holdout_lock_hash),
-        )
+        self._conn.execute("BEGIN")
+        try:
+            self._insert(
+                "INSERT INTO campaigns VALUES (?, ?, ?, ?, ?, 'OPEN')",
+                (campaign_id, _ts(started), holdout_range, lock_hash, holdout_lock_hash),
+            )
+            self._insert(
+                "INSERT INTO campaign_purposes VALUES (?, ?, ?)",
+                (campaign_id, purpose, trial_budget),
+            )
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
         return Campaign(campaign_id, started, holdout_range, lock_hash, holdout_lock_hash, "OPEN")
+
+    def campaign_purpose(self, campaign_id: str) -> tuple[CampaignPurpose, int | None]:
+        """(purpose, trial budget); a campaign opened before v6 is ``("research", None)``."""
+        row = self._conn.execute(
+            "SELECT purpose, trial_budget FROM campaign_purposes WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchone()
+        return ("research", None) if row is None else (row[0], row[1])
 
     def campaign(self, campaign_id: str) -> Campaign | None:
         row = self._conn.execute(
@@ -205,12 +249,12 @@ class Ledger:
     def log_event(self, e: GenerationEvent) -> int:
         return self._insert(
             "INSERT INTO generation_log (ts, run_id, campaign_id, engine, seed, evolve_scope,"
-            " agent, model_used, cell_id, event, strategy_hash, drift_delta, detail)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " agent, model_used, cell_id, event, strategy_hash, drift_delta, detail, island)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(e.ts), e.run_id, e.campaign_id, e.engine, e.seed, e.evolve_scope, e.agent,
                 e.model_used, e.cell_id, str(e.event), e.strategy_hash, e.drift_delta,
-                _json(e.detail),
+                _json(e.detail), e.island,
             ),
         )  # fmt: skip
 
@@ -218,13 +262,13 @@ class Ledger:
         return self._insert(
             "INSERT INTO trials (ts, run_id, campaign_id, candidate_id, engine, seed, evolve_scope,"
             " strategy_hash, hypothesis, params, universe, timeframe, timerange, cell_id, source,"
-            " sharpe_is, returns_path, gate_failed, verdict)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " sharpe_is, returns_path, gate_failed, verdict, island)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(t.ts), t.run_id, t.campaign_id, t.candidate_id, t.engine, t.seed,
                 t.evolve_scope, t.strategy_hash, t.hypothesis, _json(t.params), t.universe,
                 t.timeframe, t.timerange, t.cell_id, t.source, t.sharpe_is, t.returns_path,
-                t.gate_failed, t.verdict,
+                t.gate_failed, t.verdict, t.island,
             ),
         )  # fmt: skip
 
@@ -380,24 +424,34 @@ class Ledger:
         )
         return [(r[0], r[1]) for r in rows]
 
-    def trials(self, campaign_id: str | None = None) -> list[TrialRow]:
-        """Every trial (all campaigns unless ``campaign_id`` is given), in insertion order."""
-        sql = (
+    def trials(
+        self, campaign_id: str | None = None, engine: str | None = None, seed: int | None = None
+    ) -> list[TrialRow]:
+        """Every trial in insertion order — all campaigns, engines and seeds unless filtered."""
+        where, args = _filters(campaign_id=campaign_id, engine=engine, seed=seed)
+        rows = self._conn.execute(
             "SELECT id, campaign_id, candidate_id, engine, strategy_hash, params, universe,"
-            " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id FROM trials"
+            " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id, seed,"
+            f" island, timerange FROM trials{where} ORDER BY id",
+            args,
         )
-        args: tuple[Any, ...] = ()
-        if campaign_id is not None:
-            sql += " WHERE campaign_id = ?"
-            args = (campaign_id,)
-        rows = self._conn.execute(sql + " ORDER BY id", args)
         return [
             TrialRow(
                 int(r[0]), r[1], r[2], r[3], r[4], json.loads(r[5]), r[6], r[7], r[8],
-                float(r[9]), r[10], r[11], r[12], r[13],
+                float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15], r[16],
             )
             for r in rows
         ]  # fmt: skip
+
+    def events_for(
+        self, campaign_id: str, engine: str | None = None, seed: int | None = None
+    ) -> list[tuple[str, str | None, dict[str, Any] | None]]:
+        """(event, island, detail) of one campaign's audit log, optionally for one engine/seed."""
+        where, args = _filters(campaign_id=campaign_id, engine=engine, seed=seed)
+        rows = self._conn.execute(
+            f"SELECT event, island, detail FROM generation_log{where} ORDER BY id", args
+        )
+        return [(r[0], r[1], json.loads(r[2]) if r[2] else None) for r in rows]
 
     def portfolio_variants(self, campaign_id: str | None = None) -> list[PortfolioVariant]:
         sql = (
@@ -436,6 +490,25 @@ class Ledger:
             (candidate_id, gate),
         )
         return [json.loads(r[0]) if r[0] else {} for r in rows]
+
+    def first_event_id(self, campaign_id: str, event: str) -> int | None:
+        """Id (append order) of the campaign's first audit event of this kind, if any."""
+        row = self._conn.execute(
+            "SELECT MIN(id) FROM generation_log WHERE campaign_id = ? AND event = ?",
+            (campaign_id, str(event)),
+        ).fetchone()
+        return None if row is None or row[0] is None else int(row[0])
+
+    def latest_gate_results(
+        self, campaign_id: str, gate: str
+    ) -> dict[str, tuple[bool, dict[str, Any]]]:
+        """candidate_id → (passed, detail) of its latest result at ``gate`` in one campaign."""
+        rows = self._conn.execute(
+            "SELECT candidate_id, passed, detail FROM gate_results WHERE campaign_id = ?"
+            " AND gate = ? ORDER BY id",
+            (campaign_id, gate),
+        )
+        return {r[0]: (bool(r[1]), json.loads(r[2]) if r[2] else {}) for r in rows}
 
     def passed_gate(self, campaign_id: str, gate: str) -> set[str]:
         """Candidate ids whose latest result at ``gate`` in ``campaign_id`` is a pass."""

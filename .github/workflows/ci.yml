@@ -40,6 +40,31 @@ jobs:
       - name: Docs mirror (EN = VI 1:1, no broken links)
         run: uv run python scripts/check_doc_mirror.py
 
+  ui:
+    # Typecheck, build and component-test the review front end (ADR-0029). The
+    # Playwright smoke run needs a built app plus a Python server, so it stays local.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: Component tests
+        run: npm test
+
   sandbox:
     # Builds the sandbox image and proves its isolation with real containers (INV-36).
     runs-on: ubuntu-latest

@@ -1,7 +1,7 @@
 """Gate pipeline (Architecture §3.2, ADR-0002) — INV-37."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -129,3 +129,20 @@ def test_mislabelled_result_rejected(ctx: GateContext) -> None:
 def test_strategy_hash_ignores_formatting() -> None:
     assert strategy_hash("x = 1  # comment\n") == strategy_hash("x=1\n")
     assert strategy_hash("x = 1\n") != strategy_hash("x = 2\n")
+
+
+def test_provenance_reaches_both_records(ctx: GateContext) -> None:
+    """Engine, seed, island, parents and mutation type follow a candidate into the audit log
+    and, once measured, into its trial (P2-03)."""
+    c = replace(
+        candidate("gp-1"), engine="gp", seed=2, island="i1", cell_id="cell-7",
+        parents=("h-parent",), mutation="subtree", trial_source="evolution", agent="engine",
+    )  # fmt: skip
+    outcome = GatePipeline([passing(G3_IS, measure=True)]).run(c, ctx)
+    assert outcome.passed
+    [trial] = ctx.ledger.trials("c1", engine="gp", seed=2)
+    assert (trial.island, trial.cell_id, trial.source) == ("i1", "cell-7", "evolution")
+    [(event, island, detail)] = ctx.ledger.events_for("c1", engine="gp", seed=2)
+    assert (event, island) == (Event.CANDIDATE_SUBMITTED, "i1")
+    assert detail is not None
+    assert (detail["parents"], detail["mutation"]) == (["h-parent"], "subtree")

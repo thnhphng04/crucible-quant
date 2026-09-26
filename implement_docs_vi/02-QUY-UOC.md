@@ -59,6 +59,14 @@ Chỉ thêm dependency trong task cần đến nó, kèm:
 
 SDK của LLM chỉ được import dưới `quantcrucible.agent` (A4; `tests/test_architecture_boundaries.py`).
 
+## Front-end (`ui/`, ADR-0029)
+
+- TypeScript strict, không dùng `any` trong code ứng dụng; payload API được khai kiểu một lần trong `src/lib/types.ts`.
+- Mỗi file một component; `src/lib` giữ phần fetch và format, `src/components` giữ các mảnh dùng chung, `src/screens` mỗi tab một file.
+- Phiên bản npm phải **chính xác** (không `^`, không `latest`) và license MIT/Apache-2.0 — cùng quy tắc với dependency Python.
+- Chữ hiển thị bằng tiếng Việt; dữ liệu thiếu đọc là `Chưa có` và không bao giờ được vẽ thành `0`.
+- `npm run build` kiểm kiểu, `npm test` chạy Vitest, `npm run test:e2e` chạy Playwright trên `scripts/review_demo_server.py` — không bao giờ trên ledger thật.
+
 ## Git
 
 - Mỗi task một nhánh: `p0-02-ledger`, `p1-06-sizing`, `chore/…`, `docs/…`.

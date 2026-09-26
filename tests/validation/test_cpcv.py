@@ -89,6 +89,15 @@ def test_degradation_curve_flags_is_up_oos_down() -> None:
     assert not is_oos_diverging(rising[:2])  # too few checkpoints
 
 
+def test_a_flat_curve_is_not_divergence() -> None:
+    """Checkpoints that repeat the same record holder give slopes of ~1e-17, whose sign is
+    arithmetic noise: without a tolerance the monitor stops an engine that did not move."""
+    for n in (3, 4, 5, 7):
+        assert not is_oos_diverging([DegradationPoint(f"c{i}", 1.0, 0.3) for i in range(n)])
+    assert not is_oos_diverging([DegradationPoint(f"c{i}", 1.0, 0.3 + 0.2 * i) for i in range(3)])
+    assert is_oos_diverging([DegradationPoint(f"c{i}", 1.0 + 0.4 * i, 0.3) for i in range(3)])
+
+
 def test_cpcv_rejects_bad_input() -> None:
     with pytest.raises(ValueError, match="n_configs"):
         cpcv(np.zeros((3, 10)), TS, 365)

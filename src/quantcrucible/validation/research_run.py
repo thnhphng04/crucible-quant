@@ -31,7 +31,7 @@ from quantcrucible.validation.pbo_gate import periods_per_year
 from quantcrucible.validation.portfolio import Member, Portfolio, PortfolioRule, build_and_record
 from quantcrucible.validation.portfolio_dsr import DsrGate, PortfolioOutcome, PortfolioPipeline
 from quantcrucible.validation.robustness import RobustnessGate
-from quantcrucible.validation.run import candidate_pipeline, make_candidate
+from quantcrucible.validation.run import Provenance, candidate_pipeline, make_candidate
 from quantcrucible.validation.sandbox import JobRunner
 
 
@@ -64,11 +64,18 @@ class ResearchSession:
         return next(iter(self.is_data.values())).timeframe
 
 
-def submit(session: ResearchSession, source: str, candidate_id: str) -> PipelineOutcome:
+def submit(
+    session: ResearchSession,
+    source: str,
+    candidate_id: str,
+    params: Mapping[str, float | int] | None = None,
+    provenance: Provenance | None = None,
+) -> PipelineOutcome:
+    """Take one candidate through ①a → ④ (the only way an engine's strategy is evaluated)."""
     evolve_scope = str(session.lock["research"].get("evolve_scope", "joint"))
     candidate = make_candidate(
-        source, session.campaign_id, session.is_data, candidate_id=candidate_id,
-        evolve_scope=evolve_scope,
+        source, session.campaign_id, session.is_data, params=params, candidate_id=candidate_id,
+        evolve_scope=evolve_scope, provenance=provenance,
     )  # fmt: skip
     return candidate_pipeline().run(candidate, session.context())
 

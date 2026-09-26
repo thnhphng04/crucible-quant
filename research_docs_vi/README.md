@@ -38,6 +38,8 @@ Bốn báo cáo research ban đầu — **nội dung gốc giữ nguyên**, mỗ
 
 > Trong các tài liệu khác, bốn file này được nhắc bằng số ngắn: `90`, `91`, `92`, `93`.
 
+Báo cáo nguồn bổ sung (22/9/2026, chỉ tiếng Việt, không phải đầu vào của 00): [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md](94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) — **sinh chiến lược không dùng LLM** (vũ trụ luật, random, GP/GE, alpha mining) và cách tối ưu/kiểm định tham số; nền cho Engine C.
+
 ---
 
 ## Hai trường phái đang cân nhắc
