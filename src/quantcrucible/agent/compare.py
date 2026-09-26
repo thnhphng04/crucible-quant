@@ -25,18 +25,27 @@ import dataclasses
 import hashlib
 import json
 import statistics
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-from quantcrucible.agent.evolution.archive import trial_cells
+from quantcrucible.agent.evolution.archive import Entry, scope_args, trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap, cell_id
+from quantcrucible.agent.evolution.ranking import (
+    LAMBDA_PARAMS,
+    LAMBDA_PLATEAU,
+    LAMBDA_SIM,
+    LAMBDA_SPP,
+    RankContext,
+    scores,
+)
 from quantcrucible.agent.monitor import (
     CHECKPOINT_EVERY,
     MonitorMode,
     engine_report,
     warned_keys,
 )
-from quantcrucible.agent.scheduler import quotas
+from quantcrucible.agent.scheduler import Key, campaign_scopes, quotas
+from quantcrucible.core.strategy.tunable import MAX_TUNABLES
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
 from quantcrucible.validation.cpcv import (
@@ -89,14 +98,90 @@ These detect some behavioural changes, not every possible rewrite. Keep the valu
 rather than deriving them from the active rule, which would move the probes with the threshold.
 """
 
+
+def _probe(
+    cid: str,
+    tid: int,
+    sr: float,
+    *,
+    spp: float = 0.0,
+    plateau: float = 0.0,
+    n_params: int = 3,
+    signature: tuple[str, ...] = (),
+    moments: bool = True,
+) -> Entry:
+    """One fixed entry for ``RANKING_SCENARIOS``; only the fields the ranking reads matter."""
+    public: dict[str, float] = {"spp_median_sharpe": spp, "plateau": plateau}
+    if moments:
+        public |= {"sr_obs": sr, "skew_is": 0.0, "kurtosis_is": 3.0, "n_obs": 2819.0}
+    params = {f"p{i}": 1 for i in range(n_params)}
+    return Entry(cid, tid, f"h{cid}", params, None, ("trend",), public, (0,), signature)
+
+
+RANKING_CTX = RankContext(n_trials=145, var_sr=0.3355, periods_per_year=365.0)
+RANKING_SCENARIOS: tuple[tuple[Entry, ...], ...] = (
+    # A population squashed far below the deflated benchmark, with the auxiliary terms pulling
+    # the other way: the shape that made the absolute-PSR form rank on flatness (ADR-0029).
+    (
+        _probe("a", 1, 0.001, spp=1.2, plateau=1.0, n_params=1, signature=("X",)),
+        _probe("b", 2, 0.004, spp=0.8, plateau=0.9, n_params=2, signature=("X",)),
+        _probe("c", 3, 0.007, spp=0.2, plateau=0.4, n_params=4, signature=("Y",)),
+        _probe("d", 4, 0.010, spp=0.0, plateau=0.0, n_params=6, signature=("X",)),
+    ),
+    # A population spread across the benchmark: the primary term carries real spread either way.
+    (
+        _probe("a", 1, 0.010, spp=0.1, plateau=0.2, n_params=2, signature=("X",)),
+        _probe("b", 2, 0.035, spp=0.5, plateau=0.6, n_params=3, signature=("Y",)),
+        _probe("c", 3, 0.060, spp=0.9, plateau=0.9, n_params=4, signature=("X", "Y")),
+        _probe("d", 4, 0.090, spp=1.3, plateau=1.0, n_params=5, signature=("Z",)),
+    ),
+    # Every PSR identical: the whole population shares one average rank and only the auxiliary
+    # terms separate the candidates.
+    (
+        _probe("a", 1, 0.030, spp=0.5, plateau=1.0, n_params=1, signature=("X",)),
+        _probe("b", 2, 0.030, spp=0.5, plateau=0.0, n_params=6, signature=("X",)),
+        _probe("c", 3, 0.030, spp=0.5, plateau=0.5, n_params=3, signature=("Y",)),
+    ),
+    # Entries without IS moments score a literal 0.0 and must share the bottom rank.
+    (
+        _probe("a", 1, 0.020, spp=0.4, plateau=0.7, signature=("X",)),
+        _probe("b", 2, 0.050, spp=0.6, plateau=0.8, signature=("Y",)),
+        _probe("c", 3, 0.000, spp=0.9, plateau=1.0, signature=("Z",), moments=False),
+        _probe("d", 4, 0.000, spp=0.3, plateau=0.2, signature=("Z",), moments=False),
+    ),
+    # Two entries: the primary term is exactly {0.0, 1.0}.
+    (
+        _probe("a", 1, 0.015, spp=0.7, plateau=0.9, n_params=2, signature=("X",)),
+        _probe("b", 2, 0.075, spp=0.1, plateau=0.1, n_params=5, signature=("X",)),
+    ),
+    # One entry: the midpoint rank, and no division by zero.
+    (_probe("a", 1, 0.040, spp=0.6, plateau=0.6, n_params=3, signature=("X",)),),
+)
+"""Fixed populations spanning the ranking's decision boundary (ADR-0029): compressed, spread,
+fully tied, missing moments, two entries, one entry. Literal data for the same reason
+``MONITOR_SCENARIOS`` is — probes derived from the live λ would move with them.
+"""
+
 PROTOCOL: dict[str, Any] = {
-    "version": 3,
+    "version": 5,
     "arms": ["gp", "random"],
     "primary_metric": "trial_efficiency = strategies passing gate 4 per 100 trials",
-    "unit": "(engine, seed); >= 3 seeds; same trial quota per (engine, seed)",
-    "beats": "mean(gp) - mean(random) > max(sd(gp), sd(random)), sample sd across seeds",
-    "complete": "every (engine, seed) of every arm has used its whole quota; short of that the "
+    "unit": "(instrument, direction, engine, seed); >= 3 seeds; identical trial quota per unit",
+    "beats": "mean(d) > sd(d), where d = eff(gp) - eff(random) paired on "
+    "(instrument, direction, seed). Pooling instead of pairing admits between-instrument "
+    "variance and the spread swallows any real effect (ADR-0033)",
+    "scope_verdicts": "none: an individual (instrument, direction) is exploratory and carries "
+    "no win or loss. Reporting one requires a new protocol version, not a reinterpretation",
+    "complete": "every unit of every arm has used its whole quota; short of that the "
     "report shows progress and withholds the decision",
+    "replay": "one shared USDT account sizes every position itself from signals, never from "
+    "quantities sized in a standalone run (ADR-0035). Per bar, in this order: exits decided at "
+    "the previous close fill at this open; funding; liquidation and stops on the mark and the "
+    "intrabar path, cut at each settlement; one equity snapshot; then admission in canonical "
+    "order on that snapshot. Entries fill at the next bar's open (ADR-0003) with the stop "
+    "anchored to the signal bar's close and fixed for the position's life. A wallet's loss stops "
+    "at its own isolated margin; a fill through the bankruptcy price is a liquidation, not a "
+    "fill; several funding events in one bar are never summed (ADR-0032)",
     "monitor": {
         "mode": "warn",
         "signal": "is_oos_diverging over DEGRADATION_CHECKPOINT points",
@@ -112,8 +197,15 @@ PROTOCOL: dict[str, Any] = {
         "incomplete": "progress only: the arms have not used their quotas, so the efficiencies "
         "are not comparable yet",
     },
+    "ranking": {
+        "version": 2,  # 1 = the absolute PSR value, 2 = its rank in the population (ADR-0029)
+        "primary": "rank of PSR(IS returns vs SR0(N_eff, V[SR])) within the scored population, "
+        "average ties, normalised to [0, 1]",
+        "max_tunables": MAX_TUNABLES,
+        "note": "what C-gp selects parents with; C-random reads no score at all (INV-65)",
+    },
     "supporting": [
-        "archive_cells", "search_cells", "proposals_per_trial",
+        "archive_cells", "search_cells", "proposals_per_trial", "ranking_margin",
         "gate4_backtests_per_passing_strategy", "is_oos_diverging",
         "portfolio_dsr_per_engine (built per §3.2.1 from that engine alone, same N)",
     ],
@@ -137,14 +229,44 @@ def monitor_fingerprint(rule: DivergenceRule = DEFAULT_DIVERGENCE) -> str:
     return hashlib.sha256(json.dumps(verdicts).encode()).hexdigest()
 
 
+def ranking_fingerprint() -> str:
+    """What the ranking *decides* on the fixed populations of ``RANKING_SCENARIOS``.
+
+    A **secondary** check only: the λ themselves are hashed as data (``ranking.lambdas``), which
+    is what binds a campaign. This catches a rewrite that keeps the λ but changes the arithmetic,
+    on the shapes it covers — and only those, so it can never be the lock (ADR-0028 amendment).
+
+    It hashes the **selection order**, which is all the engine acts on (per-cell elites, the
+    migration draw, the parent pool), plus the scores rounded to six decimals. Raw floats would
+    flip the hash on arithmetic reassociation and on last-ulp libm differences between platforms;
+    the order survives any behaviour-preserving refactor, and the rounding still catches a
+    dropped term or a λ drift. Ties break on ``candidate_id`` so no verdict depends on dict order.
+    """
+    out = []
+    for population in RANKING_SCENARIOS:
+        s = scores(population, RANKING_CTX)
+        order = sorted(s, key=lambda cid: (-s[cid], cid))
+        out.append([order, [round(s[cid], 6) for cid in order]])
+    return hashlib.sha256(json.dumps(out).encode()).hexdigest()
+
+
 def protocol() -> dict[str, Any]:
     """The protocol as it is locked and compared: the dict, the divergence rule the monitor will
-    actually run with, and the fingerprint of that rule's behaviour."""
+    actually run with, and the measured behaviour of that rule and of the ranking."""
     monitor = {**PROTOCOL["monitor"], "rule": dataclasses.asdict(DEFAULT_DIVERGENCE)}
+    # read at call time, like the divergence rule: the λ bind the campaign, so the lock must
+    # carry the values the run will actually breed with, not a snapshot taken at import
+    ranking = {
+        **PROTOCOL["ranking"],
+        "lambdas": {"sim": LAMBDA_SIM, "params": LAMBDA_PARAMS,
+                    "spp": LAMBDA_SPP, "plateau": LAMBDA_PLATEAU},
+    }  # fmt: skip
     return {
         **PROTOCOL,
         "monitor": monitor,
+        "ranking": ranking,
         "monitor_fingerprint": monitor_fingerprint(DEFAULT_DIVERGENCE),
+        "ranking_fingerprint": ranking_fingerprint(),
     }
 
 
@@ -232,52 +354,90 @@ def _sd(values: Sequence[float]) -> float:
     return statistics.stdev(values) if len(values) > 1 else 0.0
 
 
+def paired_differences(per_scope: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[float]:
+    """gp minus random, matched on (instrument, direction, seed).
+
+    Both arms of a pair saw the same instrument, the same window, the same data and the same
+    quota, so their difference is attributable to the engine. A unit only one arm ran cannot be
+    differenced and is left out rather than compared against a zero.
+    """
+
+    def by_unit(rows: Sequence[Mapping[str, Any]]) -> dict[tuple[Any, Any, Any], float]:
+        return {
+            (r.get("instrument"), r.get("direction"), r.get("seed")): float(r["trial_efficiency"])
+            for r in rows
+        }
+
+    gp = by_unit(per_scope.get("gp", []))
+    rnd = by_unit(per_scope.get("random", []))
+    return [gp[k] - rnd[k] for k in sorted(gp.keys() & rnd.keys(), key=str)]
+
+
 def decide(
-    efficiency: dict[str, list[float]],
+    per_scope: Mapping[str, Sequence[Mapping[str, Any]]],
     unfinished: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """The locked rule. ``unfinished`` are the (engine, seed) units short of their quota: their
-    efficiencies were measured at a different budget, so the engine decision is withheld.
+    """The locked rule, protocol v5: a **paired within-scope** difference.
 
-    A divergence warning never reaches this function — under protocol v3 the monitor cannot cut
-    an arm short, and the warning is reported beside the decision, not inside it (ADR-0028)."""
-    gp, rnd = efficiency.get("gp", []), efficiency.get("random", [])
-    mean_gp = statistics.fmean(gp) if gp else 0.0
-    mean_rnd = statistics.fmean(rnd) if rnd else 0.0
-    spread = max(_sd(gp), _sd(rnd))
+    ``unfinished`` are the units short of their quota: their efficiencies were measured at a
+    different budget, so the engine decision is withheld.
+
+    Pooling every unit's efficiency and taking its sd would admit between-instrument variance —
+    BTC and XRP differ for reasons that have nothing to do with the engine — and the spread would
+    swallow any real effect, turning the rule into a machine that always returns ``tie``. Pairing
+    removes that variance; `tests/agent/test_paired_decision.py` keeps the negative control.
+
+    No individual scope carries a verdict (``PROTOCOL["scope_verdicts"] == "none"``). A divergence
+    warning never reaches this function: the monitor cannot cut an arm short, and the warning is
+    reported beside the decision, not inside it (ADR-0028).
+    """
+    diffs = paired_differences(per_scope)
+    mean_diff = statistics.fmean(diffs) if diffs else 0.0
+    spread = _sd(diffs)
+    levels = [float(r["trial_efficiency"]) for rows in per_scope.values() for r in rows]
     if unfinished:
         outcome = "incomplete"
-    elif max(mean_gp, mean_rnd) < MEANINGFUL_EFFICIENCY:
+    elif not diffs or max(levels, default=0.0) < MEANINGFUL_EFFICIENCY:
         outcome = "neither_meaningful"
-    elif mean_gp - mean_rnd > spread:
+    elif mean_diff > spread:
         outcome = "gp_beats_random"
     else:
         outcome = "tie"
     out = {
-        "mean_gp": mean_gp, "mean_random": mean_rnd, "spread": spread, "outcome": outcome,
-        "action": PROTOCOL["decision"][outcome],
+        "mean_difference": mean_diff, "spread": spread, "pairs": len(diffs),
+        "outcome": outcome, "action": PROTOCOL["decision"][outcome],
     }  # fmt: skip
     if unfinished:
         out["unfinished"] = list(unfinished)
     return out
 
 
+def campaign_keys(session: ResearchSession, seeds: int) -> list[Key]:
+    """Every unit of search this campaign covers, in canonical order."""
+    return [
+        Key(scope.instrument, scope.direction, arm, seed)
+        for scope in campaign_scopes(session.lock)
+        for arm in PROTOCOL["arms"]
+        for seed in range(seeds)
+    ]
+
+
 def _completeness(session: ResearchSession, seeds: int) -> dict[str, Any]:
-    """Trials against quota for every (engine, seed) of both arms, from the ledger and the
-    campaign's locked budget — the protocol compares arms at the same quota."""
+    """Trials against quota for every unit of both arms, from the ledger and the campaign's
+    locked budget — the protocol compares arms at the same quota."""
     ledger, cid = session.ledger, session.campaign_id
     _purpose, budget = ledger.campaign_purpose(cid)
     shares = {e: float(s) for e, s in session.lock["research"]["engines"].items()}
-    limits = quotas(budget, shares, seeds) if budget else {}
+    scopes = campaign_scopes(session.lock)
+    limits = quotas(budget, shares, seeds, scopes) if budget else {}
     rows: dict[str, Any] = {}
     unfinished: list[str] = []
-    for arm in PROTOCOL["arms"]:
-        for seed in range(seeds):
-            quota = limits.get((arm, seed))
-            done = len(ledger.trials(cid, engine=arm, seed=seed))
-            rows[f"{arm}-s{seed}"] = {"trials": done, "quota": quota}
-            if quota is None or done < quota:
-                unfinished.append(f"{arm}-s{seed}")
+    for key in campaign_keys(session, seeds):
+        quota = limits.get(key)
+        done = len(ledger.trials(cid, *scope_args(key)))
+        rows[str(key)] = {"trials": done, "quota": quota}
+        if quota is None or done < quota:
+            unfinished.append(str(key))
     if seeds < MIN_SEEDS:
         unfinished.append(f"seeds={seeds} < {MIN_SEEDS}")
     return {"per_unit": rows, "unfinished": unfinished}
@@ -299,10 +459,8 @@ def _engine_portfolio(session: ResearchSession, engine: str, fmap: FeatureMap) -
     if not trials:
         return None
     cells: dict[str, str] = {}
-    for seed in {t.seed for t in trials}:
-        cells.update(
-            {k: cell_id(v) for k, v in trial_cells(ledger, cid, engine, seed, fmap).items()}
-        )
+    for key in {Key(t.instrument, t.direction, engine, t.seed) for t in trials}:  # type: ignore[arg-type]
+        cells.update({k: cell_id(v) for k, v in trial_cells(ledger, cid, key, fmap).items()})
     trials = [dataclasses.replace(t, cell_id=cells.get(t.candidate_id)) for t in trials]
     portfolio = build_portfolio(
         trials, {t.id: load_returns(t.returns_path) for t in trials},
@@ -339,24 +497,26 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     ledger, cid = session.ledger, session.campaign_id
     assert_protocol_predates_trials(ledger, cid)
     fmap = FeatureMap.from_lock(session.lock)
+    # a report-only comparison needs no bars loaded; without them the ranking margin is omitted
+    ppy = periods_per_year(session.timeframe) if session.is_data else None
     rule = divergence_rule(ledger, cid)  # the campaign is read with the rule it locked
+    keys = campaign_keys(session, seeds)
     per_seed = {
-        arm: [engine_report(ledger, cid, arm, s, fmap, rule) for s in range(seeds)]
+        arm: [engine_report(ledger, cid, k, fmap, rule, ppy) for k in keys if k.engine == arm]
         for arm in PROTOCOL["arms"]
     }
-    efficiency = {arm: [r["trial_efficiency"] for r in rows] for arm, rows in per_seed.items()}
+
     completeness = _completeness(session, seeds)
     # from the ledger, not from the current curve: a warning is an event that happened, and an
     # arm whose OOS later recovers must not drop out of the report (ADR-0028 amendment)
-    keys = [(arm, s) for arm in PROTOCOL["arms"] for s in range(seeds)]
-    warnings = sorted(f"{arm}-s{s}" for arm, s in warned_keys(ledger, cid, keys))
+    warnings = sorted(str(k) for k in warned_keys(ledger, cid, keys))
     out: dict[str, Any] = {
         "campaign": cid,
         "protocol_sha256": protocol_hash(),
-        "per_seed": per_seed,
+        "per_unit": per_seed,
         "completeness": completeness,
         "divergence_warnings": warnings,  # reported, never decisive (ADR-0028)
-        "decision": decide(efficiency, completeness["unfinished"]),
+        "decision": decide(per_seed, completeness["unfinished"]),
         "gate4_backtests_per_passing_strategy": {
             arm: _backtests_per_pass(ledger, cid, arm) for arm in PROTOCOL["arms"]
         },

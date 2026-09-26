@@ -7,6 +7,12 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
+# A trial recorded before P3-11 has NULL scope columns and can never be backfilled: the
+# append-only triggers refuse UPDATE on `trials` (INV-02). So the legacy scope is resolved on the
+# way out, and these are what it resolves to — the five-symbol spot basket, traded long-or-flat.
+LEGACY_INSTRUMENT = "legacy_spot"
+LEGACY_DIRECTION = "long"
+
 CampaignStatus = Literal["OPEN", "FROZEN", "BURNED", "ABANDONED"]  # ABANDONED: ADR-0019
 CampaignPurpose = Literal["research", "harness_test"]  # harness_test: never frozen (§3.1.11)
 TrialSource = Literal["evolution", "param_opt", "manual"]
@@ -82,6 +88,8 @@ class GenerationEvent:
     drift_delta: float | None = None
     detail: dict[str, Any] | None = None
     island: str | None = None
+    instrument: str | None = None  # the scope this event belongs to (P3-11)
+    direction: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -106,6 +114,10 @@ class TrialRecord:
     cell_id: str | None = None
     gate_failed: str | None = None
     island: str | None = None
+    # The (instrument, direction) this candidate was searched for (P3-11, ADR-0033). Unset on a
+    # pre-P3 trial, which reads back as the legacy spot basket.
+    instrument: str | None = None
+    direction: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -130,6 +142,21 @@ class TrialRow:
     seed: int = 0
     island: str | None = None
     timerange: str = ""
+    _instrument: str | None = None
+    _direction: str | None = None
+
+    @property
+    def is_legacy_scope(self) -> bool:
+        """Recorded before P3-11, so it belongs to the five-symbol spot basket."""
+        return self._instrument is None
+
+    @property
+    def instrument(self) -> str:
+        return self._instrument if self._instrument is not None else LEGACY_INSTRUMENT
+
+    @property
+    def direction(self) -> str:
+        return self._direction if self._direction is not None else LEGACY_DIRECTION
 
 
 @dataclass(frozen=True, slots=True)

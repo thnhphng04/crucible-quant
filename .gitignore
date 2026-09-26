@@ -1,5 +1,6 @@
 # Paper PDFs — kept locally, linked from the docs instead (licensing + size)
 *.pdf
+*.mq5
 
 # Local tool state
 .omx/

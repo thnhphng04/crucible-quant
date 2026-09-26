@@ -21,6 +21,7 @@ from quantcrucible.agent.scheduler import Key, TrialScheduler
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.run import FEATURE_MAP
 from tests.agent.evolution.test_feature_map import _candidate
+from tests.factories import unit
 
 FM = FeatureMap.from_lock({"derived": {"feature_map": FEATURE_MAP}})
 
@@ -39,11 +40,11 @@ def _trial(lg: Ledger, cid: str, is_sharpe: float, oos: list[float] | None) -> N
 
 
 def test_the_record_holder_is_the_best_is_sharpe_that_reached_gate_4(ledger: Ledger) -> None:
-    assert record_holder(ledger, "c1", "gp", 0) is None
+    assert record_holder(ledger, "c1", unit("gp", 0)) is None
     _trial(ledger, "a", 1.0, [0.2, 0.4, 0.6])
     _trial(ledger, "b", 3.0, None)  # never reached ④: not a record holder
     _trial(ledger, "c", 1.5, [0.1, 0.0, 0.3])
-    assert record_holder(ledger, "c1", "gp", 0) == ("c", 1.5, 0.1)
+    assert record_holder(ledger, "c1", unit("gp", 0)) == ("c", 1.5, 0.1)
 
 
 def test_diverging_is_and_oos_stop_the_engine(ledger: Ledger) -> None:
@@ -52,9 +53,13 @@ def test_diverging_is_and_oos_stop_the_engine(ledger: Ledger) -> None:
     verdicts = []
     for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2)]):
         _trial(ledger, f"x{k}", is_sr, [oos, oos, oos])
-        verdicts.append(stop(("gp", 0), k + 1))
+        verdicts.append(stop(unit("gp", 0), k + 1))
     assert verdicts == [False, False, True]
-    assert [p.oos_median_sharpe for p in checkpoints(ledger, "c1", "gp", 0)] == [0.8, 0.5, 0.2]
+    assert [p.oos_median_sharpe for p in checkpoints(ledger, "c1", unit("gp", 0))] == [
+        0.8,
+        0.5,
+        0.2,
+    ]
 
 
 def test_in_warn_mode_a_diverging_engine_keeps_running(ledger: Ledger) -> None:
@@ -64,28 +69,28 @@ def test_in_warn_mode_a_diverging_engine_keeps_running(ledger: Ledger) -> None:
     verdicts = []
     for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2), (2.5, 0.1)]):
         _trial(ledger, f"x{k}", is_sr, [oos, oos, oos])
-        verdicts.append(warn(("gp", 0), k + 1))
+        verdicts.append(warn(unit("gp", 0), k + 1))
     assert verdicts == [False, False, False, False]
-    keys: list[Key] = [("gp", 0), ("random", 0)]
-    assert warned_keys(ledger, "c1", keys) == {("gp", 0)}  # once, not once per checkpoint
-    assert len(checkpoints(ledger, "c1", "gp", 0)) == 4
+    keys: list[Key] = [unit("gp", 0), unit("random", 0)]
+    assert warned_keys(ledger, "c1", keys) == {unit("gp", 0)}  # once, not once per checkpoint
+    assert len(checkpoints(ledger, "c1", unit("gp", 0))) == 4
 
 
 def test_is_and_oos_rising_together_do_not_stop(ledger: Ledger) -> None:
     stop = EarlyStop(ledger, "c1", "run", every=1)
     for k, (is_sr, oos) in enumerate([(1.0, 0.2), (1.5, 0.4), (2.0, 0.7)]):
         _trial(ledger, f"y{k}", is_sr, [oos])
-        assert not stop(("gp", 0), k + 1)
+        assert not stop(unit("gp", 0), k + 1)
 
 
 def test_checkpoints_only_every_n_trials(ledger: Ledger) -> None:
     _trial(ledger, "a", 1.0, [0.3])
     stop = EarlyStop(ledger, "c1", "run", every=25)
-    assert not stop(("gp", 0), 10)
-    assert checkpoints(ledger, "c1", "gp", 0) == []
-    stop(("gp", 0), 25)
-    assert len(checkpoints(ledger, "c1", "gp", 0)) == 1
-    assert record_checkpoint(ledger, "c1", "random", 0, "run") is None  # no trial yet
+    assert not stop(unit("gp", 0), 10)
+    assert checkpoints(ledger, "c1", unit("gp", 0)) == []
+    stop(unit("gp", 0), 25)
+    assert len(checkpoints(ledger, "c1", unit("gp", 0))) == 1
+    assert record_checkpoint(ledger, "c1", unit("random", 0), "run") is None  # no trial yet
 
 
 def test_a_stopped_engine_stays_stopped_after_a_restart(ledger: Ledger) -> None:
@@ -94,9 +99,9 @@ def test_a_stopped_engine_stays_stopped_after_a_restart(ledger: Ledger) -> None:
     stop = EarlyStop(ledger, "c1", "run", every=1)
     for k, (is_sr, oos) in enumerate([(1.0, 0.8), (1.5, 0.5), (2.0, 0.2)]):
         _trial(ledger, f"x{k}", is_sr, [oos, oos, oos])
-        stop(("gp", 0), k + 1)
-    assert already_stopped(ledger, "c1", ("gp", 0))
-    assert not already_stopped(ledger, "c1", ("random", 0))
+        stop(unit("gp", 0), k + 1)
+    assert already_stopped(ledger, "c1", unit("gp", 0))
+    assert not already_stopped(ledger, "c1", unit("random", 0))
 
     proposed: list[Key] = []
 
@@ -104,20 +109,20 @@ def test_a_stopped_engine_stays_stopped_after_a_restart(ledger: Ledger) -> None:
         proposed.append(key)
         return Outcome(cid, True, True)
 
-    limits = {("gp", 0): 5, ("random", 0): 5}
+    limits = {unit("gp", 0): 5, unit("random", 0): 5}
     stats = Pipeline(
         {k: RandomSearch(seed=i) for i, k in enumerate(limits)}, TrialScheduler(limits),
         evaluate, 1, "t2", stopped=stopped_keys(ledger, "c1", limits),
     ).run()  # fmt: skip
-    assert ("gp", 0) not in proposed and stats.stopped == {("gp", 0)}
-    assert stats.trials[("random", 0)] == 5
+    assert unit("gp", 0) not in proposed and stats.stopped == {unit("gp", 0)}
+    assert stats.trials[unit("random", 0)] == 5
 
 
 def test_engine_report(ledger: Ledger) -> None:
     _trial(ledger, "a", 1.0, [0.3])
     _trial(ledger, "b", 0.5, [0.1])
     _candidate(ledger, "c", "gp", 0, 2.0, ["breakout"], g4_pass=False)
-    r = engine_report(ledger, "c1", "gp", 0, FM)
+    r = engine_report(ledger, "c1", unit("gp", 0), FM)
     assert (r["trials"], r["passed_gate4"]) == (3, 2)
     assert r["trial_efficiency"] == pytest.approx(200 / 3)
     assert r["archive_cells"] >= 1 and r["search_cells"] >= 2
@@ -129,14 +134,14 @@ def test_the_pipeline_stops_an_engine_its_monitor_flags() -> None:
 
     def monitor(key: Key, trials: int) -> bool:
         calls.append(key)
-        return key == ("gp", 0) and trials >= 3
+        return key == unit("gp", 0) and trials >= 3
 
-    limits = {("gp", 0): 20, ("random", 0): 5}
+    limits = {unit("gp", 0): 20, unit("random", 0): 5}
     engines = {k: RandomSearch(seed=i) for i, k in enumerate(limits)}
     stats = Pipeline(
         engines, TrialScheduler(limits),
         lambda k, p, c: Outcome(c, True, True), 1, "t", monitor=monitor,
     ).run()  # fmt: skip
-    assert stats.stopped == {("gp", 0)}
-    assert stats.trials[("gp", 0)] == 3 and stats.trials[("random", 0)] == 5
+    assert stats.stopped == {unit("gp", 0)}
+    assert stats.trials[unit("gp", 0)] == 3 and stats.trials[unit("random", 0)] == 5
     assert isinstance(next(iter(engines.values())).next(), Proposal)

@@ -54,8 +54,13 @@ def create_app(root: Path, static_dir: Path | None = None) -> FastAPI:
         engine: str = "",
         seed: str = "",
         island: str = "",
+        instrument: str = "",
+        direction: str = "",
     ) -> object:
-        query = {"q": q, "engine": engine, "seed": seed, "island": island}
+        query = {
+            "q": q, "engine": engine, "seed": seed, "island": island,
+            "instrument": instrument, "direction": direction,
+        }  # fmt: skip
         return _read(repo.candidates, cid, query, page, size)
 
     @app.get("/api/campaigns/{cid}/candidates/{candidate_id}")
@@ -65,6 +70,10 @@ def create_app(root: Path, static_dir: Path | None = None) -> FastAPI:
     @app.get("/api/campaigns/{cid}/portfolios")
     def portfolios(cid: str) -> object:
         return _read(repo.portfolios, cid)
+
+    @app.get("/api/campaigns/{cid}/account/{portfolio_hash}")
+    def account(cid: str, portfolio_hash: str) -> object:
+        return _read(repo.account, cid, portfolio_hash)
 
     @app.get("/api/campaigns/{cid}/archive")
     def archive(cid: str) -> object:

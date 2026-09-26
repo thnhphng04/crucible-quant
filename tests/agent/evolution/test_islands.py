@@ -24,6 +24,7 @@ from quantcrucible.agent.evolution.islands import (
 from quantcrucible.agent.evolution.sampling import sample_mate, sample_parent
 from quantcrucible.agent.grammar import CATEGORIES
 from quantcrucible.ledger.db import Ledger
+from tests.factories import unit
 
 ISLANDS = island_names()
 
@@ -94,6 +95,6 @@ def test_migrations_round_trip_through_the_ledger(tmp_path: Path) -> None:
     lg = Ledger.open(tmp_path / "l.db")
     lg.open_campaign("c1", "2027-01-01/2028-01-01", lock_hash="h")
     m = Migration("i0", "i1", ("a", "b"))
-    record_migration(lg, "c1", "gp", 0, "r", m)
-    record_migration(lg, "c1", "gp", 1, "r", Migration("i2", "i3", ("z",)))
-    assert migrations(lg, "c1", "gp", 0) == [m]
+    record_migration(lg, "c1", unit("gp", 0), "r", m)
+    record_migration(lg, "c1", unit("gp", 1), "r", Migration("i2", "i3", ("z",)))
+    assert migrations(lg, "c1", unit("gp", 0)) == [m]

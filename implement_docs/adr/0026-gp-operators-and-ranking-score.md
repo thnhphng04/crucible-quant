@@ -1,6 +1,6 @@
 # ADR-0026 — Engine C-gp: typed operators and the ranking score
 
-- **Status:** Accepted
+- **Status:** Accepted · **Amended by** [ADR-0030](0030-gp-ranking-primary-term-is-a-population-rank.md) (the primary term is a population rank)
 - **Date:** 2026-09-23
 - **Task:** P2-11 · **Arch:** §3.1.11 (C-gp), §3.1.6 #1, §3.3.1, D20 · **Open item:** —
 

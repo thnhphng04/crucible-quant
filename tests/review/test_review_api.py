@@ -227,6 +227,74 @@ def test_artifacts_outside_results_are_refused(tmp_path: Path) -> None:
     assert repository.candidate("c-ui", "gp-0")["source"]["status"] == "ok"
 
 
+def downgrade_to_pre_scope(root: Path) -> Path:
+    """Turn a v7 fixture back into the shape every ledger written before P3-11 has: no scope
+    columns, `user_version = 6`. This is the workspace ledger's actual state."""
+    path = root / "ledger" / "crucible.db"
+    with sqlite3.connect(path) as conn:
+        for (name,) in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND sql LIKE '%instrument%'"
+        ).fetchall():
+            conn.execute(f"DROP INDEX {name}")
+        for table in ("trials", "generation_log"):
+            for column in ("instrument", "direction"):
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        conn.execute("PRAGMA user_version = 6")
+    return path
+
+
+def test_a_pre_scope_ledger_is_read_rather_than_refused(tmp_path: Path) -> None:
+    """The reader is read-only by contract, so it cannot migrate — and refusing everything
+    below the newest schema made it unable to open the only ledger that exists. A v6 row has no
+    scope because scope had not been invented, which is precisely the legacy scope the reader
+    already renders.
+    """
+    root = fixture_root(tmp_path)
+    path = downgrade_to_pre_scope(root)
+    before = path.read_bytes()
+
+    repo = ReviewRepository(root)
+    assert repo.campaigns()[0]["campaign_id"] == "c-ui"
+    units = repo.comparison("c-ui")["units"]
+    assert units and units[0]["instrument"] == "legacy_spot"
+    assert units[0]["direction"] == "long"
+    assert units[0]["unit"] == "legacy_spot-long-gp-s0"
+    assert repo.candidates("c-ui", {}, 1, 50)["total"] == 1
+    assert repo.candidates("c-ui", {"instrument": "BTCUSDT"}, 1, 50)["total"] == 0
+    assert repo.candidates("c-ui", {"engine": "gp"}, 1, 50)["total"] == 1
+    assert path.read_bytes() == before
+
+
+def test_every_route_answers_over_http_on_a_pre_scope_ledger(tmp_path: Path) -> None:
+    """The repository being right is not enough — the app is what the reviewer opens."""
+    root = fixture_root(tmp_path)
+    downgrade_to_pre_scope(root)
+    with TestClient(create_app(root)) as client:
+        for path in [
+            "/api/campaigns",
+            "/api/campaigns/c-ui/overview",
+            "/api/campaigns/c-ui/comparison",
+            "/api/campaigns/c-ui/candidates",
+            "/api/campaigns/c-ui/candidates/gp-0",
+            "/api/campaigns/c-ui/events",
+        ]:
+            response = client.get(path)
+            assert response.status_code == 200, (path, response.text)
+
+
+def test_a_schema_older_than_the_scope_columns_predecessor_is_still_refused(
+    tmp_path: Path,
+) -> None:
+    """v6 is readable because its difference is two absent columns with a known meaning. v5 is
+    not: the reader has no account of what else is missing, and guessing is how a report starts
+    describing data it never had."""
+    root = fixture_root(tmp_path)
+    with sqlite3.connect(root / "ledger" / "crucible.db") as conn:
+        conn.execute("PRAGMA user_version = 5")
+    with pytest.raises(ReviewDataError, match="v5"):
+        ReviewRepository(root).campaigns()
+
+
 def test_an_unsupported_schema_is_refused_instead_of_migrated(tmp_path: Path) -> None:
     root = fixture_root(tmp_path)
     path = root / "ledger" / "crucible.db"
@@ -237,3 +305,38 @@ def test_an_unsupported_schema_is_refused_instead_of_migrated(tmp_path: Path) ->
     with pytest.raises(ReviewDataError, match=f"v{SUPPORTED_SCHEMA + 1}"):
         ReviewRepository(root).campaigns()
     assert path.read_bytes() == before
+
+
+# ── scope (P3-15, ADR-0033) ───────────────────────────────────────────────────────────
+
+
+def test_the_comparison_labels_every_unit_with_its_scope(tmp_path: Path) -> None:
+    """A v4 campaign stored NULL scope columns; it reads as the legacy scope rather than blank,
+    so an old report still looks like a report and not like missing data."""
+    repo = ReviewRepository(fixture_root(tmp_path))
+    units = repo.comparison("c-ui")["units"]
+    assert units
+    for u in units:
+        assert u["unit"] == f"{u['instrument']}-{u['direction']}-{u['engine']}-s{u['seed']}"
+        assert u["instrument"] == "legacy_spot" and u["direction"] == "long"
+
+
+def test_the_quota_divides_by_units_not_by_seeds_times_two(tmp_path: Path) -> None:
+    """The literal 2 was the arm count, which stopped being the whole story when the unit
+    widened to (instrument, direction, engine, seed)."""
+    repo = ReviewRepository(fixture_root(tmp_path))
+    units = repo.comparison("c-ui")["units"]
+    assert all(u["quota"] == 6 // len(units) for u in units)
+
+
+def test_candidates_still_filter_by_engine_after_the_widening(tmp_path: Path) -> None:
+    repo = ReviewRepository(fixture_root(tmp_path))
+    everything = repo.candidates("c-ui", {}, page=1, size=50)["total"]
+    gp_only = repo.candidates("c-ui", {"engine": "gp"}, page=1, size=50)["total"]
+    assert 0 < gp_only <= everything
+
+
+def test_a_scope_filter_finds_nothing_in_a_legacy_campaign(tmp_path: Path) -> None:
+    """A legacy row belongs to no perpetual scope, so asking for one must not sweep it in."""
+    repo = ReviewRepository(fixture_root(tmp_path))
+    assert repo.candidates("c-ui", {"instrument": "BTCUSDT"}, page=1, size=50)["total"] == 0

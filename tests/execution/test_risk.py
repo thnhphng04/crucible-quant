@@ -1,4 +1,9 @@
-"""The Risk layer in the execution path (§3.4, P4, ADR-0010): RiskSizer + run_backtest."""
+"""The Risk layer in the execution path (§3.4, P4′, ADR-0010, ADR-0031): RiskSizer + run_backtest.
+
+INV-90's negation lives here: the volatility of the window no longer reaches the size at all.
+Under the retired P4 the same two windows produced a 2:1 size ratio
+(``test_half_size_through_the_risk_sizer``); under ``Q = R/d`` they produce the same size.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +11,13 @@ import numpy as np
 import pytest
 
 from quantcrucible.core.sizing.position_sizer import Account, InstrumentSpec, PositionSizer
-from quantcrucible.core.sizing.vol_target import ewma_vol
 from quantcrucible.core.strategy.base import FLAT, Bars, Signal
 from quantcrucible.core.zoo.ema_crossover import GeneratedStrategy
 from quantcrucible.execution.engine import run_backtest
 from quantcrucible.execution.risk import RiskSettings, RiskSizer
 from tests.factories import make_bars
 
-LONG = Signal("long", 1.0, 1.0)  # a tight stop: the cap (1% / 1.0 per unit) never binds here
+LONG = Signal("long", 1.0, 1.0)
 
 
 def window(bars: Bars, end: int) -> Bars:
@@ -21,71 +25,66 @@ def window(bars: Bars, end: int) -> Bars:
                 bars.low[:end], bars.close[:end], bars.volume[:end])  # fmt: skip
 
 
-def test_target_is_the_position_sizer_on_the_ewma_vol() -> None:
+def test_target_is_the_position_sizer_on_the_stop_distance() -> None:
     bars = make_bars(60, seed=1, vol=0.03)
-    sizer = RiskSizer(["A"], RiskSettings(), periods_per_year=365)
+    sizer = RiskSizer(["A"], RiskSettings())
     qty = sizer.target("A", LONG, bars, equity=100_000)
-    vol = ewma_vol(bars.close, 25, 365)
-    assert vol is not None
-    expected = PositionSizer(0.10, 0.01).size(
-        LONG, InstrumentSpec(price=float(bars.close[-1])), Account(100_000), vol, 1, 1.0
+    expected = PositionSizer(0.01).size(
+        LONG, InstrumentSpec(price=float(bars.close[-1])), Account(100_000)
     )
     assert qty == pytest.approx(expected)
     assert sizer.target("A", FLAT, bars, 100_000) == 0.0
-    assert sizer.target("A", Signal("short", 1.0, 1.0), bars, 100_000) == 0.0  # spot
 
 
-def test_half_size_through_the_risk_sizer() -> None:
-    """INV-05 end to end: returns twice as volatile (and the ATR stop with them) ⇒ ½ size."""
+def test_a_short_is_sized_by_the_same_rule_as_a_long() -> None:
+    """The venue has been a USDT-M perpetual since P3-06, so a short is traded rather than
+    refused. The sizer stays **unsigned** — `nautilus_bridge` applies the direction — so the two
+    sides get the same quantity for the same stop distance.
+
+    While this returned 0 the bridge's short branch was unreachable: every gate ran the default
+    sizer, so a short strategy produced no fills and gate ③ rejected it on `min_trades`.
+    """
+    bars = make_bars(60, seed=1, vol=0.03)
+    sizer = RiskSizer(["A"], RiskSettings())
+    short = sizer.target("A", Signal("short", 1.0, 1.0), bars, 100_000)
+    assert short > 0
+    assert short == pytest.approx(sizer.target("A", LONG, bars, 100_000))
+
+
+def test_vol_estimate_does_not_change_the_size() -> None:
+    """INV-90, stated as the negation of the retired INV-05.
+
+    Two windows over the same bars, one with returns twice as volatile. With the same
+    ``stop_distance`` the sizes are identical: the volatility estimate is gone from the path.
+    """
     bars = make_bars(80, seed=2, vol=0.02)
     rets = np.diff(bars.close) / bars.close[:-1]
     close2 = bars.close[0] * np.concatenate(([1.0], np.cumprod(1 + 2 * rets)))
     wild = Bars("A", "1d", bars.ts, close2, close2, close2, close2, bars.volume)
     calm = Bars("A", "1d", bars.ts, bars.close, bars.close, bars.close, bars.close, bars.volume)
-    price_ratio = close2[-1] / bars.close[-1]
-    a = RiskSizer(["A"], RiskSettings(), 365).target("A", Signal("long", 1, 1.0), calm, 1e5)
-    b = RiskSizer(["A"], RiskSettings(), 365).target("A", Signal("long", 1, 2.0), wild, 1e5)
-    assert b * price_ratio == pytest.approx(a / 2, rel=1e-9)  # same notional logic, half
+    stop = Signal("long", 1.0, 2.0)
+    a = RiskSizer(["A"], RiskSettings()).target("A", stop, calm, 1e5)
+    b = RiskSizer(["A"], RiskSettings()).target("A", stop, wild, 1e5)
+    assert b == pytest.approx(a, rel=1e-12)
 
 
-def test_gross_leverage_cap_across_symbols() -> None:
-    bars = make_bars(60, seed=3, vol=0.001)  # very calm ⇒ vol targeting wants a huge position
-    settings = RiskSettings(max_leverage=1.0, max_risk_pct=0.5)
-    sizer = RiskSizer(["A", "B"], settings, 365)
-    qa = sizer.target("A", LONG, bars, 100_000)
-    qb = sizer.target("B", LONG, bars, 100_000)
-    price = float(bars.close[-1])
-    assert (qa + qb) * price <= 100_000 * 1.0 + 1e-6
-    assert qb * price == pytest.approx(100_000 - qa * price)
+def test_the_stop_distance_is_what_moves_the_size() -> None:
+    bars = make_bars(60, seed=3, vol=0.02)
+    sizer = RiskSizer(["A"], RiskSettings())
+    tight = sizer.target("A", Signal("long", 1.0, 1.0), bars, 1e5)
+    wide = sizer.target("A", Signal("long", 1.0, 2.0), bars, 1e5)
+    assert wide == pytest.approx(tight / 2, rel=1e-12)
 
 
-def test_idm_reestimated_at_each_rebalance_boundary() -> None:
-    a = make_bars(120, seed=4, symbol="A")
-    b = make_bars(120, seed=5, symbol="B")  # independent ⇒ IDM ≈ √2
-    sizer = RiskSizer(["A", "B"], RiskSettings(rebalance="monthly"), 365)
-    assert sizer.idm == 1.0
-    for end in range(40, 121):
-        sizer.target("A", FLAT, window(a, end), 1e5)
-        sizer.target("B", FLAT, window(b, end), 1e5)
-    assert sizer.idm == pytest.approx(np.sqrt(2), rel=0.15)
+def test_risk_at_the_stop_holds_through_the_risk_sizer() -> None:
+    bars = make_bars(60, seed=4, vol=0.02)
+    qty = RiskSizer(["A"], RiskSettings(max_risk_pct=0.01)).target("A", LONG, bars, 1e5)
+    assert qty * 1.0 == pytest.approx(0.01 * 1e5)
 
 
-def test_backtest_with_risk_sizing_trades_within_the_leverage_cap() -> None:
+def test_backtest_with_risk_sizing_runs() -> None:
     bars = {"A/USDT": make_bars(400, seed=6, symbol="A/USDT", drift=0.001),
             "B/USDT": make_bars(400, seed=7, symbol="B/USDT", drift=0.001)}  # fmt: skip
     strat = GeneratedStrategy({"fast": 5, "slow": 40, "k_atr": 2.0})
-    res = run_backtest(strat, bars, risk=RiskSettings(max_leverage=0.5))
+    res = run_backtest(strat, bars, risk=RiskSettings(max_risk_pct=0.001))
     assert res.n_trades > 0 and res.denied_orders == 0
-    exposure = np.zeros(len(res.ts))
-    ts_ns = res.ts.astype("datetime64[ns]").astype(np.int64)
-    for f in res.fills:
-        k = int(np.searchsorted(ts_ns, f.ts, side="left"))
-        exposure[k:] += (f.qty if f.side == "BUY" else -f.qty) * f.price
-    # notional at entry prices stays inside the cap (+ one band of drift between resizes)
-    assert float(np.max(exposure / res.equity)) <= 0.5 * 1.3
-
-
-def test_unknown_rebalance_rejected() -> None:
-    sizer = RiskSizer(["A"], RiskSettings(rebalance="daily"), 365)
-    with pytest.raises(ValueError, match="rebalance"):
-        sizer.target("A", LONG, make_bars(30), 1e5)

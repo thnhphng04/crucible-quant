@@ -290,22 +290,192 @@ No agent code in this phase (P1).
 - **Accept when:** coverage, trial efficiency and starved cells are reported per engine; IS→OOS divergence (`is_oos_diverging`) stops the engine; tested on fixtures. Done: `agent/monitor.py` — `engine_report`, `DEGRADATION_CHECKPOINT` audit events every 25 trials (IS record holder vs its CPCV-OOS median; the monitor is the only reader of that private metric), `EarlyStop` wired into the pipeline (`RunStats.stopped`).
 - **Needs:** P2-13.
 
-### ◐ P2-15 Comparison protocol + the real run
+### ✅ P2-15 Comparison protocol + the real run
 - **Arch:** §3.1.11 (comparison, decision rule).
 - **Details:** an ADR locked before running (metrics, seed-spread definition, `trial_budget`, quotas); a read-only comparison report; one harness-test campaign on real IS data: C-gp and C-random × 3 seeds.
 - **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule. Both hold. [ADR-0027](adr/0027-phase2-comparison-protocol.md) (+ v2 amendment) and [ADR-0028](adr/0028-comparison-protocol-v3-monitor-warns.md) carry the protocol; `agent/compare.py`, `agent/runlock.py` (INV-72) and fair slot sharing (INV-71) carry the run.
 - **Runs so far.** v1, campaign `c-20260922-181850`: stopped after 121 trials — the slots never left `gp-s0`, and the review that followed found six more defects. v2, campaign `c-20260923-090957`: **552 trials over 14 h** (≈ 90 s/trial, 8 workers), gp 100/100/100 and random 76/76/100. Outcome **`stopped_early`: no engine decision**, because the monitor stopped `random-s0` and `random-s1` short of their quota. Recorded as suggestive only: trial efficiency gp 56/45/44 vs random 19.7/31.6/26.0 (means 48.3 vs 25.8, spread 6.66), archive coverage 45/34/32 vs 15/24/26 cells, gate-④ backtests per passing strategy 169 vs 240, portfolio DSR 0.0012 vs 0.0988 at `N_eff` 145 — both far under the ≈ 2.3 annualized Sharpe that gate ⑤ demands at that `N`. All 673 trials stay in `N`.
 - **What the v2 run established** was a defect in our own harness, not a result about the engines: in both stopped arms two of the three checkpoints were identical repeats, so one record change carried the whole slope ([ADR-0028](adr/0028-comparison-protocol-v3-monitor-warns.md)). Protocol v3 fixes it — fixed budget, the monitor only warns (INV-77), and the protocol hash now covers what the monitor decides (INV-76).
-- **Remaining:** the v3 run on a fresh campaign (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — needs Docker, ≈ 15 h at the measured 90 s/trial.
+- **v4, campaign `c-20260924-180916` — the run that finished.** 600/600 trials in 11.9 h (12 workers, 71 s/trial), every arm at its quota, none starved, `unfinished` empty: the first campaign to satisfy `complete` (INV-73). Outcome **`gp_beats_random`** — trial efficiency 53/48/50 against 20/30/25, means 50.33 vs 25.00 against a seed spread of 5.00. Three arms earned a `DEGRADATION_WARNING` (gp-s1, random-s0, random-s1) and all three ran on, which is what protocol v3 was for. The ranking margin (INV-81) held on live data at 2.72–9.83. **Neither portfolio is deployable**: DSR 0.0144 (gp) and 0.0201 (random) against `dsr_min` 0.95, as arch §11 warned for simple rules on daily crypto. The verdict is "evolution beats chance", not "this makes money".
 - **Needs:** P2-13, P2-14.
 
 ---
 
-## Phases 3–6 — milestones (break into tasks when the phase starts)
+### ✅ P2-16 The ranking's primary term, and the protocol that carries it
+- **Arch:** §3.1.6 #1, §3.1.11 · **Amends:** [ADR-0026](adr/0026-gp-operators-and-ranking-score.md).
+- **Goal:** the returns term of C-gp's ranking score decides parent selection again, a permanent check catches the class of defect that hid it, and the protocol hash covers the ranking as it already covers the monitor.
+- **Details:** the primary term becomes the population rank of the DSR-rank (average ties, [0, 1]); no λ moves; `term_dispersion` + `ranking_margin` report the spread per (engine, seed), never stopping an arm; `PROTOCOL["ranking"]` hashes the λ as data and `ranking_fingerprint()` the selection order, protocol v4.
+- **Accept when:** the regression reproduces the compression from campaign `c-20260923-090957` and shows the absolute-PSR form failing INV-81 while the rank form passes; the λ are covered by the protocol hash (INV-82); the existing ranking tests pass unchanged. Done: [ADR-0030](adr/0030-gp-ranking-primary-term-is-a-population-rank.md), `agent/evolution/ranking.py`, `tests/agent/evolution/test_ranking.py` (new mirror; the ranking tests moved out of `test_operators.py`), `ranking_margin` in `agent/monitor.py`, `RANKING_SCENARIOS` + `ranking_fingerprint` in `agent/compare.py`, and the calibration bench `tests/agent/test_ranking_recovery.py` (simulated market, fake gates, its own ledger, ≈ 105 s). Protocol hash `0cafe016ef5f…`.
+- **Needs:** P2-14.
+
+---
+
+## Phase 3 — Per-(instrument, direction) strategies on USDT-M perpetuals (6–10 weeks)
+
+Arch §3.4 (rewritten), §3.5, §7. Requirements: `PLAN-PER-INSTRUMENT-STRATEGIES.en.md`, frozen 2026-09-25.
+Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual account), ADR-0033 (scope, protocol v5).
+
+### ✅ P3-01 Perpetual data coverage spike
+**Goal:** know what Binance USDT-M publishes before any decision is recorded. **Arch:** §6.1, D18. **Needs:** —
+**Files:** `scripts/perp_coverage.py` (read-only, no `src/` change).
+**Result (2026-09-25):** all three series exist for all five contracts. SOLUSDT is the binding listing at 2020-09-14, giving **5.03 years** of IS after a 12-month holdout. MinBTL at target 1.5 caps N at **1,475** against an `n_eff` of 290 — headroom 1,185. Leverage brackets need a signed endpoint. Mark 1m is ~3.5M rows per contract.
+**Accept when:** ✅ the coverage table and a go/no-go line, recorded in ADR-0031.
+
+### ✅ P3-02 Retire P4 in the architecture
+**Goal:** the sizing rule changes in the source of truth before it changes in code. **Arch:** §3.4, §7, §10 (D7, D12, D18). **Needs:** P3-01
+**Files:** `research_docs_vi/Architecture_Design.md` first, then the EN mirror; `CLAUDE.md`; `implement_docs/adr/0031-*.md` + VI mirror; `03-INVARIANT-TEST-MAP.md` (INV-05 retired, the INV-90..98 band added).
+**Accept when:** `uv run python scripts/check_doc_mirror.py` passes; ADR-0031 records who decided, what replaces INV-05, and that `idm` / `portfolio_scale` / `target_vol` are deleted rather than deprecated.
+
+### ✅ P3-03 `Q = R/d`: replace the INV-05 tests, then the code
+**Goal:** position size is risk over stop distance, proven by tests written first. **Arch:** §3.4, ADR-0031. **Needs:** P3-02
+**Files:** `tests/core/sizing/test_position_sizer.py`, `tests/execution/test_risk.py`, then `core/sizing/position_sizer.py`, `core/sizing/vol_target.py`, `execution/risk.py`, `config/schema.py`, `config/lock.py`, `validation/run.py`, `validation/is_gates.py`.
+**Accept when:** the four INV-90 tests pass; the three INV-05 tests are gone; a lock carrying `derived.sizing.max_leverage` is refused with the existing "open a new campaign" error rather than silently mixing two sizing rules.
+
+### ✅ P3-04 `direction` as a grammar axis, and the wrong-side guardrail
+**Goal:** a scope's genome renders in its own direction; a wrong-side signal dies at gate ①a. **Arch:** §3.3.1, ADR-0031. **Needs:** P3-02
+**Files:** `agent/grammar.py` (the rendered `Signal("long", …)` literal), `validation/guardrail.py`.
+**Accept when:** INV-91; a long and a short rendering of the same clauses have different `strategy_hash`.
+
+### ✅ P3-05 The bracket margin model
+**Goal:** initial margin, maintenance margin, the lowest funded leverage and isolated liquidation, on a bracket table. **Arch:** §3.5, ADR-0032. **Needs:** P3-01, P3-03
+**Files:** new `execution/margin.py`.
+**Accept when:** ✅ `tests/execution/test_margin.py` — maintenance margin is continuous across a tier boundary (which is what the venue's `amount` term is for), the boundary itself belongs to the lower tier, leverage above the bracket is refused, and liquidation sits below a long's entry and above a short's.
+**Deviation:** the venue switch (`CryptoPerpetual`, `OmsType.HEDGING`, `AccountType.MARGIN`) moved to P3-06. On its own it has no test that can fail for the right reason — a short only becomes observable once `TargetSizer` carries a side. The bracket table stays **data**: `fetchLeverageTiers` is a signed endpoint, so real values arrive with the campaign lock and are recorded there as an assumption.
+
+### ✅ P3-06 The venue trades both sides
+**Goal:** a short signal opens a short with its own protective stop. **Arch:** §3.5, P3. **Needs:** P3-04, P3-05
+**Files:** `execution/nautilus_bridge.py` (`CryptoPerpetual`, `AccountType.MARGIN`, signed target, short-side stop, `FillRecord.position_side`), `execution/engine.py` (`_round_trips`, `assert_complete`).
+**Accept when:** ✅ `tests/execution/test_hedge.py` — a short is traded rather than counted and dropped, and its round trips are counted; without that last part gate ③ rejected every short strategy on `min_trades` for a reason that had nothing to do with the strategy. INV-35's tests unchanged.
+**Deviation: `OmsType.NETTING`, not `HEDGING`.** One backtest runs one strategy on one side, so this engine never holds both legs of a contract — the two-sided book is a property of the joint-account replay (P3-08), which is host-side. `HEDGING` also mints a fresh `PositionId` per entry order, which left `reduce_only` stops with nothing to reduce and silently stopped them filling.
+**Two tests replaced, not deleted:** `test_short_signal_means_flat_on_spot` asserted the behaviour this task removes → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` drove the guard by exhausting a cash account, which a margin venue does not do → the guard is now `assert_complete` and is tested directly.
+
+### ◐ P3-07 Funding, mark price, liquidation, intrabar path
+**Goal:** the three things Nautilus does not model. **Arch:** §3.5, ADR-0032. **Needs:** P3-05, P3-06
+**Files:** new `execution/perp_account.py`, new `core/path_summary.py` (P3-16), `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
+**Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox.
+
+### ◐ P3-08 Joint-account backtest and the admission rule
+**Goal:** one account replay instead of N self-financed streams. **Arch:** §3.4, §3.2.1, ADR-0032. **Needs:** P3-07
+**Files:** `execution/engine.py`, new `execution/admission.py`, `validation/sandbox_runner.py`.
+**Accept when:** INV-92; account equity reconciles with the sum of slot contributions; the same seed reproduces the same account curve.
+
+### ✅ P3-09 Perpetual data source and manifests
+**Goal:** perpetual data with the integrity record the spot parquet never had. **Arch:** §6.1, D18. **Needs:** P3-01, P3-05
+**Files:** new `data/perp_source.py`, `data/store.py`, new `data/manifest.py`.
+**Accept when:** INV-94; a manifest records checksum, coverage and source; v4 spot bars cannot satisfy a perpetual request; `data` still imports no `execution` (import-linter).
+
+### ◐ P3-10 Perpetual holdout carve — separate, write-once
+**Goal:** a second holdout that never touches the first. **Arch:** §4.2, P6. **Needs:** P3-09
+**Files:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
+**Accept when:** its own lock and manifest; the existing lock is never opened or overwritten; a second carve is refused; INV-08 holds for the new lock.
+
+### ✅ P3-11 Migration 007 — scope columns
+**Goal:** the ledger carries a scope, and 1,325 legacy rows keep their meaning untouched. **Arch:** §4.1, ADR-0033. **Needs:** —
+**Files:** new `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
+**Accept when:** INV-95 — a legacy row resolves at read time, never by UPDATE, which the append-only triggers forbid. The migration runs against a temporary copy, never the real ledger.
+
+### ✅ P3-12 The search unit becomes (instrument, direction, engine, seed)
+**Goal:** each scope is an independent arm. **Arch:** §3.1.11, ADR-0033. **Needs:** P3-04, P3-11
+**Files:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
+**Accept when:** INV-96; INV-61 and INV-71 widened and still green; INV-65 strengthened — the engine still never sees its instrument.
+
+### ✅ P3-13 Scoped gates, slot portfolios, protocol v5
+**Goal:** gates ③④ on one contract and direction; gate ⑤ on one joint-account replay. **Arch:** §3.2, §3.2.1, §3.1.11. **Needs:** P3-08, P3-12
+**Files:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
+**Accept when:** INV-97, INV-98; a PBO grid never mixes scopes; INV-42 unchanged, so `trial_stats` stays global; a v4 campaign is refused under v5 (INV-74).
+
+### ✅ P3-14 Timeframe is a real knob
+**Goal:** switching `research.data.timeframe` to `4h` runs end to end. **Arch:** D18, §3.2. **Needs:** P3-13
+**Files:** `validation/portfolio.py` (`Member.from_dict` must refuse a missing timeframe rather than default it), `validation/run.py` (`DEFAULT_LOOKBACK` counts bars), `config/schema.py`, `validation/is_gates.py`.
+**Accept when:** the whole path runs at 4h on the same fixtures with correct annualisation; funding lands correctly at 1d, 4h and 8h bars.
+
+### ◐ P3-15 Review API, UI, legacy regression, quality gate
+**Goal:** the new results are readable and the v4 ones still are. **Arch:** ADR-0029, ADR-0033. **Needs:** P3-14, P3-10
+**Files:** `review/repository.py` (`READABLE_SCHEMAS` = v6 and v7, an account-equity endpoint), `review/app.py`, `ui/src/`.
+**Accept when:** starting equity plus the summed contributions equals account equity within rounding tolerance; a v4 campaign still renders; INV-79 and INV-80 unchanged; the full quality gate green.
+
+## Phase 3 (continued) — wiring the perpetual layer in
+
+The modules above are built and tested; **nothing outside their own cluster imports them**. The
+root cause is one line: `SandboxJob.bars` is the only data a container ever sees, and it carries
+trade bars alone. These tasks wire them in, fetch real data, and take the phase through its gate.
+
+### ✅ P3-16 `path_summary` to `core/`, segments cut at funding settlements
+**Goal:** a level that changes inside a bar can be answered exactly. **Arch:** §3.5, ADR-0032. **Needs:** —
+**Files:** `execution/path_summary.py` → `core/path_summary.py` (`data` may not import `execution`, and summaries are built at fetch time), `execution/perp_account.py` (`resolve_bar` takes one liquidation price per segment), ADR-0032 and its VI mirror.
+**Accept when:** two paths with identical whole-bar summaries give different answers once a threshold comes into force mid-bar; `lows` come from minute lows and `highs` from minute highs; a missing minute is refused, never filled; `lint-imports` green.
+
+### ✅ P3-17 `PerpSource` that actually works
+**Goal:** five years of four series, resumable. **Arch:** §6.1, D18. **Needs:** P3-16
+**Files:** `data/perp_source.py` (it fetches exactly one 1000-row page today, and `end` is unused), `data/store.py` (`file_name` leaves the colon of `BTC/USDT:USDT` in a filename), new `data/perp_store.py`.
+**Accept when:** a paginating fake exchange yields the full row count; an interrupted fetch resumes without re-downloading; a missing API key refuses the bracket snapshot rather than defaulting it; summaries rebuild from the stored minute closes, so the timeframe knob stays free.
+
+### ✅ P3-18 The `PerpInputs` data contract and the sandbox payload — ADR-0034
+**Goal:** the container can receive mark, funding and paths. **Arch:** §3.3.3, ADR-0032. **Needs:** P3-17
+**Files:** new `core/perp_inputs.py` (schema and the single slicing API), `validation/sandbox.py`, `validation/sandbox_runner.py`.
+**Accept when:** INV-99 — raw minute bars never enter a container; an IS job never receives an OOS sidecar; settlement lands correctly at 1d, 4h and 8h; the bundle is required for `backtest`/`grid_backtest` and its absence fails the gate closed; measured payload size recorded.
+
+### ✅ P3-19 Account-driven sizing for N = 1; quantity and stop stand still
+**Goal:** gate ③/④ size from the perpetual account, not from a zero-margin venue. **Arch:** §3.4, P4′. **Needs:** P3-18
+**Files:** `execution/nautilus_bridge.py` (`_equity`, the rebalance band, the stop re-issued every bar), `execution/engine.py`.
+**Accept when:** price and ATR move while a position is open and neither its quantity nor its stop changes; risk at the stop is measured on account equity; a liquidation terminates that configuration instead of diverging from the venue's book; zero equity yields no inf or nan.
+
+### ✅ P3-20 Signal-driven joint replay for N > 1 — ADR-0035
+**Goal:** the shared account sizes and admits, rather than replaying quantities sized elsewhere. **Arch:** §3.2.1, §3.4. **Needs:** P3-19
+**Files:** `execution/joint_account.py`, `execution/admission.py` (called for the first time), `execution/perp_account.py`.
+**Accept when:** one member with ample capital reproduces the N = 1 venue equity curve within a tight tolerance — without that, this is a second execution engine nobody checks; INV-92 holds; the kill switch is called; contributions reconcile **while positions are still open**.
+
+### ✅ P3-21 Gates ③/④/⑥′ and the portfolio run on the account
+**Goal:** the pipeline calls the perpetual layer. **Arch:** §3.2, §3.2.1. **Needs:** P3-20
+**Files:** `validation/is_gates.py`, `validation/pbo_gate.py`, `validation/robustness.py`, `validation/portfolio.py`, `validation/run.py`.
+**Accept when:** gate ③ returns are net of funding; a liquidated strategy fails ③ saying so; the PBO grid never mixes scopes; legacy campaigns still run through `_summarize`, which cannot be deleted.
+
+### ✅ P3-22 Perpetual holdout — completes P3-10
+**Goal:** a second holdout that does not touch the first. **Arch:** §4.2, P6. **Needs:** P3-18
+**Files:** `data/holdout_split.py`, `cli.py`, the evaluator process.
+**Accept when:** INV-94; it lives **inside** the existing holdout directory, so the guard hook covers it with no change to the hook; missing OOS funding or mark fails closed.
+
+### ✅ P3-23 Account equity endpoint and UI — completes P3-15
+**Goal:** the reconciliation is visible. **Arch:** ADR-0029. **Needs:** P3-20
+**Files:** `review/repository.py`, `review/app.py`, `ui/src/lib/types.ts`, `ui/src/screens/Portfolios.tsx`.
+**Accept when:** starting equity plus the summed contributions equals account equity within rounding, including with positions open; absent data reads `Chưa có`, never `0`.
+
+### ☐ P3-24 Real fetch, preflight, dry-run lock
+**Goal:** the phase gate's fifth condition. **Arch:** §6.1, D18. **Needs:** P3-17
+**Files:** `cli.py`, `config/schema.py`, `config/lock.py`, `config/user.yaml`.
+**Accept when:** perpetual OHLCV, mark, funding and brackets share enough coverage to lock; `common_window` returns 2020-09-14; a dry run changes no lock, opens no campaign and claims no holdout.
+
+**Phase-3 gate:** fixtures prove the joint-account path and the real-data preflight passes. **No real campaign opens inside this phase** — its shape is a separate decision, and the headroom is 1,185 trials.
+
+**Status, honestly.** Eleven of fifteen tasks are done. The four marked ◐ share one unfinished
+piece: **the sandbox payload still carries only trade bars.** `perp_account`, `joint_account`,
+`path_summary` and `admission` are built and tested, but nothing in the gate pipeline calls them,
+because a backtest inside the container cannot yet receive mark prices or funding. Until that
+lands, a perpetual campaign cannot be run end to end — the components exist, the wiring does not.
+What is blocked by it: gate ③/④ on the perpetual path (P3-07, P3-08), the holdout evaluator on
+that path (P3-10), and the account-equity endpoint and contribution chart (P3-15).
+
+That piece was deferred out of P3-07 into P3-08 and then not built. Recording it here rather than
+marking the tasks done is the point: the phase gate above is not met yet.
+
+**Five defects found in review, all fixed (INV-92c, INV-93, INV-93c, INV-95b).** Each was code
+whose tests passed while the path a campaign actually takes was broken. `RiskSizer` returned 0
+for every short, so the bridge's short branch was unreachable and every hedge test that proved
+otherwise had injected its own sizer. `PerpAccount.close` added the whole realized loss to the
+free balance, so a gap past bankruptcy drained the account through a wallet that is supposed to
+be isolated. The replay's `sort_key` promised closes before opens and sorted by instrument, so
+whether an entry was funded depended on the alphabet. Fills outside the replay window were
+clamped into the nearest bar instead of refused. And the review reader accepted only the newest
+schema, which is not the one any existing ledger has — a reader forbidden to migrate cannot also
+demand one.
+
+---
+
+## Phases 3b–6 — milestones (break into tasks when the phase starts)
 
 | Phase | Milestones | Arch |
 |---|---|---|
-| **3** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
+| **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
 | **4** IB → forex + intl equities (3–4 wk) | IB adapter via Nautilus; sessions/calendars; Stooq data source; indices/ETFs only (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 wk) | Own roll module (ratio adjustment, OI/volume roll) from TurtleTrader data; match a reference source | §6.1 |
 | **6** SSI → VN30F1M (3–6 wk) | InstrumentProvider + DataClient + ExecutionClient; reconciliation on reconnect with open positions | §3.5 |

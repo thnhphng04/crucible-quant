@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,8 +25,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quantcrucible.core.perp_inputs import PerpBundle, read_bundle
 from quantcrucible.core.strategy.base import Bars
+from quantcrucible.data.holdout_split import verify_holdout
 from quantcrucible.data.store import ResearchStore, file_name, parse_range, read_bars
+from quantcrucible.execution.nautilus_bridge import CostModel
+from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.holdout.campaign import (
     HoldoutRefused,
     burn,
@@ -39,8 +44,13 @@ from quantcrucible.ledger.records import utc_now
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.is_gates import backtest_options
 from quantcrucible.validation.pbo_gate import periods_per_year
-from quantcrucible.validation.portfolio import Member, combine
-from quantcrucible.validation.robustness import annual_sharpe, rerun_member, weights_of
+from quantcrucible.validation.portfolio import Member, combine, consolidate_on_account
+from quantcrucible.validation.robustness import (
+    account_options,
+    annual_sharpe,
+    rerun_member,
+    weights_of,
+)
 from quantcrucible.validation.sandbox import JobRunner, SandboxJob, SandboxResult
 
 Runner = JobRunner
@@ -92,6 +102,20 @@ class Paths:
         return self.root / "data" / "is"
 
     @property
+    def perp_in_sample_dir(self) -> Path:
+        return self.root / "data" / "perp"
+
+    @property
+    def perp_holdout_dir(self) -> Path:
+        """Nested inside the spot holdout on purpose: the guard hook matches anything under that
+        directory, so the second carve is protected with no change to the rail (P3-22)."""
+        return self.holdout_dir / "perp"
+
+    @property
+    def perp_holdout_lock(self) -> Path:
+        return self.holdout_dir / "perp.lock"
+
+    @property
     def archive(self) -> Path:
         return self.root / "results" / "strategies"
 
@@ -118,6 +142,150 @@ def evaluation_bars(
     return out
 
 
+def _bundle_names(symbol: str, timeframe: str) -> dict[str, str]:
+    stem = f"{symbol.replace('/', '-').replace(':', '-')}_{timeframe}"
+    bare = symbol.replace("/", "-").replace(":", "-")
+    return {
+        "mark": f"{stem}.mark.parquet",
+        "funding": f"{bare}.funding.parquet",
+        "paths": f"{stem}.paths.parquet",
+        "brackets": f"{bare}.brackets.json",
+    }
+
+
+def perp_evaluation_inputs(
+    paths: Paths, symbols: Sequence[str], timeframe: str, warmup: int
+) -> dict[str, PerpBundle]:
+    """The warm-up window joined to the out-of-sample window, for every perpetual symbol.
+
+    Fails closed (INV-94). A perpetual replay needs the mark price it is liquidated on and the
+    funding it pays, and neither can be reconstructed from the trade price. Missing either would
+    mean evaluating on a market with no funding cost and no liquidation — and the verdict would be
+    a PASS built on an assumption nobody chose.
+    """
+    out: dict[str, PerpBundle] = {}
+    if any(":" in symbol for symbol in symbols):
+        verify_holdout(paths.perp_holdout_lock, paths.perp_holdout_dir)
+    for symbol in symbols:
+        if ":" not in symbol:
+            continue  # spot: there is no mark and no funding to carry
+        names = _bundle_names(symbol, timeframe)
+        for directory in (paths.perp_in_sample_dir, paths.perp_holdout_dir):
+            missing = [n for n in names.values() if not (directory / n).is_file()]
+            if missing:
+                raise HoldoutRefused(
+                    f"{symbol}: {', '.join(sorted(missing))} missing from {directory.name} — "
+                    "mark, funding, intrabar paths and brackets are all required, and refusing "
+                    "is the only honest answer"
+                )
+        inside = read_bundle(paths.perp_in_sample_dir, symbol, timeframe, names)
+        held = read_bundle(paths.perp_holdout_dir, symbol, timeframe, names)
+        tail = inside.slice(max(len(inside) - warmup, 0), len(inside))
+        out[symbol] = tail.followed_by(held)
+    return out
+
+
+def _is_perpetual_portfolio(members: Sequence[Member], lock: Mapping[str, Any]) -> bool:
+    data: Mapping[str, Any] = lock.get("research", {}).get("data", {})
+    market = str(data.get("market", "")).lower()
+    return market in {"perp", "usdt_m_perpetual"} or any(
+        ":" in symbol for member in members for symbol in member.universe
+    )
+
+
+def _write_signal_stream(path: Path, stream: Mapping[str, Sequence[Sequence[Any]]]) -> Path:
+    rows = [
+        (
+            symbol,
+            bar,
+            str(sig[0]),
+            float(sig[1]),
+            float(sig[2]),
+            float("nan") if sig[3] is None else float(sig[3]),
+        )
+        for symbol, signals in stream.items()
+        for bar, sig in enumerate(signals)
+    ]
+    pd.DataFrame(
+        rows, columns=["symbol", "bar", "direction", "strength", "stop_distance", "take_profit"]
+    ).to_parquet(path, index=False)
+    return path
+
+
+def _member_signal_stream(
+    member: Member,
+    source: str,
+    bars: Mapping[str, Bars],
+    options: Mapping[str, Any],
+    runner: Runner,
+    out_dir: Path,
+) -> Path:
+    """Run only the member's signal function in the sandbox; host-side account replay prices it."""
+    missing = [s for s in member.universe if s not in bars]
+    if missing:
+        raise ValueError(f"{member.candidate_id}: no data for {missing}")
+    universe = {s: bars[s] for s in member.universe}
+    res = runner.run(SandboxJob("signals", source, universe, member.params, options))
+    if not res.ok or res.report is None:
+        raise RuntimeError(f"{member.candidate_id}: sandbox {res.error}")
+    stream: Mapping[str, Sequence[Sequence[Any]]] = res.report["result"]["signals"]
+    return _write_signal_stream(out_dir / f"{member.trial_id}.parquet", stream)
+
+
+def _evaluate_spot_portfolio(
+    members: Sequence[Member],
+    sources: Mapping[str, str],
+    bars: Mapping[str, Bars],
+    options: Mapping[str, Any],
+    runner: Runner,
+    start: pd.Timestamp,
+    rebalance: str,
+) -> pd.Series:
+    series = {
+        m.trial_id: rerun_member(m, sources[m.strategy_hash], bars, options, runner)
+        for m in members
+    }
+    frame = pd.concat(series, axis=1, join="inner")
+    frame = frame[frame.index >= start]
+    return combine(frame[[m.trial_id for m in members]], weights_of(members), rebalance)
+
+
+def _evaluate_perp_portfolio(
+    members: Sequence[Member],
+    sources: Mapping[str, str],
+    bars: Mapping[str, Bars],
+    perp: Mapping[str, PerpBundle],
+    options: Mapping[str, Any],
+    runner: Runner,
+    start: pd.Timestamp,
+) -> pd.Series:
+    needed = sorted({s for member in members for s in member.universe if ":" in s})
+    missing = [s for s in needed if s not in perp]
+    if missing:
+        raise ValueError(f"no perpetual inputs for {missing}")
+    with tempfile.TemporaryDirectory(prefix="qc-holdout-signals-") as tmp:
+        root = Path(tmp)
+        streams = {
+            m.trial_id: _member_signal_stream(
+                m, sources[m.strategy_hash], bars, options, runner, root
+            )
+            for m in members
+        }
+        replay = consolidate_on_account(
+            members,
+            streams,
+            bars,
+            perp,
+            settings=RiskSettings(**options["risk"]),
+            costs=CostModel(**options["costs"]),
+            initial_cash=float(options.get("initial_cash", 100_000.0)),
+            leverage=int(options.get("leverage", 5)),
+            max_portfolio_risk_pct=float(options.get("max_portfolio_risk_pct", 0.10)),
+        )
+    out = pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:]))
+    return out[out.index >= start]
+
+
 def evaluate(
     root: Path, portfolio_hash: str, runner: Runner, now: datetime | None = None
 ) -> Verdict:
@@ -136,7 +304,7 @@ def evaluate(
         members = [Member.from_dict(d) for d in variant.members]
         rebalance = str(variant.rule_config["rebalance"])
         timeframe = members[0].timeframe
-        options: Mapping[str, Any] = backtest_options(lock, seed=0)
+        options: Mapping[str, Any] = account_options(lock, backtest_options(lock, seed=0))
         symbols = sorted({s for m in members for s in m.universe})
         archive = StrategyArchive(paths.archive)
         sources = {m.strategy_hash: archive.get(m.strategy_hash) for m in members}
@@ -147,13 +315,13 @@ def evaluate(
                 paths, symbols, timeframe, campaign.holdout_range, int(options["lookback"])
             )
             start = pd.Timestamp(parse_range(campaign.holdout_range)[0])
-            series = {
-                m.trial_id: rerun_member(m, sources[m.strategy_hash], bars, options, runner)
-                for m in members
-            }
-            frame = pd.concat(series, axis=1, join="inner")
-            frame = frame[frame.index >= start]
-            oos = combine(frame[[m.trial_id for m in members]], weights_of(members), rebalance)
+            perp = perp_evaluation_inputs(paths, symbols, timeframe, int(options["lookback"]))
+            if _is_perpetual_portfolio(members, lock):
+                oos = _evaluate_perp_portfolio(members, sources, bars, perp, options, runner, start)
+            else:
+                oos = _evaluate_spot_portfolio(
+                    members, sources, bars, options, runner, start, rebalance
+                )
             sharpe = annual_sharpe(oos, periods_per_year(timeframe))
             verdict = "PASS" if sharpe >= threshold else "FAIL"
         except BaseException as e:

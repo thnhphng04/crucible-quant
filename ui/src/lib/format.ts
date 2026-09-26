@@ -35,3 +35,18 @@ export function shortHash(value: unknown, length = 12): string {
 export function arm(engine: string, seed: number | string): string {
   return `${engine}-s${seed}`
 }
+
+/**
+ * `BTCUSDT-long-gp-s0`: one unit of search, spelled the way the API and the CLI spell it.
+ *
+ * A campaign from before P3-12 stores no scope, and the API fills in `legacy_spot`/`long` rather
+ * than leaving it blank, so an old report reads as a report and not as missing data.
+ */
+export function unit(
+  instrument: string,
+  direction: string,
+  engine: string,
+  seed: number | string,
+): string {
+  return `${instrument}-${direction}-${arm(engine, seed)}`
+}

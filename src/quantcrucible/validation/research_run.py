@@ -13,11 +13,16 @@ Every backtest here goes through a gate pipeline and so through the ledger (P2).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
+from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars
+from quantcrucible.execution.nautilus_bridge import CostModel
+from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.calibration import (
@@ -27,8 +32,21 @@ from quantcrucible.validation.calibration import (
     check_allowed,
 )
 from quantcrucible.validation.gates import GateContext, PipelineOutcome, StrategyCandidate
+from quantcrucible.validation.is_gates import signals_path_for
 from quantcrucible.validation.pbo_gate import periods_per_year
-from quantcrucible.validation.portfolio import Member, Portfolio, PortfolioRule, build_and_record
+from quantcrucible.validation.portfolio import (
+    Member,
+    Portfolio,
+    PortfolioRule,
+    build_and_record,
+    consolidate_on_account,
+    eligible_trials,
+    load_returns,
+    load_signal_stream,
+    record_variant,
+    select_slots,
+    write_account_curve,
+)
 from quantcrucible.validation.portfolio_dsr import DsrGate, PortfolioOutcome, PortfolioPipeline
 from quantcrucible.validation.robustness import RobustnessGate
 from quantcrucible.validation.run import Provenance, candidate_pipeline, make_candidate
@@ -44,6 +62,8 @@ class ResearchSession:
     sandbox: JobRunner
     results_dir: Path
     second_is_data: Mapping[str, Bars] = field(default_factory=dict)
+    perp_data: Mapping[str, PerpBundle] = field(default_factory=dict)
+    second_perp_data: Mapping[str, PerpBundle] = field(default_factory=dict)
 
     @property
     def archive(self) -> StrategyArchive:
@@ -54,6 +74,8 @@ class ResearchSession:
             "sandbox": self.sandbox,
             "is_data": dict(self.is_data),
             "second_is_data": dict(self.second_is_data),
+            "perp_data": dict(self.perp_data),
+            "second_perp_data": dict(self.second_perp_data),
             "results_dir": self.results_dir,
             "archive": self.archive,
         }
@@ -82,10 +104,76 @@ def submit(
 
 def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOutcome]:
     """Build by the locked rule (a variant row if new), then ⑤ → ⑥′."""
-    portfolio = build_and_record(
-        session.ledger, session.campaign_id, PortfolioRule.from_lock(session.lock),
-        periods_per_year(session.timeframe), session.results_dir,
-    )  # fmt: skip
+    rule = PortfolioRule.from_lock(session.lock)
+    ppy = periods_per_year(session.timeframe)
+    if session.lock["research"].get("data", {}).get("market") == "usdt_m_perpetual":
+        if not session.perp_data:
+            raise ValueError("perpetual portfolio needs aligned mark, funding, path and brackets")
+        trials = eligible_trials(session.ledger, session.campaign_id)
+        trial_returns = {t.id: load_returns(t.returns_path) for t in trials}
+        chosen = select_slots(
+            trials, trial_returns, session.ledger.trial_stats(), ppy, rule.max_strategies
+        )
+        if not chosen:
+            raise ValueError("no positive gate-④ candidate for any perpetual slot")
+        streams = {t.id: signals_path_for(Path(t.returns_path)) for t in chosen}
+        for trial in chosen:
+            plans = load_signal_stream(streams[trial.id])
+            if len(plans) != 1 or plans[0].slot != (trial.instrument, trial.direction):
+                raise ValueError(
+                    f"trial {trial.id}: signal stream does not match its locked "
+                    f"{trial.instrument}/{trial.direction} slot"
+                )
+        members = tuple(
+            Member(
+                t.id,
+                t.candidate_id,
+                t.strategy_hash,
+                dict(t.params),
+                1.0 / len(chosen),
+                (t.instrument,),
+                t.timeframe,
+                t.direction,
+            )
+            for t in chosen
+        )
+        research = session.lock["research"]
+        replay = consolidate_on_account(
+            members,
+            streams,
+            session.is_data,
+            session.perp_data,
+            settings=RiskSettings(max_risk_pct=float(research["max_risk_pct"])),
+            costs=CostModel(**session.lock["derived"]["costs"]),
+            initial_cash=100_000.0,
+            leverage=int(research["data"]["leverage"]),
+            max_portfolio_risk_pct=0.10,
+        )
+        portfolio = Portfolio(
+            session.campaign_id,
+            replace(rule, selection="slot_psr", weighting="risk_per_slot", rebalance="none"),
+            members,
+            pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:])),
+            ppy,
+            {
+                "eligible": [t.candidate_id for t in trials],
+                "slots": [t.candidate_id for t in chosen],
+            },
+        )
+        write_account_curve(
+            session.results_dir,
+            session.campaign_id,
+            portfolio.portfolio_hash,
+            ts=replay.ts,
+            equity=replay.equity,
+            initial_cash=100_000.0,
+            contributions=replay.contributions,
+        )
+        record_variant(session.ledger, portfolio, session.results_dir)
+    else:
+        portfolio = build_and_record(
+            session.ledger, session.campaign_id, rule, ppy, session.results_dir,
+        )  # fmt: skip
     pipeline = PortfolioPipeline([DsrGate(), RobustnessGate()])
     return portfolio, pipeline.run(portfolio, session.context())
 

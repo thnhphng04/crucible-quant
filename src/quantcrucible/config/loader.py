@@ -122,7 +122,6 @@ def _validate(cfg: UserConfig) -> None:
     if not r.drift.allow_below < r.drift.reject_at:
         problems.append("research.drift.allow_below must be < reject_at")
     positive = {
-        "research.target_vol": r.target_vol,
         "research.max_risk_pct": r.max_risk_pct,
         "research.portfolio.max_corr": r.portfolio.max_corr,
         "research.portfolio.max_strategies": r.portfolio.max_strategies,
@@ -136,6 +135,8 @@ def _validate(cfg: UserConfig) -> None:
         "research.seeds": r.seeds,
         "research.calibration.budget_per_strategy": r.calibration.budget_per_strategy,
         "research.data.holdout_months": r.data.holdout_months,
+        "research.data.leverage": r.data.leverage,
+        "research.data.funding_interval_hours": r.data.funding_interval_hours,
         "operational.live_capital": cfg.operational.live_capital,
         "operational.kill_switch_drawdown": cfg.operational.kill_switch_drawdown,
     }
@@ -150,6 +151,15 @@ def _validate(cfg: UserConfig) -> None:
             problems.append(f"{name} must be <= 1")
     if not r.data.symbols:
         problems.append("research.data.symbols must not be empty")
+    if r.data.market == "usdt_m_perpetual":
+        if r.data.exchange != "binance":
+            problems.append("research.data.exchange must be binance for USDT-M perpetuals")
+        if any(not symbol.endswith("/USDT:USDT") for symbol in r.data.symbols):
+            problems.append("research.data.symbols must all be USDT-M perpetual symbols")
+    elif any(":" in symbol for symbol in r.data.symbols):
+        problems.append("research.data.market must be usdt_m_perpetual for perpetual symbols")
+    if r.data.funding_interval_hours > 0 and 24 % r.data.funding_interval_hours != 0:
+        problems.append("research.data.funding_interval_hours must divide 24")
     if r.data.second_exchange is not None and r.data.second_exchange == r.data.exchange:
         problems.append("research.data.second_exchange must differ from research.data.exchange")
     if problems:

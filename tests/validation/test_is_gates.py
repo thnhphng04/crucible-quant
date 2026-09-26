@@ -23,7 +23,6 @@ from tests.factories import make_bars
 LOCK: dict[str, Any] = {
     "research": {
         "minbtl_target_sharpe": 1.5,
-        "target_vol": 0.10,
         "max_risk_pct": 0.01,
         "portfolio": {"rebalance": "monthly"},
         "constraints": {"min_trades": 30, "min_holding_bars": 1, "max_indicator_corr": 0.9},
@@ -31,7 +30,7 @@ LOCK: dict[str, Any] = {
     "derived": {
         "costs": {"fee_rate": 0.001, "slippage_bps": 5.0},
         "lookback": 400,
-        "sizing": {"vol_span": 25, "max_leverage": 1.0, "idm_cap": 2.5},
+        "sizing": {"rule": "risk_over_stop"},
     },
 }
 
@@ -53,6 +52,10 @@ class FakeRunner:
             "returns": [0.01, -0.005], "equity": [1.0, 1.01, 1.005], "denied_orders": 0,
             "indicator_corr": self.overrides.get("corr", 0.5),
             "indicator_pair": ["f", "s"],
+            "signals_stream": {
+                s: [["long", 1.0, 2.0, None], ["flat", 0.0, 0.0, None], ["long", 1.0, 2.5, None]]
+                for s in job.bars
+            },
         }  # fmt: skip
         return SandboxResult(True, {"ok": True, "result": result}, "", "", 0, False, None, 0.1)
 
@@ -117,10 +120,7 @@ def test_g3_passes_and_saves_returns(ledger: Ledger, tmp_path: Path) -> None:
     assert result.report.public["n_trades"] == 40.0
     job = c.services["sandbox"].jobs[0]
     assert job.kind == "backtest" and job.options["costs"]["fee_rate"] == 0.001
-    assert job.options["risk"] == {
-        "target_vol": 0.10, "max_risk_pct": 0.01, "rebalance": "monthly",
-        "vol_span": 25, "max_leverage": 1.0, "idm_cap": 2.5,
-    }  # fmt: skip
+    assert job.options["risk"] == {"max_risk_pct": 0.01}
 
 
 def test_g3_refuses_a_lock_without_sizing(ledger: Ledger, tmp_path: Path) -> None:
@@ -129,6 +129,19 @@ def test_g3_refuses_a_lock_without_sizing(ledger: Ledger, tmp_path: Path) -> Non
     c = ctx(ledger, tmp_path)
     c.lock = old
     with pytest.raises(ValueError, match="open a new campaign"):
+        InSampleGate().check(cand("ok"), c)
+
+
+def test_g3_refuses_a_lock_written_under_vol_targeting(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0031: a v4 lock carries `derived.sizing.max_leverage`. Its trials were sized under
+    P4, so they must not be mixed with `Q = R/d` trials inside one campaign."""
+    old = {
+        **LOCK,
+        "derived": {**LOCK["derived"], "sizing": {"vol_span": 25, "max_leverage": 1.0}},
+    }
+    c = ctx(ledger, tmp_path)
+    c.lock = old
+    with pytest.raises(ValueError, match="vol targeting"):
         InSampleGate().check(cand("ok"), c)
 
 
@@ -189,3 +202,81 @@ def test_g3_artifacts_are_immutable_per_measurement(ledger: Ledger, tmp_path: Pa
     assert first.measurement.returns_path != second.measurement.returns_path
     saved = pd.read_parquet(first.measurement.returns_path)
     np.testing.assert_allclose(saved["ret"], [0.01, -0.005])
+
+
+# ── the perpetual path through gate ③ (P3-21) ─────────────────────────────────────────
+
+
+def perp_ctx(
+    ledger: Ledger, tmp_path: Path, *, with_inputs: bool = True, **fake: Any
+) -> GateContext:
+    from quantcrucible.core.path_summary import segment_bar
+    from quantcrucible.core.perp_inputs import PerpBundle
+
+    series = make_bars(800, symbol="BTC/USDT:USDT")
+    flat = [100.0, 100.0]
+    bundle = PerpBundle(
+        symbol=series.symbol,
+        timeframe=series.timeframe,
+        marks=series,
+        funding=np.zeros((0, 4), dtype=np.float64),
+        paths=tuple(segment_bar([0, 1], flat, flat, cuts=[]) for _ in range(len(series))),
+        brackets=({"cap": 1e9, "max_leverage": 100, "mmr": 0.004, "amount": 0.0},),
+    )
+    services: dict[str, Any] = {
+        "sandbox": FakeRunner(**fake),
+        "is_data": {series.symbol: series},
+        "results_dir": tmp_path / "res",
+    }
+    if with_inputs:
+        services["perp_data"] = {series.symbol: bundle}
+    return GateContext(ledger=ledger, lock=LOCK, services=services)
+
+
+def perp_cand() -> StrategyCandidate:
+    return StrategyCandidate(
+        candidate_id="p", source="s", params={}, universe=("BTC/USDT:USDT",), timeframe="1d",
+        timerange="t", run_id="r", campaign_id="c1",
+    )  # fmt: skip
+
+
+def test_g3_sends_the_perpetual_bundle_into_the_sandbox(ledger: Ledger, tmp_path: Path) -> None:
+    context = perp_ctx(ledger, tmp_path)
+    InSampleGate().check(perp_cand(), context)
+    job = context.services["sandbox"].jobs[-1]
+    assert job.perp is not None and set(job.perp) == {"BTC/USDT:USDT"}
+
+
+def test_g3_refuses_a_perpetual_candidate_with_no_mark_or_funding(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """Fail closed (INV-94). Running it anyway would report a Sharpe measured on a market with
+    no funding cost and no liquidation — a number that looks like every other Sharpe."""
+    context = perp_ctx(ledger, tmp_path, with_inputs=False)
+    result = InSampleGate().check(perp_cand(), context)
+    assert not result.passed
+    assert "perpetual" in result.reason
+
+
+def test_g3_leaves_a_spot_candidate_alone(ledger: Ledger, tmp_path: Path) -> None:
+    context = ctx(ledger, tmp_path)
+    InSampleGate().check(cand(), context)
+    assert context.services["sandbox"].jobs[-1].perp is None
+
+
+def test_g3_writes_the_signal_stream_a_portfolio_replay_will_need(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """ADR-0035: a portfolio sizes from signals, so gate ③ is where the stream is captured. It
+    is written beside the returns curve, under the same artifact convention."""
+    context = perp_ctx(ledger, tmp_path)
+    InSampleGate().check(perp_cand(), context)
+    returns = list((tmp_path / "res" / "returns" / "c1" / "p").glob("*.parquet"))
+    signals = list((tmp_path / "res" / "signals" / "c1" / "p").glob("*.parquet"))
+    assert len(returns) == len(signals) == 1
+    assert returns[0].name == signals[0].name, "the two must share one id so one locates the other"
+    frame = pd.read_parquet(signals[0])
+    assert list(frame.columns) == [
+        "symbol", "bar", "direction", "strength", "stop_distance", "take_profit",
+    ]  # fmt: skip
+    assert len(frame) == 3  # the fake runner returns a three-bar stream

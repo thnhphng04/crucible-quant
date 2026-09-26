@@ -15,7 +15,9 @@ from datetime import date
 from typing import Any
 
 from quantcrucible.agent.evolution.feature_map import Cell, FeatureMap, cell_id, descriptors
+from quantcrucible.agent.scheduler import Key
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.ledger.records import LEGACY_INSTRUMENT
 from quantcrucible.validation.gates import G3_IS, G4_PBO
 
 
@@ -72,18 +74,31 @@ def _years(timerange: str) -> float:
     return max((last - first).days, 1) / 365.25
 
 
-def load_entries(
-    ledger: Ledger, campaign_id: str, engine: str, seed: int, fmap: FeatureMap
-) -> list[Entry]:
-    """Every archive-eligible trial of one (engine, seed), in trial order."""
+def scope_args(key: Key) -> tuple[str, int, str | None, str | None]:
+    """The ledger filter for one unit of search, as positional arguments.
+
+    A legacy key stores NULL scope columns, so it is queried by (engine, seed) alone rather than
+    by the name those NULLs resolve to on the way out.
+    """
+    if key.instrument == LEGACY_INSTRUMENT:
+        return (key.engine, key.seed, None, None)
+    return (key.engine, key.seed, key.instrument, key.direction)
+
+
+def load_entries(ledger: Ledger, campaign_id: str, key: Key, fmap: FeatureMap) -> list[Entry]:
+    """Every archive-eligible trial of one unit of search, in trial order.
+
+    Scoping here is what gives each (instrument, direction) its own archive over the same cell
+    space, so two scopes never compete for a cell (ADR-0033).
+    """
     g3 = ledger.latest_gate_results(campaign_id, G3_IS)
     g4 = ledger.latest_gate_results(campaign_id, G4_PBO)
     tags: dict[str, Mapping[str, Any]] = {}
-    for _event, _island, detail in ledger.events_for(campaign_id, engine=engine, seed=seed):
+    for _event, _island, detail in ledger.events_for(campaign_id, *scope_args(key)):
         if detail and "descriptors" in detail:
             tags[str(detail["candidate_id"])] = detail["descriptors"]
     out: list[Entry] = []
-    for t in ledger.trials(campaign_id, engine=engine, seed=seed):
+    for t in ledger.trials(campaign_id, *scope_args(key)):
         passed3, detail3 = g3.get(t.candidate_id, (False, {}))
         if t.verdict != "PASS" or not passed3:
             continue
@@ -106,13 +121,12 @@ def load_entries(
 def rebuild(
     ledger: Ledger,
     campaign_id: str,
-    engine: str,
-    seed: int,
+    key: Key,
     fmap: FeatureMap,
     score: Score = sharpe_score,
 ) -> Archive:
     archive = Archive(score)
-    for entry in load_entries(ledger, campaign_id, engine, seed, fmap):
+    for entry in load_entries(ledger, campaign_id, key, fmap):
         archive.add(entry)
     return archive
 
@@ -125,18 +139,16 @@ def coverage(archives: Iterable[Archive]) -> int:
     return len(cells)
 
 
-def trial_cells(
-    ledger: Ledger, campaign_id: str, engine: str, seed: int, fmap: FeatureMap
-) -> dict[str, Cell]:
-    """candidate_id → cell for every measured trial of one (engine, seed), eligible or not —
+def trial_cells(ledger: Ledger, campaign_id: str, key: Key, fmap: FeatureMap) -> dict[str, Cell]:
+    """candidate_id → cell for every measured trial of one unit, eligible or not —
     where an engine's search went, as opposed to what its archive kept (diagnostics)."""
     g3 = ledger.latest_gate_results(campaign_id, G3_IS)
     tags: dict[str, Mapping[str, Any]] = {}
-    for _event, _island, detail in ledger.events_for(campaign_id, engine=engine, seed=seed):
+    for _event, _island, detail in ledger.events_for(campaign_id, *scope_args(key)):
         if detail and "descriptors" in detail:
             tags[str(detail["candidate_id"])] = detail["descriptors"]
     out: dict[str, Cell] = {}
-    for t in ledger.trials(campaign_id, engine=engine, seed=seed):
+    for t in ledger.trials(campaign_id, *scope_args(key)):
         public = g3.get(t.candidate_id, (False, {}))[1].get("public", {})
         cats = tuple(tags.get(t.candidate_id, {}).get("categories", ()))
         out[t.candidate_id] = fmap.cell(descriptors(public, _years(t.timerange)), cats)

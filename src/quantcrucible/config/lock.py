@@ -12,6 +12,7 @@ import hashlib
 import os
 import stat
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,84 @@ def read_lock(lock_path: Path) -> dict[str, Any]:
     return data
 
 
+LOCK_HEADER = "# GENERATED when the campaign opened — never edit (Architecture §10.1).\n"
+
+
+def lock_text(
+    cfg: UserConfig,
+    campaign_id: str,
+    holdout_range: str,
+    holdout_lock_hash: str | None,
+    derived: Mapping[str, Any] | None,
+    created_at: str,
+) -> str:
+    """Render a lock's exact bytes. The single source of the document, so a preview and the real
+    write cannot drift apart (P3-24)."""
+    content = {
+        "campaign_id": campaign_id,
+        "created_at": created_at,
+        "holdout_range": holdout_range,
+        "holdout_lock_hash": holdout_lock_hash,
+        "research": research_to_dict(cfg.research),
+        "derived": dict(derived or {}),
+    }
+    return LOCK_HEADER + yaml.safe_dump(content, sort_keys=True, allow_unicode=True)
+
+
+@dataclass(frozen=True, slots=True)
+class DryRun:
+    """What opening a campaign *would* do. ``problems`` is empty when it would succeed."""
+
+    text: str
+    problems: tuple[str, ...]
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+def dry_run_lock(
+    cfg: UserConfig,
+    ledger: Ledger,
+    campaign_id: str,
+    lock_path: Path,
+    holdout_range: str,
+    holdout_lock_hash: str | None = None,
+    derived: Mapping[str, Any] | None = None,
+) -> DryRun:
+    """Answer "would this open?" without writing, archiving or registering anything.
+
+    Opening a campaign is irreversible three ways at once — a read-only lock, the previous lock
+    archived, and an append-only ledger row — so the question could previously only be answered by
+    doing it. Before the first perpetual campaign that answer depends on data just downloaded and a
+    holdout just carved, and learning it by opening a campaign means burning one.
+
+    It **reports** rather than raises: a dry run answers, and the caller decides. The real
+    :func:`open_campaign` keeps raising, so nothing became permissive.
+    """
+    problems: list[str] = []
+    used = ledger.holdout_collision(holdout_range, holdout_lock_hash)
+    if used is not None:
+        problems.append(
+            f"holdout {holdout_range} was already used (claimed {used}); a used holdout joins the "
+            "in-sample data and is never a holdout again (§4.2) — carve a new one"
+        )
+    if lock_path.exists():
+        previous = read_lock(lock_path)
+        prev = ledger.campaign(str(previous["campaign_id"]))
+        if prev is not None and prev.status not in ("BURNED", "ABANDONED"):
+            problems.append(
+                f"campaign {prev.campaign_id!r} is still {prev.status}; finish it (holdout "
+                "opened ⇒ BURNED) or abandon it before opening a new one"
+            )
+    return DryRun(
+        text=lock_text(
+            cfg, campaign_id, holdout_range, holdout_lock_hash, derived, utc_now().isoformat()
+        ),
+        problems=tuple(problems),
+    )
+
+
 def open_campaign(
     cfg: UserConfig,
     ledger: Ledger,
@@ -90,18 +169,11 @@ def open_campaign(
         os.replace(lock_path, archive)
         _make_read_only(archive)
 
-    content = {
-        "campaign_id": campaign_id,
-        "created_at": utc_now().isoformat(),
-        "holdout_range": holdout_range,
-        "holdout_lock_hash": holdout_lock_hash,
-        "research": research_to_dict(cfg.research),
-        "derived": dict(derived or {}),
-    }
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.write_text(
-        "# GENERATED when the campaign opened — never edit (Architecture §10.1).\n"
-        + yaml.safe_dump(content, sort_keys=True, allow_unicode=True),
+        lock_text(
+            cfg, campaign_id, holdout_range, holdout_lock_hash, derived, utc_now().isoformat()
+        ),
         encoding="utf-8",
         newline="\n",
     )

@@ -48,6 +48,11 @@ export interface OverviewData extends Snapshot {
 }
 
 export interface ComparisonUnit {
+  /** The scope this unit searched. `legacy_spot` for a campaign from before P3-12. */
+  instrument: string
+  direction: string
+  /** `instrument-direction-engine-sN`, built once by the API so every screen agrees. */
+  unit: string
   engine: string
   seed: number
   trials: number
@@ -57,6 +62,8 @@ export interface ComparisonUnit {
 }
 
 export interface CheckpointRow {
+  instrument: string | null
+  direction: string | null
   engine: string
   seed: number
   ts: string
@@ -72,7 +79,7 @@ export interface ComparisonData extends Snapshot {
   protocol: ProtocolDetail | null
   units: ComparisonUnit[]
   checkpoints: CheckpointRow[]
-  warnings: { engine: string; seed: number }[]
+  warnings: { instrument: string | null; direction: string | null; engine: string; seed: number }[]
 }
 
 export interface CandidateRow {
@@ -166,6 +173,30 @@ export interface PortfolioData extends Snapshot {
   items: PortfolioRow[]
   calibrations: CalibrationRow[]
   ledger_trials: number
+}
+
+/** One bar of the shared account (P3-23). `residual` is measured, not asserted: the screen shows
+ *  it so a drift in the decomposition is visible rather than taken on trust. */
+export interface AccountPoint {
+  ts: string
+  equity: number
+  residual: number
+}
+
+export interface AccountSlot {
+  slot: string
+  final: number
+  values: number[]
+}
+
+export interface AccountData extends Snapshot {
+  status: 'ok' | 'missing'
+  portfolio_hash: string
+  initial_cash: number | null
+  points: AccountPoint[]
+  slots: AccountSlot[]
+  max_residual: number | null
+  reconciles: boolean | null
 }
 
 export interface ArchiveRow {

@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import (
     Event,
@@ -76,6 +77,8 @@ class StrategyCandidate:
     engine: str = "manual"
     seed: int = 0
     evolve_scope: str = "joint"
+    direction: ScopeDirection = "long"  # the side this scope searches (P3-04, INV-91)
+    instrument: str | None = None  # the contract this scope searches (P3-12); None = legacy
     hypothesis: str | None = None
     cell_id: str | None = None
     trial_source: TrialSource = "manual"
@@ -177,6 +180,7 @@ class GatePipeline:
                     TrialRecord(
                         run_id=c.run_id, campaign_id=c.campaign_id, candidate_id=c.candidate_id,
                         engine=c.engine, seed=c.seed, strategy_hash=s_hash, params=dict(c.params),
+                        instrument=c.instrument, direction=c.direction if c.instrument else None,
                         universe=",".join(c.universe), timeframe=c.timeframe,
                         timerange=c.timerange, source=c.trial_source,
                         sharpe_is=result.measurement.sharpe_is,
@@ -227,6 +231,7 @@ class GatePipeline:
     ) -> GenerationEvent:
         return GenerationEvent(
             run_id=c.run_id, campaign_id=c.campaign_id, engine=c.engine, seed=c.seed,
+            instrument=c.instrument, direction=c.direction if c.instrument else None,
             agent=c.agent, model_used=c.model_used, event=event, evolve_scope=c.evolve_scope,
             cell_id=c.cell_id, strategy_hash=s_hash, island=c.island,
             detail={"candidate_id": c.candidate_id, **(detail or {})},

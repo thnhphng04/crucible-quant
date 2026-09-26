@@ -27,7 +27,7 @@ from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.artifacts import measurement_path, write_once, write_parquet_once
 from quantcrucible.validation.cpcv import cpcv
 from quantcrucible.validation.gates import G4_PBO, GateContext, GateResult, StrategyCandidate
-from quantcrucible.validation.is_gates import backtest_options, universe_bars
+from quantcrucible.validation.is_gates import backtest_options, perp_inputs, universe_bars
 from quantcrucible.validation.pbo import DEFAULT_SPLITS, pbo
 from quantcrucible.validation.report import EvaluationReport
 from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
@@ -121,10 +121,14 @@ class PboGate:
                 "PBO needs >= 2 configurations: declare the free parameters as TUNABLE",
             )  # fmt: skip
         runner: SandboxRunner = ctx.services["sandbox"]
+        try:
+            perp = perp_inputs(candidate, ctx)
+        except ValueError as exc:
+            return GateResult(False, self.id, None, str(exc))
         job = SandboxJob(
             "grid_backtest", candidate.source, universe_bars(candidate, ctx), candidate.params,
             {**backtest_options(ctx.lock, candidate.seed), "grid": configs},
-            timeout_s=max(300.0, SECONDS_PER_CONFIG * len(configs)),
+            timeout_s=max(300.0, SECONDS_PER_CONFIG * len(configs)), perp=perp,
         )  # fmt: skip
         res = runner.run(job)
         if not res.ok or res.report is None:

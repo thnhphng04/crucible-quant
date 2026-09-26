@@ -14,6 +14,7 @@ Rebalance = Literal["weekly", "monthly", "quarterly"]
 EngineMode = Literal["isolated", "collaborative"]
 EvolveScope = Literal["entry", "exit", "regime", "joint"]
 CampaignPurpose = Literal["research", "harness_test"]
+Market = Literal["spot", "usdt_m_perpetual"]
 DEFERRED_ENGINES = ("quantevolve", "simple_loop")  # engines A/B, deferred by D19 (arch v0.6)
 
 # Hard floors (§10.1): may only be tightened.
@@ -109,16 +110,18 @@ class Gates:
 class Data:
     exchange: str = "binance"
     symbols: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT")
+    market: Market = "spot"
     timeframe: str = "1d"
     start: date = date(2018, 1, 1)
     holdout_months: int = 12
     second_exchange: str | None = "gate"  # gate ⑥′ data-source robustness (P1-09, ADR-0015)
+    leverage: int = 5  # maximum allowed; execution chooses the lowest funded integer
+    funding_interval_hours: int = 8  # expected settlement cadence, checked against real events
 
 
 @dataclass(frozen=True, slots=True)
 class Research:
-    target_vol: float = 0.10
-    max_risk_pct: float = 0.01
+    max_risk_pct: float = 0.01  # D12 — the loss at the stop; sizing is Q = R/d (ADR-0031)
     portfolio: Portfolio = field(default_factory=Portfolio)
     pbo_grid: PboGrid = field(default_factory=PboGrid)
     drift: Drift = field(default_factory=Drift)

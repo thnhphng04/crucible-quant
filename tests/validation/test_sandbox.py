@@ -12,9 +12,12 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from quantcrucible.core.strategy.base import generate_signals
+from quantcrucible.core.path_summary import segment_bar
+from quantcrucible.core.perp_inputs import PerpBundle
+from quantcrucible.core.strategy.base import Bars, generate_signals
 from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.execution.engine import run_backtest
 from quantcrucible.execution.risk import RiskSettings
@@ -299,3 +302,163 @@ def test_docker_memory_limit(image: str) -> None:
 def test_docker_os_error_is_a_violation(image: str) -> None:
     res = run(image, "open('/job/in/strategy.py', 'w')\n")
     assert res.violation == OS_ACCESS and not res.ok
+
+
+# ── the perpetual payload (P3-18, ADR-0034) ───────────────────────────────────────────
+
+
+def perp_bars(n: int = 120) -> dict[str, Bars]:
+    return {"BTC/USDT:USDT": make_bars(n, symbol="BTC/USDT:USDT")}
+
+
+def perp_bundle(bars: Bars) -> PerpBundle:
+    """A bundle aligned with `bars`: mark equals trade here, which is enough for staging."""
+    flat = [100.0] * 6
+    return PerpBundle(
+        symbol=bars.symbol,
+        timeframe=bars.timeframe,
+        marks=bars,
+        funding=np.array(
+            [[k, float(bars.ts[k].astype("int64")), 0.0001, 100.0] for k in range(len(bars))],
+            dtype=np.float64,
+        ),
+        paths=tuple(
+            segment_bar(list(range(6)), flat, flat, cuts=[0, 2, 4]) for _ in range(len(bars))
+        ),
+        brackets=({"cap": 1e9, "max_leverage": 100, "mmr": 0.004, "amount": 0.0},),
+    )
+
+
+def perp_job(kind: str = "backtest") -> SandboxJob:
+    bars = perp_bars()
+    only = next(iter(bars.values()))
+    return SandboxJob(
+        kind,
+        ZOO,
+        bars,
+        PARAMS,
+        {"lookback": 50, "risk": asdict(RiskSettings())},
+        perp={only.symbol: perp_bundle(only)},
+    )
+
+
+def test_prepare_stages_the_perpetual_sidecars_next_to_the_bars(tmp_path: Path) -> None:
+    SandboxRunner("img").prepare(perp_job(), tmp_path)
+    files = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
+    assert files == [
+        "in/data/BTC-USDT-USDT.brackets.json",
+        "in/data/BTC-USDT-USDT.funding.parquet",
+        "in/data/BTC-USDT-USDT_1d.mark.parquet",
+        "in/data/BTC-USDT-USDT_1d.parquet",
+        "in/data/BTC-USDT-USDT_1d.paths.parquet",
+        "in/job.json",
+        "in/strategy.py",
+    ]
+    spec = json.loads((tmp_path / "in/job.json").read_text(encoding="utf-8"))
+    assert set(spec["perp"]["BTC/USDT:USDT"]) == {"mark", "funding", "paths", "brackets"}
+
+
+def test_the_container_reads_back_the_same_bundle(tmp_path: Path) -> None:
+    """The host object and what the container reconstructs must be the same thing — a lossy
+    hop here would change which bar liquidates, with no error anywhere."""
+    job_ = perp_job()
+    SandboxRunner("img").prepare(job_, tmp_path)
+    spec, _, bars, perp = sandbox_runner.load_inputs(tmp_path / "in")
+    assert set(perp) == set(job_.perp or {})
+    sent = (job_.perp or {})["BTC/USDT:USDT"]
+    got = perp["BTC/USDT:USDT"]
+    np.testing.assert_array_equal(got.funding, sent.funding)
+    assert [p.starts for p in got.paths] == [p.starts for p in sent.paths]
+    got.aligned_with(bars["BTC/USDT:USDT"])
+    assert spec["kind"] == "backtest"
+
+
+def test_no_minute_series_is_ever_staged(tmp_path: Path) -> None:
+    """INV-99. Gate ④ stages one payload per candidate; the summary exists so that payload
+    never carries 1,440 rows per bar."""
+    SandboxRunner("img").prepare(perp_job(), tmp_path)
+    bar_count = 120
+    for file in (tmp_path / "in/data").iterdir():
+        assert "_1m." not in file.name, file.name
+        if file.suffix == ".parquet":
+            assert len(pd.read_parquet(file)) < bar_count * 1_440
+
+
+def test_a_perpetual_backtest_without_its_bundle_is_refused_in_the_container(
+    tmp_path: Path,
+) -> None:
+    """Fail closed (INV-94). A backtest that silently treats the mark as the trade price and
+    funding as zero is the exact failure the bundle exists to prevent, so its absence has to be
+    an error the gate reports — not a default."""
+    bare = SandboxJob("backtest", ZOO, perp_bars(), PARAMS, {"lookback": 50})  # no `perp=`
+    SandboxRunner("img").prepare(bare, tmp_path)
+    with pytest.raises(ValueError, match="no perpetual inputs for BTC/USDT:USDT"):
+        sandbox_runner.load_inputs(tmp_path / "in")
+
+
+def test_a_spot_backtest_needs_no_bundle(tmp_path: Path) -> None:
+    """The requirement is read off the symbol, not off a config flag, so the spot path — which
+    has no mark price and no funding to model — is untouched by it. Legacy campaigns still run."""
+    SandboxRunner("img").prepare(job(kind="backtest"), tmp_path)  # BTC/USDT, spot
+    spec, _, bars, perp = sandbox_runner.load_inputs(tmp_path / "in")
+    assert perp == {} and set(bars) == {"BTC/USDT"} and spec["kind"] == "backtest"
+
+
+def test_a_signals_job_needs_no_bundle(tmp_path: Path) -> None:
+    """Gate ①a and ①b read signals only; they never price a position, so requiring the bundle
+    there would stage megabytes for nothing."""
+    SandboxRunner("img").prepare(job(kind="signals"), tmp_path)
+    spec, _, _, perp = sandbox_runner.load_inputs(tmp_path / "in")
+    assert perp == {} and spec["kind"] == "signals"
+
+
+def test_a_bundle_that_does_not_line_up_with_the_bars_is_refused(tmp_path: Path) -> None:
+    bars = perp_bars(120)
+    only = next(iter(bars.values()))
+    short = perp_bundle(make_bars(119, symbol="BTC/USDT:USDT"))
+    bad = SandboxJob("backtest", ZOO, bars, PARAMS, {"lookback": 50}, perp={only.symbol: short})
+    with pytest.raises(ValueError, match="does not line up"):
+        SandboxRunner("img").prepare(bad, tmp_path)
+
+
+# ── the bundle reaches run_backtest inside the container (P3-21) ───────────────────────
+
+
+def test_a_backtest_job_runs_the_perpetual_account(tmp_path: Path) -> None:
+    """The point of the whole chain. A perpetual backtest must report funding and a fixed stop —
+    which only happens if the bundle actually reached `run_backtest`, not just `load_inputs`.
+    """
+    job_ = perp_job("backtest")
+    SandboxRunner("img").prepare(job_, tmp_path)
+    report = sandbox_runner.execute(tmp_path)
+    assert report["ok"], report
+    result = report["result"]
+    assert result["funding_paid"] != 0.0, "funding never reached the account"
+    assert result["stops_placed"], "no protective stop was recorded"
+    assert result["signals_stream"], "gate ③ needs the signal stream to build a portfolio later"
+    assert len(result["signals_stream"]["BTC/USDT:USDT"]) == len(job_.bars["BTC/USDT:USDT"])
+
+
+def test_a_grid_job_runs_every_configuration_on_the_account(tmp_path: Path) -> None:
+    bars_ = perp_bars(80)
+    only = next(iter(bars_.values()))
+    grid = [{"fast": 5, "slow": 20, "k_atr": 2.0}, {"fast": 8, "slow": 30, "k_atr": 2.5}]
+    job_ = SandboxJob(
+        "grid_backtest", ZOO, bars_, PARAMS,
+        {"lookback": 30, "risk": asdict(RiskSettings()), "grid": grid},
+        perp={only.symbol: perp_bundle(only)},
+    )  # fmt: skip
+    SandboxRunner("img").prepare(job_, tmp_path)
+    report = sandbox_runner.execute(tmp_path)
+    assert report["ok"], report
+    assert len(report["result"]["returns"]) == 2
+    assert report["result"]["funding_paid"] and len(report["result"]["funding_paid"]) == 2
+
+
+def test_a_spot_backtest_reports_no_funding(tmp_path: Path) -> None:
+    """The branch is read off the symbol, so a legacy campaign keeps exactly its old report."""
+    SandboxRunner("img").prepare(job(kind="backtest"), tmp_path)
+    report = sandbox_runner.execute(tmp_path)
+    assert report["ok"], report
+    assert report["result"]["funding_paid"] == 0.0
+    assert report["result"]["stops_placed"] == []
