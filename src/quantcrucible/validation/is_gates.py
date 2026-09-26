@@ -41,22 +41,25 @@ def universe_bars(candidate: StrategyCandidate, ctx: GateContext) -> dict[str, B
 
 
 def risk_settings(lock: Mapping[str, Any]) -> dict[str, Any]:
-    """Sizing locked for the campaign: Group B (target vol, max risk, rebalance) + the lock's
-    ``derived.sizing`` (ADR-0010). A lock written before P1-06 has no sizing — refuse rather than
-    mix two sizing rules inside one campaign's trials."""
+    """Sizing locked for the campaign: ``max_risk_pct`` from Group B (D12).
+
+    Two locks are refused rather than mixed, because a campaign's trials must all be sized the
+    same way: one written before P1-06, which has no ``derived.sizing`` at all, and one written
+    under vol targeting, which carries ``max_leverage`` (ADR-0031 retired P4)."""
     derived: Mapping[str, Any] = lock["derived"]
     if "sizing" not in derived:
         raise ValueError(
             "this campaign's lock predates the Risk layer (no derived.sizing): its trials were "
             "sized differently — open a new campaign"
         )
+    sizing: Mapping[str, Any] = derived["sizing"]
+    if "max_leverage" in sizing or "idm_cap" in sizing:
+        raise ValueError(
+            "this campaign's lock was written under vol targeting (derived.sizing.max_leverage): "
+            "its trials were sized differently — open a new campaign"
+        )
     research: Mapping[str, Any] = lock["research"]
-    return {
-        "target_vol": float(research["target_vol"]),
-        "max_risk_pct": float(research["max_risk_pct"]),
-        "rebalance": str(research["portfolio"]["rebalance"]),
-        **dict(derived["sizing"]),
-    }
+    return {"max_risk_pct": float(research["max_risk_pct"])}
 
 
 def backtest_options(lock: Mapping[str, Any], seed: int) -> dict[str, Any]:

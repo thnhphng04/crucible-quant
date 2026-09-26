@@ -74,7 +74,6 @@ def test_tightening_is_allowed() -> None:
         ({"research": {"campaign": {"purpose": "production"}}}, "not one of"),
         ({"research": {"campaign": {"trial_budget": 0}}}, "trial_budget"),
         ({"research": {"drift": {"allow_below": 0.2}}}, "allow_below"),
-        ({"research": {"target_vol": 0}}, "> 0"),
         ({"research": {"max_risk_pct": 2}}, "<= 1"),
         ({"research": {"data": {"start": "yesterday"}}}, "date"),
         ({"research": {"data": {"symbols": []}}}, "symbols"),
@@ -101,7 +100,6 @@ def test_holdout_pass_optional_until_used() -> None:
         ("gates", "pbo_max"),
         ("minbtl_target_sharpe",),
         ("holdout_pass",),
-        ("target_vol",),
     ],
 )
 def test_non_finite_numbers_rejected(bad: float, path: tuple[str, ...]) -> None:

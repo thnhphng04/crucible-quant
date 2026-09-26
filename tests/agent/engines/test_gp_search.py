@@ -20,6 +20,7 @@ from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GateResultRecord, GenerationEvent, TrialRecord
 from quantcrucible.validation.gates import G3_IS, G4_PBO, strategy_hash
 from quantcrucible.validation.run import FEATURE_MAP
+from tests.factories import unit
 
 FM = FeatureMap.from_lock({"derived": {"feature_map": FEATURE_MAP}})
 CAP = 0.30
@@ -60,7 +61,7 @@ def engine(tmp_path: Path) -> GpSearch:
     source = RandomSearch(seed=4)
     for k in range(4):
         _seed(lg, f"p{k}", source.next(), f"i{k}", 1.0 + 0.1 * k)
-    return GpSearch(lg, "c1", 0, 7, FM, 365.0, CAP, "run")
+    return GpSearch(lg, "c1", unit(), 7, FM, 365.0, CAP, "run")
 
 
 def test_the_cap_holds_when_every_operator_only_moves_numbers(

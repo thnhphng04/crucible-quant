@@ -15,8 +15,9 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from quantcrucible.agent.evolution.archive import Archive, Entry
+from quantcrucible.agent.evolution.archive import Archive, Entry, scope_args
 from quantcrucible.agent.grammar import CATEGORIES
+from quantcrucible.agent.scheduler import Key
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
 
@@ -93,21 +94,21 @@ def plan_migration(
 
 
 # ── the ledger is the only state (ADR-0024) ────────────────────────────────────────────────
-def record_migration(
-    ledger: Ledger, campaign_id: str, engine: str, seed: int, run_id: str, m: Migration
-) -> None:
+def record_migration(ledger: Ledger, campaign_id: str, key: Key, run_id: str, m: Migration) -> None:
+    """A migration stays inside its unit: the ring never crosses an instrument or a side."""
     ledger.log_event(
         GenerationEvent(
-            run_id=run_id, campaign_id=campaign_id, engine=engine, seed=seed, agent="engine",
+            run_id=run_id, campaign_id=campaign_id, engine=key.engine, seed=key.seed,
+            instrument=key.instrument, direction=key.direction, agent="engine",
             model_used="none", event=Event.MIGRATION, island=m.destination,
             detail={"from": m.source, "to": m.destination, "candidates": list(m.candidate_ids)},
         )
     )  # fmt: skip
 
 
-def migrations(ledger: Ledger, campaign_id: str, engine: str, seed: int) -> list[Migration]:
+def migrations(ledger: Ledger, campaign_id: str, key: Key) -> list[Migration]:
     out: list[Migration] = []
-    for event, _island, detail in ledger.events_for(campaign_id, engine=engine, seed=seed):
+    for event, _island, detail in ledger.events_for(campaign_id, *scope_args(key)):
         if event == Event.MIGRATION and detail:
             out.append(
                 Migration(str(detail["from"]), str(detail["to"]), tuple(detail["candidates"]))

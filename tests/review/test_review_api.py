@@ -237,3 +237,38 @@ def test_an_unsupported_schema_is_refused_instead_of_migrated(tmp_path: Path) ->
     with pytest.raises(ReviewDataError, match=f"v{SUPPORTED_SCHEMA + 1}"):
         ReviewRepository(root).campaigns()
     assert path.read_bytes() == before
+
+
+# ── scope (P3-15, ADR-0033) ───────────────────────────────────────────────────────────
+
+
+def test_the_comparison_labels_every_unit_with_its_scope(tmp_path: Path) -> None:
+    """A v4 campaign stored NULL scope columns; it reads as the legacy scope rather than blank,
+    so an old report still looks like a report and not like missing data."""
+    repo = ReviewRepository(fixture_root(tmp_path))
+    units = repo.comparison("c-ui")["units"]
+    assert units
+    for u in units:
+        assert u["unit"] == f"{u['instrument']}-{u['direction']}-{u['engine']}-s{u['seed']}"
+        assert u["instrument"] == "legacy_spot" and u["direction"] == "long"
+
+
+def test_the_quota_divides_by_units_not_by_seeds_times_two(tmp_path: Path) -> None:
+    """The literal 2 was the arm count, which stopped being the whole story when the unit
+    widened to (instrument, direction, engine, seed)."""
+    repo = ReviewRepository(fixture_root(tmp_path))
+    units = repo.comparison("c-ui")["units"]
+    assert all(u["quota"] == 6 // len(units) for u in units)
+
+
+def test_candidates_still_filter_by_engine_after_the_widening(tmp_path: Path) -> None:
+    repo = ReviewRepository(fixture_root(tmp_path))
+    everything = repo.candidates("c-ui", {}, page=1, size=50)["total"]
+    gp_only = repo.candidates("c-ui", {"engine": "gp"}, page=1, size=50)["total"]
+    assert 0 < gp_only <= everything
+
+
+def test_a_scope_filter_finds_nothing_in_a_legacy_campaign(tmp_path: Path) -> None:
+    """A legacy row belongs to no perpetual scope, so asking for one must not sweep it in."""
+    repo = ReviewRepository(fixture_root(tmp_path))
+    assert repo.candidates("c-ui", {"instrument": "BTCUSDT"}, page=1, size=50)["total"] == 0

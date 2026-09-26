@@ -410,3 +410,23 @@ def test_d4_comes_from_the_campaign_lock_not_user_yaml(
     proj = build_project(tmp_path, holdout_pass=1e6)  # unreachable ⇒ FAIL
     (proj.root / "config" / "user.yaml").write_text("research: {holdout_pass: -1e6}\n", "utf-8")
     assert run_main(proj, capsys, ScriptedRunner()) == (0, "FAIL\n")
+
+
+def test_a_missing_oos_series_fails_closed_and_never_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """INV-94 at the out-of-sample boundary (P3-10).
+
+    A perpetual replay needs mark prices and funding as well as trade prices, and neither can be
+    reconstructed from the third. If one is missing the evaluator must refuse, because the
+    alternative -- filling it with a default -- would produce a PASS built on an assumption that
+    nobody chose. Driven here by removing a required file, which is the same failure shape.
+    """
+    proj = build_project(tmp_path)
+    target = next((proj.root / "holdout").glob("*.parquet"))
+    os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+    target.unlink()
+    code, out = run_main(proj, capsys)
+    assert code == 2
+    assert out == ""  # not PASS, not FAIL, not a number
+    assert proj.ledger.holdout_access("c1") is None

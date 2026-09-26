@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-21
-- **Task:** P1-06 · **Arch:** §3.4, D7, D12, P4, P5 · **Open item:** O11 (closed)
+- **Task:** P1-06 · **Arch:** §3.4, D7, D12, P4, P5 · **Open item:** O11 (closed) · **Amended by:** [ADR-0031](0031-position-size-is-risk-over-stop-distance.md)
 
 ## Context
 

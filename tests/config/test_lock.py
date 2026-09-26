@@ -50,9 +50,9 @@ def test_group_b_change_refused(ledger: Ledger, lock_path: Path) -> None:
     cfg = UserConfig()
     open_campaign(cfg, ledger, "c1", lock_path, HOLDOUT)
     edited = dataclasses.replace(
-        cfg, research=dataclasses.replace(cfg.research, seeds=5, target_vol=0.2)
+        cfg, research=dataclasses.replace(cfg.research, seeds=5, max_risk_pct=0.02)
     )
-    with pytest.raises(LockMismatchError, match="seeds, target_vol"):
+    with pytest.raises(LockMismatchError, match="max_risk_pct, seeds"):
         assert_lock_matches(edited, lock_path, ledger, "c1")
 
 

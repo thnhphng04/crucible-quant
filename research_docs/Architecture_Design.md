@@ -43,7 +43,7 @@ Six principles drawn from the research. Every technical decision defers to them.
 | **P1** | **Harness first, agent second** | The agent generates faster than you can check. No harness = producing garbage at high speed |
 | **P2** | **Every backtest goes through the ledger, no bypass** | `N` determines DSR. If a bypass exists, you will use it ([[07-VALIDATION-LAYER]] §6) |
 | **P3** | **Strategies speak in RELATIVE units (`strength` + `stop_distance`), not lots/shares/contracts** | The precondition for one codebase running across 4 markets. Sizing is the Risk layer's job (§3.4) |
-| **P4** | **Vol targeting mandatory on every position** | Without it, 4 markets are still 1 bet and the breadth benefit is lost (Sharpe 0.4 → 1.6) |
+| **P4′** | **Fixed risk per trade: `Q = R/d`, plus one risk cap for the whole portfolio** | v0.7 (ADR-0031) replaces vol targeting. IDM's correlation credit is lost; in exchange the loss per trade is a number known in advance, and the portfolio cap bounds total risk |
 | **P5** | **Backtest ≡ Live, same code** | Every rewrite is a new source of bugs |
 | **P6** | **Holdout: write once, open once per research campaign — for one frozen portfolio** | Once you've looked, it's burned forever. Opening it per strategy = one more round of selection (§4.2) |
 
@@ -652,41 +652,41 @@ On local Windows (A6): use a container (Docker with `--network none`, `--read-on
 
 This layer is **more important than the adapter layer** yet routinely treated as an afterthought.
 
-> 🔴 **v0.3 correction — version 0.2 reduced exposure by volatility TWICE.** The old code computed `risk_amount = equity × risk_pct × target_vol / vol_estimate` and then **also divided by `stop_distance`** (= k × ATR). Both `vol_estimate` and ATR scale with volatility, so when volatility doubles, size drops to **~¼** instead of ½ — which is no longer vol targeting, and the 10% portfolio vol target is not achieved. New rule: **volatility enters the size exactly once**; the stop is only a **cap**, never multiplied in.
+> 🔴 **v0.7 correction — P4 is retired; sizing becomes fixed-fractional.** Versions 0.3–0.6 made vol targeting the primary leg and the stop only a **cap** (`min`). The user's decision of 2026-09-25 (ADR-0031) replaces it with `Q = R / d`, where `R = max_risk_pct × equity` and `d = stop_distance`. Volatility still enters the size **exactly once**, but through `stop_distance` (typically k × ATR) rather than through a vol leg. `target_vol` (D7), IDM and `portfolio_scale` are **deleted**, not left as advisory. In exchange: every position risks **exactly** `max_risk_pct` rather than **at most** `max_risk_pct`, and portfolio volatility becomes an **outcome** instead of a target. The v0.3 lesson still holds and is now easier to keep: volatility must never be multiplied in twice — in this form it has exactly one way in, `d`.
 
 ```python
 class PositionSizer:
     def size(self, signal: Signal, instrument: Instrument,
-             account: Account, vol_estimate: float,
-             n_active: int, idm: float) -> Quantity:
-        # 1. Vol targeting — the ONLY place volatility enters the size
-        #    Per-instrument vol budget: portfolio target split evenly, times IDM
-        #    (instrument diversification multiplier, compensating for correlation < 1)
-        inst_target_vol = self.target_vol * idm / n_active
-        notional = account.equity * inst_target_vol / vol_estimate * signal.strength
-        qty_vol = notional / (instrument.price * instrument.multiplier * fx_rate)
+             account: Account) -> Quantity:
+        # 1. Fixed risk budget — the capital lost if price reaches the stop
+        risk = account.equity * self.max_risk_pct
 
-        # 2. Stop-based risk cap — MIN, not multiply
-        #    The loss at the stop may not exceed max_risk_pct of equity
-        qty_cap = account.equity * self.max_risk_pct / (
-            signal.stop_distance * instrument.multiplier * fx_rate)
+        # 2. Convert to quantity — stop_distance enters EXACTLY ONCE.
+        #    No vol-targeting leg, no IDM, no portfolio scale.
+        qty = risk / (signal.stop_distance
+                      * instrument.multiplier * fx_rate)
 
-        qty = min(qty_vol, qty_cap)
-
-        # 3. Convert to venue units: round to lot step, check min/max
+        # 3. Venue units: round DOWN to the lot step, check min/max.
+        #    Rounding down ⇒ realized risk ≤ the budget, never above it.
         return round_to_lot(qty, instrument)
+
+# At portfolio level (§3.2.1): the summed commitment of open positions, pending
+# orders and the new entry may not exceed max_portfolio_risk_pct of equity, on
+# ONE snapshot shared by the batch. q and d freeze at entry ⇒ each is a constant.
+committed = sum(q_i * d_i for q_i, d_i in open_positions)
+admit = committed + risk <= account.equity * self.max_portfolio_risk_pct
 ```
 
-One more step at **portfolio level** (runs on every rebalance, §3.2.1): estimate portfolio vol from the position covariance matrix; if it deviates from target, **scale all positions uniformly** back to `target_vol`, with a leverage cap. IDM is re-estimated at this step.
+The **portfolio-level** step is no longer a uniform rescale to `target_vol`. It becomes an **admission rule**: at each timestamp, settle exits, stops, liquidations and funding first, snapshot equity once, then consider entries in canonical order; an entry is admitted only if the summed risk commitment stays inside the portfolio cap. Never widen a stop, never add margin automatically, never close an older position to make room.
 
 **Four things this layer must do:**
 
-1. **Vol targeting** — scale every market to the same volatility target (Hurst-Ooi-Pedersen use 10%/yr). **Without this step, BTC at ~60% vol eats the entire portfolio risk budget and VN30F1M at ~20% vol effectively does not exist**
-2. **Stop-based risk cap** — `stop_distance` only bounds the maximum loss per trade (`min`), it does not scale a second time
-3. **Unit conversion** — notional → lots/shares/contracts using each venue's multiplier
+1. **Fixed risk budget** — every position loses exactly `max_risk_pct` of equity at its stop, however volatile that instrument is. Portfolio volatility is an **outcome** of the book, no longer a target set in advance
+2. **Portfolio risk cap** — the summed commitment of open positions, pending orders and the new entry may not exceed `max_portfolio_risk_pct`, measured on one equity snapshot shared by the whole batch
+3. **Unit conversion** — notional → lots/shares/contracts using each venue's multiplier, rounding **down** so realized risk never exceeds the budget
 4. **FX conversion** — account for PnL consistently in one base currency (USD, VND, …)
 
-> Mandatory test in phase 1: double both `vol_estimate` and ATR on a synthetic instrument ⇒ size must drop to **exactly ½** (when the stop cap is not binding).
+> Mandatory test: risk at the stop equals `max_risk_pct × equity` within `[R − ε, R]`, where ε is what lot/tick rounding gives up; and doubling `vol_estimate` **does not** change the size (P4 is retired), while doubling `stop_distance` halves it exactly.
 
 ### 3.5. Execution Core & Adapters
 
@@ -1119,7 +1119,7 @@ This is exactly the basket Hurst-Ooi-Pedersen use (**29 commodities + 11 indices
 | **0** | **Harness + ledger + oracle suite**. No agent yet. Hand-write one EMA crossover strategy and run it through all 8 steps. 🆕 Template + sandbox + `EvaluationReport` | 🔒 **The pipeline REJECTS all 4 levels of leaky oracle** | 2–3 weeks |
 | **1** | Full validation layer (CPCV/PBO/DSR/MinBTL) + Risk & Sizing | 🔒 The hand-written strategy clears every gate; the ledger separates audit/trials correctly, `N_eff` + `V[SR]` are computable; DSR matches a published numerical example in the original paper; PBO matches hand-computed fixtures from the CSCV/PBO definition and the result of an independent implementation on the same input; the ½ sizing test (§3.4) passes | 2–3 weeks |
 | **2** | 🆕 v0.6: the **no-LLM engine C** (C-gp + C-random, feature map + islands), **crypto only**. Engines A/B deferred (D19) | 🔒 ≥150 C-gp generations run autonomously, every `s_new` reaches the ledger, the feature map does not collapse into one bin. Island integration test passes (§3.1.5). **C-gp vs C-random comparison in `isolated` mode** per §3.1.11 — decision rule locked before running | **4–6 weeks** |
-| **3** | Expand breadth: 15–30 weakly-correlated instruments. 🆕 `collaborative` mode only once A/B are built (D19) | 🔒 Vol targeting works; no instrument holds >20% of the risk | 2–3 weeks |
+| **3** | 🆕 v0.7: **USDT-M perpetuals, a strategy per `(instrument, direction)`** — hedge mode, isolated margin, one shared account (ADR-0031). Breadth of 15–30 instruments moves to phase 3b | 🔒 Fixtures prove the joint-account path: 10 positions on one equity snapshot, long and short open together on one contract, funding of both signs, liquidation, the 10% cap denying an eleventh entry. Real-data preflight passes | 6–10 weeks |
 | **4** | IB adapter → forex + international equities | 🔒 Sessions/calendars correct, no look-ahead introduced | 3–4 weeks |
 | **5** | Multi-asset futures — **including building the roll module yourself** from free data (see 6.1) | 🔒 Self-built continuous contracts match a reference source; roll gaps produce no fabricated returns | **5–7 weeks** |
 | **6** | 🔴 SSI adapter → VN30F1M | 🔒 Reconciliation correct on reconnect with open positions | 3–6 weeks |
@@ -1175,18 +1175,18 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D4 | Economic threshold for funding (00 §9 Q4) | ✅ **Decided for the holdout** (21 Sep 2026) · 🔴 **live still open** | `holdout_pass = 1.3`: minimum annualized OOS Sharpe of the **whole frozen portfolio**, on the holdout, net of fees + slippage, reference return 0; locked per campaign | ADR-0020. An initial acceptance bar set by the user, not derived from synthetic tests; never adjusted after seeing a holdout result. **PASS only means this bar was cleared — not that the portfolio may trade real money**; the funding criteria for live must still be decided before live |
 | D5 | Actual capital at the live stage | 🟡 Provisional default | < $10k | Maximum instrument count |
 | D6 | Base currency | 🟡 Provisional default | USD | FX conversion layer |
-| D7 | Portfolio vol target | 🟡 Provisional default | 10%/yr (Hurst-Ooi-Pedersen) | Vol targeting (§3.4) |
+| D7 | ~~Portfolio vol target~~ → Portfolio risk cap | ✅ Decided (25 Sep 2026) | `max_portfolio_risk_pct` = 10% of equity, summed commitment at the stop; ≤ 10 positions | Replaces vol targeting. ADR-0031, §3.4. Portfolio vol is now an **outcome**, not a target |
 | D8 | Maximum tolerable drawdown | 🟡 Provisional default | 20% | Kill-switch; part of D4 |
 | D9 | Portfolio-construction parameters (ρ, K, rebalancing) | 🟡 Provisional default | 0.5 / 20 / monthly (§3.2.1) | ⚠️ Must be frozen **before the first portfolio evaluation** — after that, every change is a `portfolio_variant` |
 | D10 | Drift thresholds Δ | 🟡 Provisional default | 0.05 / 0.15, normalized Δ (§3.1.7) | Calibrate in phase 2 before using them to abort automatically |
 | D11 | Research Agent model | 🟡 Provisional default | Non-reasoning, `gpt-oss-120b` (§3.1.9) | Internal A/B once engine A is built (deferred, D19) |
-| D12 | Maximum loss per trade at the stop (`max_risk_pct`) | 🟡 Provisional default | 1% of equity | Risk cap in sizing (§3.4) |
+| D12 | Loss per trade at the stop (`max_risk_pct`) | ✅ Decided (25 Sep 2026) | 1% of equity — now **the** sizing rule, no longer a cap | `Q = R/d`, ADR-0031, §3.4. Realized loss may differ through fees, funding, gaps and slippage — reported separately |
 | D13 | PBO parameter grid; number of drift micro-scenarios | 🟡 Provisional default | 3–5 values within ±30%, `M` ≤ 200; ~20 scenarios | §3.2, §3.1.7 |
 | D14 | Engine budget shares; mode | 🟡 Provisional default | Phase 2: C-gp 0.5 / C-random 0.5 (same quota per engine × seed); A, B = 0 (deferred); `isolated` | §3.1.11, D19 |
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
 | D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
-| D18 | Research data (phase 0) | 🟡 Provisional default | Binance spot, 1d, BTC/ETH/SOL/BNB/XRP vs USDT from 2018; holdout = last 12 months; second source for ⑥′ = Gate.io (`second_exchange`) | ADR-0002, ADR-0015, §6.1 |
+| D18 | Research data | 🟡 Provisional default | Phases 0–2: Binance **spot**, 1d, 5 USDT pairs from 2018. Phase 3 (ADR-0031): Binance **USDT-M perpetual**, 5 contracts, configurable `timeframe`, IS from **2020-09-14** (SOL is the binding listing — measured 25 Sep 2026); holdout = last 12 months, its own lock | ADR-0002, ADR-0015, ADR-0031, §6.1. The 5.03-year window caps MinBTL at **1,475** trials at target 1.5 |
 | D19 | Focus engine | ✅ Decided (22 Sep 2026) | **No-LLM engine C**: C-gp (GP, typed grammar) main + C-random control; A/B deferred, design kept; the generator has no bias on trading frequency | §3.1.11, §7, [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only). Reopening A/B is the user's call |
 | D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
 

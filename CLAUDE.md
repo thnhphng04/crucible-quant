@@ -19,7 +19,7 @@ If code and the architecture disagree, **stop and ask** — don't silently "fix"
 | **P1** Harness first: no agent code before the phase-0 gate passes (harness rejects all 4 leaky-oracle levels) | §1, §7 | roadmap order |
 | **P2** Every backtest goes through the ledger. No bypass, no reset, no "quick test" path | §4.1 | ledger API is the only way to run a backtest |
 | **P3** Strategies emit `Signal(direction, strength∈[0,1], stop_distance, take_profit)` — never lots/shares/contracts | §3.3 | types + import-linter |
-| **P4** Vol targeting on every position; **volatility enters size exactly once**, the stop is a `min` cap | §3.4 | the ½-size test |
+| **P4′** Position size is `Q = R/d` (`R = max_risk_pct × equity`); one risk cap for the whole portfolio. Retired P4/vol targeting, ADR-0031 | §3.4 | the risk-at-the-stop test |
 | **P5** Backtest ≡ live: same code path (NautilusTrader) | §3.5 | `execution` depends on `core` only |
 | **P6** Holdout: written once, opened once **per campaign**, for one frozen `portfolio_hash`, returns PASS/FAIL only | §4.2 | DB PK + separate process + `.claude/hooks/guard_paths.py` |
 | **A4** No LLM at runtime — LLM SDKs are imported only under `quantcrucible.agent` | §0 | `tests/test_architecture_boundaries.py` |

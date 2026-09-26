@@ -90,12 +90,12 @@ class Pipeline:
     def _candidate_id(self, key: Key) -> str:
         with self._lock:
             n = next(self._counter)
-        engine, seed = key
-        return f"{self.run_label}-{engine}-s{seed}-{n:06d}"
+        return f"{self.run_label}-{key}-{n:06d}"
 
     def _fill_order(self, keys: list[Key], busy: Counter[Key], stats: RunStats) -> list[Key]:
-        """Least-proposed first, then least-busy: the slots are shared between the (engine, seed)
-        arms instead of being spent on whichever comes first (ADR-0027 compares at equal quota)."""
+        """Least-proposed first, then least-busy: the slots are shared between every
+        (instrument, direction, engine, seed) arm instead of being spent on whichever comes
+        first (ADR-0027 compares at equal quota; widened by ADR-0033)."""
         return sorted(keys, key=lambda k: (stats.proposed.get(k, 0), busy[k], keys.index(k)))
 
     def _starved(self, key: Key, stats: RunStats) -> bool:
@@ -117,7 +117,7 @@ class Pipeline:
                         break
                     if key in stats.starved or key in stats.stopped:
                         continue
-                    if not self.scheduler.reserve(*key):
+                    if not self.scheduler.reserve(key):
                         continue
                     proposal = self.engines[key].next()
                     stats.proposed[key] = stats.proposed.get(key, 0) + 1
@@ -132,7 +132,7 @@ class Pipeline:
                 for fut in done:
                     key, proposal = in_flight.pop(fut)
                     outcome = fut.result()  # an evaluation error stops the run (fail closed)
-                    self.scheduler.settle(*key, measured=outcome.measured)
+                    self.scheduler.settle(key, measured=outcome.measured)
                     stats.trials[key] = stats.trials.get(key, 0) + outcome.measured
                     stats.passed[key] = stats.passed.get(key, 0) + outcome.passed
                     engine = self.engines[key]
@@ -140,9 +140,7 @@ class Pipeline:
                         engine.observe(proposal, outcome)
                     if self._starved(key, stats):
                         stats.starved.add(key)
-                    if self.monitor is not None and self.monitor(
-                        key, self.scheduler.measured(*key)
-                    ):
+                    if self.monitor is not None and self.monitor(key, self.scheduler.measured(key)):
                         stats.stopped.add(key)
         except BaseException:
             for fut in in_flight:
@@ -165,9 +163,10 @@ def session_evaluator(session: ResearchSession, run_label: str) -> Evaluate:
         if s is None:
             s = replace(session, ledger=Ledger.open(session.ledger.path))
             local.session = s
-        engine, seed = key
         provenance = Provenance(
-            engine=engine, seed=seed, run_id=f"{run_label}-{engine}-s{seed}",
+            engine=key.engine, seed=key.seed, run_id=f"{run_label}-{key}",
+            instrument=key.searched_instrument,
+            direction=None if key.is_legacy else key.direction,
             island=proposal.island, parents=proposal.parents, mutation=proposal.mutation,
             descriptors={
                 "categories": list(categories(proposal.genome)),

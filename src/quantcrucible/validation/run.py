@@ -20,8 +20,7 @@ from quantcrucible.config.lock import (
     sha256_file,
 )
 from quantcrucible.config.schema import UserConfig
-from quantcrucible.core.sizing.vol_target import IDM_CAP, VOL_SPAN
-from quantcrucible.core.strategy.base import Bars
+from quantcrucible.core.strategy.base import Bars, ScopeDirection
 from quantcrucible.core.strategy.template import parse, template_hash
 from quantcrucible.core.strategy.tunable import default_params
 from quantcrucible.data.holdout_split import read_holdout_lock
@@ -58,7 +57,6 @@ FEATURE_MAP: dict[str, Any] = {
     },
     "categories": ["trend", "momentum", "mean_reversion", "breakout"],
 }
-MAX_LEVERAGE = 1.0  # spot, cash account: gross exposure never above equity (ADR-0010)
 
 
 def phase0_pipeline() -> GatePipeline:
@@ -79,7 +77,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "template_hash": template_hash(evolve_scope),
         "costs": asdict(CostModel()),
         "lookback": DEFAULT_LOOKBACK,
-        "sizing": {"vol_span": VOL_SPAN, "max_leverage": MAX_LEVERAGE, "idm_cap": IDM_CAP},
+        "sizing": {"rule": "risk_over_stop"},  # ADR-0031: Q = R/d, no vol-targeting knobs
         "pbo": {"n_splits": DEFAULT_SPLITS},
         "robustness": {"cost_multiplier": COST_MULTIPLIER, "max_sharpe_drop": MAX_SHARPE_DROP},
         "feature_map": FEATURE_MAP,
@@ -147,6 +145,10 @@ class Provenance:
     engine: str
     seed: int
     run_id: str
+    # The (instrument, direction) this candidate was searched for (P3-12). Unset for a legacy
+    # whole-basket run, which is what every pre-P3 caller is.
+    instrument: str | None = None
+    direction: str | None = None
     island: str | None = None
     cell_id: str | None = None
     parents: tuple[str, ...] = ()
@@ -155,6 +157,14 @@ class Provenance:
     agent: str = "engine"
     model_used: str = "none"
     trial_source: TrialSource = "evolution"
+
+
+def _scope_direction(given: str | None, current: ScopeDirection) -> ScopeDirection:
+    if given is None:
+        return current
+    if given not in ("long", "short"):
+        raise ValueError(f"direction must be long or short, got {given!r}")
+    return given  # type: ignore[return-value]
 
 
 def make_candidate(
@@ -169,14 +179,26 @@ def make_candidate(
     if params is None:
         params = default_params(list(parse(source).tunables))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
-    first = min(b.ts[0] for b in is_data.values()).astype("datetime64[D]")
-    last = max(b.ts[-1] for b in is_data.values()).astype("datetime64[D]")
+    # A scoped candidate sees ONE contract. Before P3-13 the universe was a campaign constant,
+    # which made every candidate a whole-basket strategy; a BTC-long candidate measured on five
+    # contracts is not the thing its scope searched for. An unscoped candidate keeps the basket,
+    # because that is what the pre-P3 campaigns did and their trials must keep meaning it.
+    scope = provenance.instrument if provenance else None
+    if scope is not None and scope not in is_data:
+        raise ValueError(
+            f"instrument {scope!r} is not in this session's data ({sorted(is_data)}): refusing "
+            "rather than falling back to the whole basket"
+        )
+    universe = (scope,) if scope is not None else tuple(is_data)
+    scoped_bars = [is_data[s] for s in universe]
+    first = min(b.ts[0] for b in scoped_bars).astype("datetime64[D]")
+    last = max(b.ts[-1] for b in scoped_bars).astype("datetime64[D]")
     candidate = StrategyCandidate(
         candidate_id=candidate_id or f"manual-{strategy_hash(source)[:10]}-{stamp}",
         source=source,
         params=dict(params),
-        universe=tuple(is_data),
-        timeframe=next(iter(is_data.values())).timeframe,
+        universe=universe,
+        timeframe=scoped_bars[0].timeframe,
         timerange=f"{first}/{last}",
         run_id=f"manual-{stamp}",
         campaign_id=campaign_id,
@@ -188,7 +210,8 @@ def make_candidate(
     return replace(
         candidate, run_id=p.run_id, engine=p.engine, seed=p.seed, island=p.island,
         cell_id=p.cell_id, parents=p.parents, mutation=p.mutation, descriptors=p.descriptors,
-        agent=p.agent,
+        agent=p.agent, direction=_scope_direction(p.direction, candidate.direction),
+        instrument=p.instrument,
         model_used=p.model_used, trial_source=p.trial_source,
     )  # fmt: skip
 

@@ -310,11 +310,110 @@ Không có code agent trong giai đoạn này (P1).
 
 ---
 
-## Giai đoạn 3–6 — các mốc (chia thành task khi bắt đầu giai đoạn)
+## Giai đoạn 3 — Chiến lược riêng theo (instrument, direction) trên perpetual USDT-M (6–10 tuần)
+
+Kiến trúc §3.4 (đã viết lại), §3.5, §7. Yêu cầu: `PLAN-PER-INSTRUMENT-STRATEGIES.vi.md`, chốt 25/9/2026.
+Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual ở host), ADR-0033 (scope, protocol v5).
+
+### ✅ P3-01 Spike coverage dữ liệu perpetual
+**Mục tiêu:** biết Binance USDT-M công bố những gì, trước khi ghi bất kỳ quyết định nào. **Kiến trúc:** §6.1, D18. **Cần:** —
+**File:** `scripts/perp_coverage.py` (chỉ đọc, không đụng `src/`).
+**Kết quả (25/9/2026):** cả ba chuỗi đều có cho cả năm contract. SOLUSDT là ràng buộc, niêm yết 2020-09-14, cho **5,03 năm** IS sau khi cắt holdout 12 tháng. MinBTL ở target 1,5 chặn N ở **1.475** trong khi `n_eff` đã là 290 — headroom 1.185. Bracket cần endpoint có chữ ký. Mark 1m khoảng 3,5 triệu dòng mỗi contract.
+**Đạt khi:** ✅ bảng coverage và một dòng go/no-go, ghi vào ADR-0031.
+
+### ✅ P3-02 Rút P4 trong kiến trúc
+**Mục tiêu:** luật sizing đổi ở nguồn chân lý trước khi đổi trong code. **Kiến trúc:** §3.4, §7, §10 (D7, D12, D18). **Cần:** P3-01
+**File:** `research_docs_vi/Architecture_Design.md` trước, rồi mirror EN; `CLAUDE.md`; `implement_docs/adr/0031-*.md` + mirror VI; `03-BAN-DO-BAT-BIEN-TEST.md` (rút INV-05, thêm dải INV-90..98).
+**Đạt khi:** `uv run python scripts/check_doc_mirror.py` xanh; ADR-0031 ghi ai quyết, thứ gì thay INV-05, và rằng `idm` / `portfolio_scale` / `target_vol` bị xoá chứ không phải đánh dấu lỗi thời.
+
+### ✅ P3-03 `Q = R/d`: thay bộ test INV-05 trước, rồi tới code
+**Mục tiêu:** cỡ vị thế là rủi ro chia khoảng stop, chứng minh bằng test viết trước. **Kiến trúc:** §3.4, ADR-0031. **Cần:** P3-02
+**File:** `tests/core/sizing/test_position_sizer.py`, `tests/execution/test_risk.py`, rồi `core/sizing/position_sizer.py`, `core/sizing/vol_target.py`, `execution/risk.py`, `config/schema.py`, `config/lock.py`, `validation/run.py`, `validation/is_gates.py`.
+**Đạt khi:** bốn test INV-90 xanh; ba test INV-05 đã biến mất; lock mang `derived.sizing.max_leverage` bị từ chối bằng đúng lỗi "mở campaign mới" đang có, thay vì âm thầm trộn hai luật sizing.
+
+### ✅ P3-04 `direction` thành trục của grammar, và guardrail sai hướng
+**Mục tiêu:** genome của một scope render đúng hướng của nó; tín hiệu sai hướng chết ở gate ①a. **Kiến trúc:** §3.3.1, ADR-0031. **Cần:** P3-02
+**File:** `agent/grammar.py` (literal `Signal("long", …)` được render), `validation/guardrail.py`.
+**Đạt khi:** INV-91; cùng một tập clause render theo hai hướng cho `strategy_hash` khác nhau.
+
+### ✅ P3-05 Margin model theo bracket
+**Mục tiêu:** initial margin, maintenance margin, leverage thấp nhất có thể cấp vốn, và giá thanh lý isolated, trên một bảng bracket. **Kiến trúc:** §3.5, ADR-0032. **Cần:** P3-01, P3-03
+**File:** thêm mới `execution/margin.py`.
+**Đạt khi:** ✅ `tests/execution/test_margin.py` — maintenance margin liên tục qua biên tier (đó chính là việc của số hạng `amount`), biên thuộc về tier dưới, leverage vượt bracket bị từ chối, và thanh lý nằm dưới entry của long và trên entry của short.
+**Chệch hướng:** việc chuyển venue (`CryptoPerpetual`, `OmsType.HEDGING`, `AccountType.MARGIN`) dời sang P3-06. Đứng riêng nó không có test nào trượt đúng lý do — một short chỉ quan sát được khi `TargetSizer` mang side. Bảng bracket vẫn là **dữ liệu**: `fetchLeverageTiers` là endpoint có chữ ký, nên giá trị thật đến cùng campaign lock và được ghi ở đó như một giả định.
+
+### ✅ P3-06 Venue giao dịch cả hai phía
+**Mục tiêu:** tín hiệu short mở được short kèm stop bảo vệ của nó. **Kiến trúc:** §3.5, P3. **Cần:** P3-04, P3-05
+**File:** `execution/nautilus_bridge.py` (`CryptoPerpetual`, `AccountType.MARGIN`, target có dấu, stop phía short, `FillRecord.position_side`), `execution/engine.py` (`_round_trips`, `assert_complete`).
+**Đạt khi:** ✅ `tests/execution/test_hedge.py` — short được giao dịch chứ không chỉ được đếm rồi bỏ, và vòng giao dịch của nó được đếm; thiếu ý sau cùng thì gate ③ loại mọi chiến lược short vì `min_trades` với lý do chẳng liên quan gì tới chiến lược. Các test INV-35 giữ nguyên.
+**Chệch hướng: `OmsType.NETTING`, không phải `HEDGING`.** Một backtest chạy một strategy trên một hướng, nên engine này không bao giờ giữ cả hai chân của một contract — sổ hai chiều là tính chất của joint-account replay (P3-08), vốn nằm ở host. `HEDGING` còn sinh `PositionId` mới cho mỗi lệnh vào, khiến stop `reduce_only` không còn gì để giảm và âm thầm không khớp.
+**Hai test bị thay, không bị xóa:** `test_short_signal_means_flat_on_spot` khẳng định đúng hành vi mà task này gỡ bỏ → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` kích hoạt guard bằng cách làm cạn tài khoản cash, thiếu thứ mà venue margin không làm → guard nay là `assert_complete` và được test trực tiếp.
+
+### ◐ P3-07 Funding, mark price, thanh lý, đường giá trong nến
+**Mục tiêu:** ba thứ Nautilus không mô hình. **Kiến trúc:** §3.5, ADR-0032. **Cần:** P3-05, P3-06
+**File:** thêm mới `execution/perp_account.py`, thêm mới `execution/path_summary.py`, `validation/sandbox.py` và `sandbox_runner.py` (kênh dữ liệu vào container mở rộng).
+**Đạt khi:** INV-93, INV-94; first touch khớp với quét vét cạn theo phút; chạm đồng thời bị gắn cờ mơ hồ và giải theo kết quả bất lợi hơn; nến phút không bao giờ vào sandbox.
+
+### ◐ P3-08 Backtest tài khoản chung và luật kết nạp
+**Mục tiêu:** một lần replay tài khoản thay cho N luồng tự tài trợ. **Kiến trúc:** §3.4, §3.2.1, ADR-0032. **Cần:** P3-07
+**File:** `execution/engine.py`, thêm mới `execution/admission.py`, `validation/sandbox_runner.py`.
+**Đạt khi:** INV-92; equity tài khoản đối soát khớp tổng đóng góp của các slot; cùng seed tái hiện cùng đường equity.
+
+### ✅ P3-09 Nguồn dữ liệu perpetual và manifest
+**Mục tiêu:** dữ liệu perpetual có hồ sơ toàn vẹn mà parquet spot chưa bao giờ có. **Kiến trúc:** §6.1, D18. **Cần:** P3-01, P3-05
+**File:** thêm mới `data/perp_source.py`, `data/store.py`, thêm mới `data/manifest.py`.
+**Đạt khi:** INV-94; manifest ghi checksum, coverage và nguồn; nến spot v4 không thoả được một yêu cầu perpetual; `data` vẫn không import `execution` (import-linter).
+
+### ◐ P3-10 Cắt holdout perpetual — tách biệt, ghi một lần
+**Mục tiêu:** một holdout thứ hai không bao giờ chạm cái thứ nhất. **Kiến trúc:** §4.2, P6. **Cần:** P3-09
+**File:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
+**Đạt khi:** có khoá và manifest riêng; khoá cũ không bao giờ bị mở hay ghi đè; lần cắt thứ hai bị từ chối; INV-08 đúng với khoá mới.
+
+### ✅ P3-11 Migration 007 — cột scope
+**Mục tiêu:** ledger mang được scope, và 1.325 hàng cũ giữ nguyên ý nghĩa mà không bị đụng. **Kiến trúc:** §4.1, ADR-0033. **Cần:** —
+**File:** thêm mới `ledger/migration_007_scope.sql`, `ledger/db.py`, `ledger/records.py`.
+**Đạt khi:** INV-95 — hàng cũ được giải lúc đọc, không bao giờ bằng UPDATE, thứ mà trigger append-only cấm. Migration chạy trên bản copy tạm, không bao giờ trên ledger thật.
+
+### ✅ P3-12 Đơn vị tìm kiếm thành (instrument, direction, engine, seed)
+**Mục tiêu:** mỗi scope là một arm độc lập. **Kiến trúc:** §3.1.11, ADR-0033. **Cần:** P3-04, P3-11
+**File:** `agent/scheduler.py`, `agent/pipeline.py`, `agent/run.py`, `agent/engines/`, `agent/evolution/archive.py`, `islands.py`, `validation/run.py` (`universe=tuple(is_data)`), `validation/gates.py`.
+**Đạt khi:** INV-96; INV-61 và INV-71 mở rộng và vẫn xanh; INV-65 mạnh thêm — engine vẫn không bao giờ thấy instrument của nó.
+
+### ✅ P3-13 Gate theo scope, danh mục theo slot, protocol v5
+**Mục tiêu:** gate ③④ trên một contract và một hướng; gate ⑤ trên một lần replay tài khoản chung. **Kiến trúc:** §3.2, §3.2.1, §3.1.11. **Cần:** P3-08, P3-12
+**File:** `validation/is_gates.py`, `pbo_gate.py`, `portfolio.py`, `robustness.py`, `calibration.py`, `agent/compare.py`, `agent/monitor.py`, `review/repository.py`.
+**Đạt khi:** INV-97, INV-98; lưới PBO không bao giờ trộn scope; INV-42 giữ nguyên, nên `trial_stats` vẫn toàn cục; campaign v4 bị từ chối dưới v5 (INV-74).
+
+### ✅ P3-14 Timeframe là knob thật
+**Mục tiêu:** đổi `research.data.timeframe` sang `4h` phải chạy end-to-end. **Kiến trúc:** D18, §3.2. **Cần:** P3-13
+**File:** `validation/portfolio.py` (`Member.from_dict` phải từ chối timeframe thiếu chứ không mặc định nó), `validation/run.py` (`DEFAULT_LOOKBACK` đếm theo nến), `config/schema.py`, `validation/is_gates.py`.
+**Đạt khi:** cả đường ống chạy ở 4h trên cùng fixture với niên hoá đúng; funding rơi đúng ở nến 1d, 4h và 8h.
+
+### ◐ P3-15 Review API, UI, hồi quy legacy, cổng chất lượng
+**Mục tiêu:** kết quả mới đọc được và kết quả v4 vẫn đọc được. **Kiến trúc:** ADR-0029, ADR-0033. **Cần:** P3-14, P3-10
+**File:** `review/repository.py` (`SUPPORTED_SCHEMA` 6→7, endpoint equity tài khoản), `review/app.py`, `ui/src/`.
+**Đạt khi:** equity ban đầu cộng tổng đóng góp bằng equity tài khoản trong sai số làm tròn; campaign v4 vẫn hiển thị được; INV-79 và INV-80 giữ nguyên; toàn bộ cổng chất lượng xanh.
+
+**Cổng giai đoạn 3:** fixture chứng minh đường tài khoản chung và preflight dữ liệu thật đạt. **Không campaign thật nào mở trong giai đoạn này** — hình dạng của nó là quyết định riêng, và headroom là 1.185 trial.
+
+**Trạng thái, nói thẳng.** Mười một trên mười lăm task đã xong. Bốn task mang dấu ◐ cùng thiếu
+đúng một mảnh: **payload vào sandbox vẫn chỉ mang nến giao dịch.** `perp_account`,
+`joint_account`, `path_summary` và `admission` đã dựng và đã test, nhưng không gì trong đường ống
+gate gọi tới chúng, vì một backtest bên trong container chưa nhận được mark price hay funding.
+Chừng nào mảnh đó chưa xong, một campaign perpetual không chạy được end-to-end — linh kiện có đủ,
+đường dây thì chưa. Những thứ bị chặn bởi nó: gate ③/④ trên đường perpetual (P3-07, P3-08),
+evaluator holdout trên đường đó (P3-10), và endpoint equity tài khoản cùng chart đóng góp (P3-15).
+
+Mảnh này bị hoãn từ P3-07 sang P3-08 rồi không được làm. Ghi lại ở đây thay vì đánh dấu task đã
+xong chính là điều đáng làm: cổng giai đoạn phía trên chưa đạt.
+
+---
+
+## Giai đoạn 3b–6 — các mốc (chia thành task khi bắt đầu giai đoạn)
 
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
-| **3** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |
+| **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |
 | **4** IB → forex + cổ phiếu quốc tế (3–4 tuần) | Adapter IB qua Nautilus; phiên/lịch giao dịch; nguồn dữ liệu Stooq; chỉ chỉ số/ETF (survivorship) | §3.5, §6.1 |
 | **5** Futures (5–7 tuần) | Tự viết module roll (điều chỉnh tỷ lệ, roll theo OI/volume) từ dữ liệu TurtleTrader; khớp với một nguồn tham chiếu | §6.1 |
 | **6** SSI → VN30F1M (3–6 tuần) | InstrumentProvider + DataClient + ExecutionClient; đối soát khi kết nối lại lúc đang có vị thế | §3.5 |
