@@ -2,8 +2,8 @@
 
 - **Engine report** per (engine, seed): trials, strategies passing ④, trial efficiency
   (passing ④ per 100 trials), archive coverage (occupied cells of eligible entries), search
-  coverage (cells of every trial) and proposals per trial — the §3.1.11 comparison metrics that
-  need no portfolio.
+  coverage (cells of every trial), proposals per trial and the ranking's dispersion margin
+  (INV-79) — the §3.1.11 comparison metrics that need no portfolio.
 - **Degradation curve:** every ``CHECKPOINT_EVERY`` trials of an (engine, seed), the IS record
   holder (highest IS Sharpe among its trials that reached ④) and the median Sharpe of that same
   trial's CPCV-OOS paths are recorded as a ``DEGRADATION_CHECKPOINT`` audit event. When the IS
@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 from quantcrucible.agent.evolution.archive import load_entries, trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap
+from quantcrucible.agent.evolution.ranking import RankContext, term_dispersion
 from quantcrucible.agent.scheduler import Key
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
@@ -175,7 +176,16 @@ def engine_report(
     seed: int,
     fmap: FeatureMap,
     rule: DivergenceRule = DEFAULT_DIVERGENCE,
+    periods_per_year: float | None = None,
 ) -> dict[str, Any]:
+    """The §3.1.11 metrics of one (engine, seed).
+
+    ``ranking_margin`` (INV-79) needs ``periods_per_year`` to rebuild the ranking's context; it
+    is ``None`` without it. Like every other key here it is reported, never acted on: it reaches
+    neither ``EarlyStop`` nor ``compare.decide`` (ADR-0028). It is reported for both arms —
+    C-random ranks nothing, so its value is the counterfactual spread, which is exactly the
+    comparison that exposed the compressed-benchmark defect.
+    """
     trials = ledger.trials(campaign_id, engine=engine, seed=seed)
     g4 = ledger.latest_gate_results(campaign_id, G4_PBO)
     g3 = ledger.latest_gate_results(campaign_id, G3_IS)
@@ -186,6 +196,11 @@ def engine_report(
         if e == Event.CANDIDATE_SUBMITTED
     )  # fmt: skip
     entries = load_entries(ledger, campaign_id, engine, seed, fmap)
+    margin: float | None = None
+    if periods_per_year is not None and entries:
+        stats = ledger.trial_stats()
+        ctx = RankContext(max(stats.n_eff, 1), stats.var_sr or 0.0, periods_per_year)
+        margin = term_dispersion(entries, ctx).margin
     return {
         "engine": engine,
         "seed": seed,
@@ -196,4 +211,5 @@ def engine_report(
         "search_cells": len(set(trial_cells(ledger, campaign_id, engine, seed, fmap).values())),
         "proposals_per_trial": submitted / len(trials) if trials else None,
         "diverging": is_oos_diverging(checkpoints(ledger, campaign_id, engine, seed), rule),
+        "ranking_margin": margin,
     }

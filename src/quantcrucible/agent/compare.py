@@ -28,8 +28,16 @@ import statistics
 from collections.abc import Sequence
 from typing import Any
 
-from quantcrucible.agent.evolution.archive import trial_cells
+from quantcrucible.agent.evolution.archive import Entry, trial_cells
 from quantcrucible.agent.evolution.feature_map import FeatureMap, cell_id
+from quantcrucible.agent.evolution.ranking import (
+    LAMBDA_PARAMS,
+    LAMBDA_PLATEAU,
+    LAMBDA_SIM,
+    LAMBDA_SPP,
+    RankContext,
+    scores,
+)
 from quantcrucible.agent.monitor import (
     CHECKPOINT_EVERY,
     MonitorMode,
@@ -37,6 +45,7 @@ from quantcrucible.agent.monitor import (
     warned_keys,
 )
 from quantcrucible.agent.scheduler import quotas
+from quantcrucible.core.strategy.tunable import MAX_TUNABLES
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
 from quantcrucible.validation.cpcv import (
@@ -89,8 +98,72 @@ These detect some behavioural changes, not every possible rewrite. Keep the valu
 rather than deriving them from the active rule, which would move the probes with the threshold.
 """
 
+
+def _probe(
+    cid: str,
+    tid: int,
+    sr: float,
+    *,
+    spp: float = 0.0,
+    plateau: float = 0.0,
+    n_params: int = 3,
+    signature: tuple[str, ...] = (),
+    moments: bool = True,
+) -> Entry:
+    """One fixed entry for ``RANKING_SCENARIOS``; only the fields the ranking reads matter."""
+    public: dict[str, float] = {"spp_median_sharpe": spp, "plateau": plateau}
+    if moments:
+        public |= {"sr_obs": sr, "skew_is": 0.0, "kurtosis_is": 3.0, "n_obs": 2819.0}
+    params = {f"p{i}": 1 for i in range(n_params)}
+    return Entry(cid, tid, f"h{cid}", params, None, ("trend",), public, (0,), signature)
+
+
+RANKING_CTX = RankContext(n_trials=145, var_sr=0.3355, periods_per_year=365.0)
+RANKING_SCENARIOS: tuple[tuple[Entry, ...], ...] = (
+    # A population squashed far below the deflated benchmark, with the auxiliary terms pulling
+    # the other way: the shape that made the absolute-PSR form rank on flatness (ADR-0029).
+    (
+        _probe("a", 1, 0.001, spp=1.2, plateau=1.0, n_params=1, signature=("X",)),
+        _probe("b", 2, 0.004, spp=0.8, plateau=0.9, n_params=2, signature=("X",)),
+        _probe("c", 3, 0.007, spp=0.2, plateau=0.4, n_params=4, signature=("Y",)),
+        _probe("d", 4, 0.010, spp=0.0, plateau=0.0, n_params=6, signature=("X",)),
+    ),
+    # A population spread across the benchmark: the primary term carries real spread either way.
+    (
+        _probe("a", 1, 0.010, spp=0.1, plateau=0.2, n_params=2, signature=("X",)),
+        _probe("b", 2, 0.035, spp=0.5, plateau=0.6, n_params=3, signature=("Y",)),
+        _probe("c", 3, 0.060, spp=0.9, plateau=0.9, n_params=4, signature=("X", "Y")),
+        _probe("d", 4, 0.090, spp=1.3, plateau=1.0, n_params=5, signature=("Z",)),
+    ),
+    # Every PSR identical: the whole population shares one average rank and only the auxiliary
+    # terms separate the candidates.
+    (
+        _probe("a", 1, 0.030, spp=0.5, plateau=1.0, n_params=1, signature=("X",)),
+        _probe("b", 2, 0.030, spp=0.5, plateau=0.0, n_params=6, signature=("X",)),
+        _probe("c", 3, 0.030, spp=0.5, plateau=0.5, n_params=3, signature=("Y",)),
+    ),
+    # Entries without IS moments score a literal 0.0 and must share the bottom rank.
+    (
+        _probe("a", 1, 0.020, spp=0.4, plateau=0.7, signature=("X",)),
+        _probe("b", 2, 0.050, spp=0.6, plateau=0.8, signature=("Y",)),
+        _probe("c", 3, 0.000, spp=0.9, plateau=1.0, signature=("Z",), moments=False),
+        _probe("d", 4, 0.000, spp=0.3, plateau=0.2, signature=("Z",), moments=False),
+    ),
+    # Two entries: the primary term is exactly {0.0, 1.0}.
+    (
+        _probe("a", 1, 0.015, spp=0.7, plateau=0.9, n_params=2, signature=("X",)),
+        _probe("b", 2, 0.075, spp=0.1, plateau=0.1, n_params=5, signature=("X",)),
+    ),
+    # One entry: the midpoint rank, and no division by zero.
+    (_probe("a", 1, 0.040, spp=0.6, plateau=0.6, n_params=3, signature=("X",)),),
+)
+"""Fixed populations spanning the ranking's decision boundary (ADR-0029): compressed, spread,
+fully tied, missing moments, two entries, one entry. Literal data for the same reason
+``MONITOR_SCENARIOS`` is — probes derived from the live λ would move with them.
+"""
+
 PROTOCOL: dict[str, Any] = {
-    "version": 3,
+    "version": 4,
     "arms": ["gp", "random"],
     "primary_metric": "trial_efficiency = strategies passing gate 4 per 100 trials",
     "unit": "(engine, seed); >= 3 seeds; same trial quota per (engine, seed)",
@@ -112,8 +185,15 @@ PROTOCOL: dict[str, Any] = {
         "incomplete": "progress only: the arms have not used their quotas, so the efficiencies "
         "are not comparable yet",
     },
+    "ranking": {
+        "version": 2,  # 1 = the absolute PSR value, 2 = its rank in the population (ADR-0029)
+        "primary": "rank of PSR(IS returns vs SR0(N_eff, V[SR])) within the scored population, "
+        "average ties, normalised to [0, 1]",
+        "max_tunables": MAX_TUNABLES,
+        "note": "what C-gp selects parents with; C-random reads no score at all (INV-65)",
+    },
     "supporting": [
-        "archive_cells", "search_cells", "proposals_per_trial",
+        "archive_cells", "search_cells", "proposals_per_trial", "ranking_margin",
         "gate4_backtests_per_passing_strategy", "is_oos_diverging",
         "portfolio_dsr_per_engine (built per §3.2.1 from that engine alone, same N)",
     ],
@@ -137,14 +217,44 @@ def monitor_fingerprint(rule: DivergenceRule = DEFAULT_DIVERGENCE) -> str:
     return hashlib.sha256(json.dumps(verdicts).encode()).hexdigest()
 
 
+def ranking_fingerprint() -> str:
+    """What the ranking *decides* on the fixed populations of ``RANKING_SCENARIOS``.
+
+    A **secondary** check only: the λ themselves are hashed as data (``ranking.lambdas``), which
+    is what binds a campaign. This catches a rewrite that keeps the λ but changes the arithmetic,
+    on the shapes it covers — and only those, so it can never be the lock (ADR-0028 amendment).
+
+    It hashes the **selection order**, which is all the engine acts on (per-cell elites, the
+    migration draw, the parent pool), plus the scores rounded to six decimals. Raw floats would
+    flip the hash on arithmetic reassociation and on last-ulp libm differences between platforms;
+    the order survives any behaviour-preserving refactor, and the rounding still catches a
+    dropped term or a λ drift. Ties break on ``candidate_id`` so no verdict depends on dict order.
+    """
+    out = []
+    for population in RANKING_SCENARIOS:
+        s = scores(population, RANKING_CTX)
+        order = sorted(s, key=lambda cid: (-s[cid], cid))
+        out.append([order, [round(s[cid], 6) for cid in order]])
+    return hashlib.sha256(json.dumps(out).encode()).hexdigest()
+
+
 def protocol() -> dict[str, Any]:
     """The protocol as it is locked and compared: the dict, the divergence rule the monitor will
-    actually run with, and the fingerprint of that rule's behaviour."""
+    actually run with, and the measured behaviour of that rule and of the ranking."""
     monitor = {**PROTOCOL["monitor"], "rule": dataclasses.asdict(DEFAULT_DIVERGENCE)}
+    # read at call time, like the divergence rule: the λ bind the campaign, so the lock must
+    # carry the values the run will actually breed with, not a snapshot taken at import
+    ranking = {
+        **PROTOCOL["ranking"],
+        "lambdas": {"sim": LAMBDA_SIM, "params": LAMBDA_PARAMS,
+                    "spp": LAMBDA_SPP, "plateau": LAMBDA_PLATEAU},
+    }  # fmt: skip
     return {
         **PROTOCOL,
         "monitor": monitor,
+        "ranking": ranking,
         "monitor_fingerprint": monitor_fingerprint(DEFAULT_DIVERGENCE),
+        "ranking_fingerprint": ranking_fingerprint(),
     }
 
 
@@ -339,9 +449,11 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     ledger, cid = session.ledger, session.campaign_id
     assert_protocol_predates_trials(ledger, cid)
     fmap = FeatureMap.from_lock(session.lock)
+    # a report-only comparison needs no bars loaded; without them the ranking margin is omitted
+    ppy = periods_per_year(session.timeframe) if session.is_data else None
     rule = divergence_rule(ledger, cid)  # the campaign is read with the rule it locked
     per_seed = {
-        arm: [engine_report(ledger, cid, arm, s, fmap, rule) for s in range(seeds)]
+        arm: [engine_report(ledger, cid, arm, s, fmap, rule, ppy) for s in range(seeds)]
         for arm in PROTOCOL["arms"]
     }
     efficiency = {arm: [r["trial_efficiency"] for r in rows] for arm, rows in per_seed.items()}

@@ -290,14 +290,23 @@ Không có code agent trong giai đoạn này (P1).
 - **Nghiệm thu khi:** độ phủ, hiệu suất trial và các ô đói được báo theo engine; phân kỳ IS→OOS (`is_oos_diverging`) dừng engine đó; có test trên fixture. Xong: `agent/monitor.py` — `engine_report`, event audit `DEGRADATION_CHECKPOINT` mỗi 25 trial (ứng viên giữ kỷ lục IS so với trung vị CPCV-OOS của nó; monitor là nơi duy nhất đọc metric private này), `EarlyStop` gắn vào pipeline (`RunStats.stopped`).
 - **Cần:** P2-13.
 
-### ◐ P2-15 Giao thức so sánh + lần chạy thật
+### ✅ P2-15 Giao thức so sánh + lần chạy thật
 - **Kiến trúc:** §3.1.11 (so sánh, quy tắc quyết định).
 - **Chi tiết:** một ADR khóa trước khi chạy (chỉ số, định nghĩa độ dao động giữa các seed, `trial_budget`, hạn mức); báo cáo so sánh chỉ đọc; một campaign thử harness trên dữ liệu IS thật: C-gp và C-random × 3 seed.
 - **Nghiệm thu khi:** ADR có trước trial đầu tiên của lần chạy (đối chiếu với ledger); báo cáo áp đúng quy tắc quyết định. Cả hai đều đạt. [ADR-0027](adr/0027-giao-thuc-so-sanh-giai-doan-2.md) (+ bổ sung v2) và [ADR-0028](adr/0028-giao-thuc-so-sanh-v3-monitor-chi-canh-bao.md) mang giao thức; `agent/compare.py`, `agent/runlock.py` (INV-72) và chia slot công bằng (INV-71) mang phần chạy.
 - **Các lần chạy tới nay.** v1, campaign `c-20260922-181850`: dừng sau 121 trial — các slot không bao giờ rời `gp-s0`, và đợt review sau đó tìm thêm sáu lỗi. v2, campaign `c-20260923-090957`: **552 trial trong 14 giờ** (≈ 90 giây/trial, 8 worker), gp 100/100/100 và random 76/76/100. Kết cục **`stopped_early`: không có quyết định về engine**, vì monitor dừng `random-s0` và `random-s1` trước khi hết hạn mức. Ghi nhận chỉ như gợi ý: hiệu suất trial gp 56/45/44 so với random 19,7/31,6/26,0 (trung bình 48,3 so với 25,8, spread 6,66), độ phủ archive 45/34/32 so với 15/24/26 ô, số backtest cổng ④ mỗi chiến lược qua được 169 so với 240, DSR danh mục 0,0012 so với 0,0988 ở `N_eff` 145 — cả hai còn rất xa mức Sharpe thường niên ≈ 2,3 mà cổng ⑤ đòi ở `N` đó. Toàn bộ 673 trial vẫn nằm trong `N`.
 - **Điều lần chạy v2 xác lập** là một lỗi trong chính harness của ta, không phải một kết quả về các engine: ở cả hai arm bị dừng, hai trong ba checkpoint là bản sao giống hệt, nên một lần đổi kỷ lục gánh toàn bộ độ dốc ([ADR-0028](adr/0028-giao-thuc-so-sanh-v3-monitor-chi-canh-bao.md)). Giao thức v3 sửa điều đó — ngân sách cố định, monitor chỉ cảnh báo (INV-77), và hash giao thức giờ phủ được cái mà monitor quyết định (INV-76).
-- **Còn lại:** lần chạy v3 trên một campaign mới (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — cần Docker, ≈ 15 giờ theo tốc độ đo được 90 giây/trial.
+- **v4, campaign `c-20260924-180916` — lần chạy đã hoàn tất.** 600/600 trial trong 11,9 giờ (12 worker, 71 giây/trial), mọi arm dùng hết quota, không arm nào starve, `unfinished` rỗng: campaign đầu tiên thỏa `complete` (INV-73). Kết quả **`gp_beats_random`** — trial efficiency 53/48/50 so với 20/30/25, trung bình 50,33 so với 25,00 trên spread giữa các seed là 5,00. Ba arm nhận `DEGRADATION_WARNING` (gp-s1, random-s0, random-s1) và cả ba vẫn chạy tiếp, đúng mục đích của giao thức v3. Ranking margin (INV-81) trên dữ liệu thật đạt 2,72–9,83. **Không danh mục nào triển khai được**: DSR 0,0144 (gp) và 0,0201 (random) so với `dsr_min` 0,95, đúng như §11 kiến trúc cảnh báo với luật đơn giản trên crypto khung ngày. Phán quyết là "tiến hóa hơn may rủi", không phải "cái này kiếm được tiền".
 - **Cần:** P2-13, P2-14.
+
+---
+
+### ✅ P2-16 Số hạng chính của điểm xếp hạng, và giao thức mang nó
+- **Kiến trúc:** §3.1.6 #1, §3.1.11 · **Sửa đổi:** [ADR-0026](adr/0026-toan-tu-gp-va-diem-xep-hang.md).
+- **Mục tiêu:** số hạng lợi nhuận trong điểm xếp hạng của C-gp quyết định lại việc chọn cha mẹ, một phép kiểm vĩnh viễn bắt được lớp defect đã che giấu nó, và protocol hash bao phủ hàm xếp hạng như nó đã bao phủ monitor.
+- **Chi tiết:** số hạng chính trở thành thứ hạng của DSR-rank trong quần thể (đồng hạng chia trung bình, [0, 1]); không λ nào đổi; `term_dispersion` + `ranking_margin` báo cáo độ phân tán theo (engine, seed), không bao giờ dừng một arm; `PROTOCOL["ranking"]` hash λ như dữ liệu và `ranking_fingerprint()` hash thứ tự lựa chọn, giao thức v4.
+- **Đạt khi:** test hồi quy tái hiện hiện tượng nén của campaign `c-20260923-090957` và cho thấy dạng PSR tuyệt đối trượt INV-81 trong khi dạng thứ hạng đạt; các λ được protocol hash bao phủ (INV-82); các test ranking cũ đạt nguyên trạng. Đã xong: [ADR-0030](adr/0030-diem-chinh-cua-xep-hang-gp-la-thu-hang-quan-the.md), `agent/evolution/ranking.py`, `tests/agent/evolution/test_ranking.py` (mirror mới; các test ranking đã chuyển khỏi `test_operators.py`), `ranking_margin` trong `agent/monitor.py`, `RANKING_SCENARIOS` + `ranking_fingerprint` trong `agent/compare.py`, và bộ đo hiệu chỉnh `tests/agent/test_ranking_recovery.py` (thị trường mô phỏng, gate giả, ledger riêng, ≈ 105 giây). Protocol hash `0cafe016ef5f…`.
+- **Cần:** P2-14.
 
 ---
 

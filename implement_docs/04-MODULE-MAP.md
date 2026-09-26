@@ -49,7 +49,7 @@ TradingProject/
 │   │   └── oracles/               leaky-oracle suite, levels 1–4                       07 §9   P0-11
 │   ├── agent/                     ── the ONLY place an LLM is called (A4) ──           §3.1    phase 2
 │   │   ├── loop.py, data_agent.py, research_agent.py, coding_team.py, evaluation_team.py
-│   │   ├── evolution/             feature_map, islands, sampling, archive
+│   │   ├── evolution/             feature_map, islands, sampling, archive, ranking
 │   │   ├── engines/               quantevolve, simple_loop, random_search              §3.1.11
 │   │   ├── dsl.py, drift.py, patcher.py, pipeline.py, routing.py, runlock.py, scheduler.py, insights.py
 │   │   └── prompts/

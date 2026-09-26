@@ -290,14 +290,23 @@ No agent code in this phase (P1).
 - **Accept when:** coverage, trial efficiency and starved cells are reported per engine; IS→OOS divergence (`is_oos_diverging`) stops the engine; tested on fixtures. Done: `agent/monitor.py` — `engine_report`, `DEGRADATION_CHECKPOINT` audit events every 25 trials (IS record holder vs its CPCV-OOS median; the monitor is the only reader of that private metric), `EarlyStop` wired into the pipeline (`RunStats.stopped`).
 - **Needs:** P2-13.
 
-### ◐ P2-15 Comparison protocol + the real run
+### ✅ P2-15 Comparison protocol + the real run
 - **Arch:** §3.1.11 (comparison, decision rule).
 - **Details:** an ADR locked before running (metrics, seed-spread definition, `trial_budget`, quotas); a read-only comparison report; one harness-test campaign on real IS data: C-gp and C-random × 3 seeds.
 - **Accept when:** the ADR predates the run's first trial (checked against the ledger); the report applies the decision rule. Both hold. [ADR-0027](adr/0027-phase2-comparison-protocol.md) (+ v2 amendment) and [ADR-0028](adr/0028-comparison-protocol-v3-monitor-warns.md) carry the protocol; `agent/compare.py`, `agent/runlock.py` (INV-72) and fair slot sharing (INV-71) carry the run.
 - **Runs so far.** v1, campaign `c-20260922-181850`: stopped after 121 trials — the slots never left `gp-s0`, and the review that followed found six more defects. v2, campaign `c-20260923-090957`: **552 trials over 14 h** (≈ 90 s/trial, 8 workers), gp 100/100/100 and random 76/76/100. Outcome **`stopped_early`: no engine decision**, because the monitor stopped `random-s0` and `random-s1` short of their quota. Recorded as suggestive only: trial efficiency gp 56/45/44 vs random 19.7/31.6/26.0 (means 48.3 vs 25.8, spread 6.66), archive coverage 45/34/32 vs 15/24/26 cells, gate-④ backtests per passing strategy 169 vs 240, portfolio DSR 0.0012 vs 0.0988 at `N_eff` 145 — both far under the ≈ 2.3 annualized Sharpe that gate ⑤ demands at that `N`. All 673 trials stay in `N`.
 - **What the v2 run established** was a defect in our own harness, not a result about the engines: in both stopped arms two of the three checkpoints were identical repeats, so one record change carried the whole slope ([ADR-0028](adr/0028-comparison-protocol-v3-monitor-warns.md)). Protocol v3 fixes it — fixed budget, the monitor only warns (INV-77), and the protocol hash now covers what the monitor decides (INV-76).
-- **Remaining:** the v3 run on a fresh campaign (`compare --lock`, `evolve --engine gp --engine random`, `compare`) — needs Docker, ≈ 15 h at the measured 90 s/trial.
+- **v4, campaign `c-20260924-180916` — the run that finished.** 600/600 trials in 11.9 h (12 workers, 71 s/trial), every arm at its quota, none starved, `unfinished` empty: the first campaign to satisfy `complete` (INV-73). Outcome **`gp_beats_random`** — trial efficiency 53/48/50 against 20/30/25, means 50.33 vs 25.00 against a seed spread of 5.00. Three arms earned a `DEGRADATION_WARNING` (gp-s1, random-s0, random-s1) and all three ran on, which is what protocol v3 was for. The ranking margin (INV-81) held on live data at 2.72–9.83. **Neither portfolio is deployable**: DSR 0.0144 (gp) and 0.0201 (random) against `dsr_min` 0.95, as arch §11 warned for simple rules on daily crypto. The verdict is "evolution beats chance", not "this makes money".
 - **Needs:** P2-13, P2-14.
+
+---
+
+### ✅ P2-16 The ranking's primary term, and the protocol that carries it
+- **Arch:** §3.1.6 #1, §3.1.11 · **Amends:** [ADR-0026](adr/0026-gp-operators-and-ranking-score.md).
+- **Goal:** the returns term of C-gp's ranking score decides parent selection again, a permanent check catches the class of defect that hid it, and the protocol hash covers the ranking as it already covers the monitor.
+- **Details:** the primary term becomes the population rank of the DSR-rank (average ties, [0, 1]); no λ moves; `term_dispersion` + `ranking_margin` report the spread per (engine, seed), never stopping an arm; `PROTOCOL["ranking"]` hashes the λ as data and `ranking_fingerprint()` the selection order, protocol v4.
+- **Accept when:** the regression reproduces the compression from campaign `c-20260923-090957` and shows the absolute-PSR form failing INV-81 while the rank form passes; the λ are covered by the protocol hash (INV-82); the existing ranking tests pass unchanged. Done: [ADR-0030](adr/0030-gp-ranking-primary-term-is-a-population-rank.md), `agent/evolution/ranking.py`, `tests/agent/evolution/test_ranking.py` (new mirror; the ranking tests moved out of `test_operators.py`), `ranking_margin` in `agent/monitor.py`, `RANKING_SCENARIOS` + `ranking_fingerprint` in `agent/compare.py`, and the calibration bench `tests/agent/test_ranking_recovery.py` (simulated market, fake gates, its own ledger, ≈ 105 s). Protocol hash `0cafe016ef5f…`.
+- **Needs:** P2-14.
 
 ---
 

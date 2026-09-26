@@ -10,6 +10,8 @@ from quantcrucible.agent import compare as compare_module
 from quantcrucible.agent.compare import (
     MONITOR_SCENARIOS,
     PROTOCOL,
+    RANKING_CTX,
+    RANKING_SCENARIOS,
     ProtocolError,
     assert_protocol_predates_trials,
     compare,
@@ -19,7 +21,10 @@ from quantcrucible.agent.compare import (
     monitor_fingerprint,
     protocol,
     protocol_hash,
+    ranking_fingerprint,
 )
+from quantcrucible.agent.evolution import ranking as ranking_module
+from quantcrucible.agent.evolution.ranking import scores
 from quantcrucible.agent.monitor import EarlyStop
 from quantcrucible.agent.run import EvolveError, evolve
 from quantcrucible.ledger.db import Ledger
@@ -217,3 +222,71 @@ def test_a_report_before_the_quotas_are_used_is_progress_only(
     assert report["decision"]["outcome"] == "incomplete"
     assert len(report["completeness"]["unfinished"]) == 6
     assert report["per_seed"]["gp"][0]["trial_efficiency"] == 50.0  # progress is still shown
+
+
+# ── the ranking is part of the treatment, so the protocol carries it (ADR-0029) ───────────────
+def test_the_protocol_hash_covers_the_ranking_lambdas(monkeypatch: pytest.MonkeyPatch) -> None:
+    """INV-80. The fingerprint alone is not a lock: a λ nudged by 1e-9 changes every score by
+    less than the sixth decimal the fingerprint rounds to, so it flips nothing — yet it is a
+    different engine. The λ are therefore hashed as data, exactly as ADR-0028's amendment did
+    for the monitor's thresholds."""
+    before_hash, before_fp = protocol_hash(), ranking_fingerprint()
+    monkeypatch.setattr(ranking_module, "LAMBDA_PLATEAU", 0.05 + 1e-9)
+    assert ranking_fingerprint() == before_fp  # below the rounding: the scenarios do not notice
+    monkeypatch.setattr(compare_module, "LAMBDA_PLATEAU", 0.05 + 1e-9)
+    assert protocol()["ranking"]["lambdas"]["plateau"] == 0.05 + 1e-9
+    assert protocol_hash() != before_hash  # but the data does
+
+
+def test_the_ranking_fingerprint_notices_a_reordering() -> None:
+    """What the fingerprint is for: an arithmetic rewrite that keeps every λ but changes who the
+    engine would breed from."""
+    before = ranking_fingerprint()
+    original = ranking_module.scores
+
+    def inverted(entries: Any, ctx: Any) -> dict[str, float]:
+        return {cid: -value for cid, value in original(entries, ctx).items()}
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(compare_module, "scores", inverted)
+        assert ranking_fingerprint() != before
+    assert ranking_fingerprint() == before  # and the rewrite undone leaves it alone
+
+
+def test_the_ranking_scenarios_straddle_the_decision_boundary() -> None:
+    """A probe set that decided the same thing everywhere would hash the same under any ranking.
+
+    These span it: the degenerate populations (one entry, two entries), a fully tied one where
+    only the auxiliary terms can separate the candidates — and there they do reorder it — and
+    populations where the returns term decides. What the fingerprint hashes is the selection
+    order together with the rounded scores, and every scenario contributes a distinct pair.
+    """
+    payloads, flipped = [], 0
+    for population in RANKING_SCENARIOS:
+        s = scores(population, RANKING_CTX)
+        order = sorted(s, key=lambda cid: (-s[cid], cid))
+        by_sharpe = sorted(
+            s, key=lambda cid: -next(
+                e.public.get("sr_obs", float("-inf"))
+                for e in population if e.candidate_id == cid
+            )
+        )  # fmt: skip
+        flipped += order != by_sharpe
+        payloads.append((tuple(order), tuple(round(s[cid], 6) for cid in order)))
+    assert len(set(payloads)) == len(RANKING_SCENARIOS)
+    assert flipped >= 1  # the auxiliary terms must be able to decide something
+    assert {1, 2} <= {len(p) for p in RANKING_SCENARIOS}
+
+
+def test_the_ranking_margin_is_reported_for_both_arms_and_decides_nothing(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """INV-79 is a diagnostic: it reaches the report and neither `decide` nor `EarlyStop`
+    (ADR-0028 — a comparison may not let a measured quantity set its stopping time)."""
+    lock_protocol(ledger, "c1")
+    _fill(ledger, per_unit=10, gp_pass=6, random_pass=3)
+    report = compare(_session(ledger, tmp_path), seeds=3, with_portfolios=False)
+    for arm in PROTOCOL["arms"]:
+        assert "ranking_margin" in report["per_seed"][arm][0]
+    assert "ranking_margin" in PROTOCOL["supporting"]
+    assert "ranking_margin" not in repr(report["decision"])
