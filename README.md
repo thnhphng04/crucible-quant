@@ -2,15 +2,15 @@
 
 *An AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 
-> **Status:** starting implementation (phase 0 — harness first). The design is done; the code under `src/` is a scaffold. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
+> **Status:** phase-3 implementation. Fixed SL/TP and maximum holding exits are merged (P3-25); real-source perpetual coverage remains open (P3-24). No strategy has been validated for live trading. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
 
 ## What it is
 
-An LLM-driven research loop that generates **deterministic, rule-based trading strategies** and validates them before any capital is at risk:
+A research loop that generates **deterministic, rule-based trading strategies** and validates them before any capital is at risk. The current search engine is non-LLM C-gp with C-random as its control; LLM engines are deferred:
 
-- **Search** — a QuantEvolve-style quality-diversity evolution (MAP-Elites + island model), running side by side with a simpler MadEvolve-style loop and a random-search control.
+- **Search** — typed-grammar GP with MAP-Elites and islands, paired with a random-search control.
 - **Validation** — the part the field mostly skips: structural guardrails against look-ahead, a trial ledger that counts every test, CPCV + PBO, Deflated Sharpe Ratio on the consolidated portfolio, and a write-once holdout enforced at the database and OS level.
-- **Execution** — multi-market (crypto, forex, international and Vietnamese equities/futures) on NautilusTrader, with backtest ≡ live.
+- **Execution** — crypto spot and perpetual research currently uses NautilusTrader for legacy fills and Python replay for fixed brackets; backtest/live equivalence remains a goal to prove before deployment (ADR-0032, ADR-0036).
 - **No LLM at runtime** — the LLM only writes strategy code; the deployed strategy is plain deterministic code.
 
 ## Reviewing a campaign

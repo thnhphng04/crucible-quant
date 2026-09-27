@@ -35,6 +35,8 @@ So "build it on Nautilus" would mean writing a margin model blind to the side, h
 
 ## Consequences
 
+**Later implementation note (27 Sep 2026):** P3-21 wired this account into the gates. ADR-0036 later moved new bracket-campaign fills to Python replay as well; the Nautilus fill-path description below applies to legacy locks. P5 live equivalence remains unproven for new brackets.
+
 - **P5 is eroded, and this is the price of the decision.** Backtest ≡ live still holds for signal → order → fill. It does **not** hold for margin, funding or liquidation: that arithmetic is ours. It must be reconciled against Binance testnet or a real statement before any capital is at risk. This is an obligation on whoever opens the first live campaign, not a footnote.
 - **Two sources of truth for equity now exist** — Nautilus's account inside a single-strategy backtest, and `PerpAccount` inside the joint replay. They agree only because the single-strategy venue's margin is zeroed. Anyone re-enabling venue margin must reconcile both or pick one.
 - **The joint replay is where the portfolio actually lives.** `validation.portfolio.combine` — N self-financed return streams weighted together — stops describing the real thing once ten strategies share one balance, one margin pool and one kill switch. The replay's slot contributions reconcile to account equity (INV-92b), which is what makes a per-instrument chart a decomposition rather than an invented subaccount.

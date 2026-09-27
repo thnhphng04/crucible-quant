@@ -6,7 +6,7 @@
 
 ## Bối cảnh
 
-Bộ sinh hiện phát flat ngoài điều kiện vào; take_profit được kiểm tra nhưng chưa thực thi. Stop perpetual của vị thế cố định đã neo tại close của nến tín hiệu, còn spot đặt lại stop mỗi nến.
+Trước quyết định này, bộ sinh phát flat ngoài điều kiện vào; take_profit được kiểm tra nhưng chưa thực thi. Stop perpetual của vị thế cố định đã neo tại close nến tín hiệu, còn spot đặt lại stop mỗi nến.
 
 ## Quyết định
 
@@ -21,3 +21,5 @@ Với lịch sử intraday, cổng ④ chia lưới cấu hình đã đăng ký 
 ## Hệ quả
 
 Mọi job định giá và replay danh mục phải nhận phiên bản từ lock campaign. Đường trade phút là dữ liệu đi kèm bắt buộc với đường mark cho campaign perpetual mới. Kết quả campaign cũ giữ ngữ nghĩa gốc.
+
+Backtest bracket mới định giá fill bằng replay Python cho spot hoặc tài khoản chung, không qua fill engine của NautilusTrader. P5 vẫn là mục tiêu, chưa phải bảo đảm hiện tại: phải đối chiếu fill vào/thoát, phí, funding, thanh lý và equity với hành vi venue live trước khi dùng vốn thật (O21). ADR-0032 mô tả quyết định bridge và tài khoản legacy trước đó.

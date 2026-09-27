@@ -35,6 +35,8 @@ Nên "xây trên Nautilus" sẽ có nghĩa là: viết một margin model mù h�
 
 ## Hệ quả
 
+**Ghi chú triển khai sau này (27/9/2026):** P3-21 đã nối tài khoản này vào các cổng. ADR-0036 sau đó chuyển cả fill của campaign bracket mới sang replay Python; mô tả đường fill Nautilus bên dưới áp dụng cho lock legacy. Tính tương đương P5 với live chưa được chứng minh cho bracket mới.
+
 - **P5 bị bào mòn, và đó là cái giá của quyết định này.** Backtest ≡ live vẫn đúng cho signal → order → fill. Nó **không** đúng cho margin, funding hay liquidation: phần số học đó là của mình. Nó bắt buộc phải được đối chiếu với Binance testnet hoặc một sao kê thật trước khi có đồng vốn nào chịu rủi ro. Đây là nghĩa vụ của người mở campaign live đầu tiên, không phải một chú thích.
 - **Bây giờ tồn tại hai nguồn sự thật cho equity** — tài khoản của Nautilus trong một backtest đơn chiến thuật, và `PerpAccount` trong joint replay. Chúng khớp nhau chỉ vì margin của venue đơn chiến thuật đã bị đặt về 0. Ai bật lại margin của venue phải đối soát cả hai hoặc chọn một.
 - **Joint replay mới là nơi danh mục thật sự sống.** `validation.portfolio.combine` — N luồng returns tự tài trợ gộp theo trọng số — thôi mô tả đúng thực tế ngay khi mười chiến thuật dùng chung một số dư, một pool margin và một kill switch. Đóng góp theo slot của replay đối soát khớp với equity tài khoản (INV-92b), và đó là thứ làm cho chart theo từng instrument là một phép phân rã chứ không phải một tài khoản con bịa ra.

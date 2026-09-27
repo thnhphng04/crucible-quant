@@ -3,7 +3,7 @@
 > *Crucible Quant — an AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 >
 > Design for an AI system that generates and validates deterministic, multi-market trading strategies.
-> Version: 0.5 (draft) · Date: 2026-09-21
+> Version: 0.8 (draft) · Date: 2026-09-27
 > Research foundation: [[00-RESEARCH-SYNTHESIS]] · [[04-SCHOOL-B-EFFICACY]] · [[06-MULTI-MARKET-PLATFORM]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Changes 0.1 → 0.2** (source: the 22-system survey in [[08-LLM-QUANT-RESEARCHER]]): the QuantEvolve architecture was independently confirmed by MadEvolve (§3.1) · added mandatory deviations **#5 closed DSL** and **#6 fresh-context reviewer** (§3.1.6) · **DSR computed on the consolidated portfolio, not per cell** (§3.1.6 — the easiest thing to get wrong) · added **gate ⓪ spec-drift** (§3.1.7) · replaced the "use small models" recommendation with a **heterogeneous routing table + a warning against reasoning models** (§3.1.9) · ledger gained `model_used` / `gen_attempts` / `gen_failures` / `drift_delta` plus the `starved_cells` view (§4.1) · **P6 raised to OS level, evaluator runs in its own process** (§4.2) · meta-evolution and RFT removed from scope (§9) · warning against using paper numbers as benchmarks (§11)
@@ -15,6 +15,10 @@
 > **Changes 0.4 → 0.5** (source: full text of the MadEvolve paper, arXiv 2605.23007): **multi-engine architecture** — 4-agent QuantEvolve + a MadEvolve-style simple loop + random search running in parallel, isolated/collaborative modes (§3.1.11) · **parameter optimizer switched off inside the evolution loop**, calibration only once before the freeze (§3.3.1, §3.2.1) · **module-wise evolution**: entry / exit+stop / regime regions (§3.3.1) · **minimum trade count + holding time** (gate ③) · **indicator correlation constraint** (§3.3.1) · **IS→OOS degradation curve** on CPCV (§3.2) · **pessimistic fill model + cost-sensitivity check** (§3.5, gate ⑥′) · **multiple seeds** (§3.1.8)
 >
 > **Changes 0.5 → 0.6** (user decision 22 Sep 2026, source: [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only)): **the no-LLM engine C is the focus** — C-gp (GP, typed grammar) main + C-random control; engines A/B **deferred**, design kept (§3.1.11, D19) · phase 2 builds C (§7) · the generator has no bias on trading frequency · GP may mutate `TUNABLE` values, with a cap on parameter-only children; SPP median + plateau from the gate-④ grid (§3.2, D20); calibration 5b unchanged
+>
+> **Changes 0.6 → 0.7** (ADR-0031–0035): fixed-fractional `Q = R/d` sizing, `(instrument, direction)` scopes, a shared perpetual account and host-side replay; P5 remains a live-reconciliation target (§3.4, §3.5).
+>
+> **Changes 0.7 → 0.8** (ADR-0036, 27 Sep 2026): new campaigns lock SL/TP and maximum holding time and support 15m/1h; old campaigns retain legacy exits; current replay, costs and P5 limits are explicit (§3.2, §3.3, §3.5, D18, D21).
 
 ---
 
@@ -44,7 +48,7 @@ Six principles drawn from the research. Every technical decision defers to them.
 | **P2** | **Every backtest goes through the ledger, no bypass** | `N` determines DSR. If a bypass exists, you will use it ([[07-VALIDATION-LAYER]] §6) |
 | **P3** | **Strategies speak in RELATIVE units (`strength` + `stop_distance`), not lots/shares/contracts** | The precondition for one codebase running across 4 markets. Sizing is the Risk layer's job (§3.4) |
 | **P4′** | **Fixed risk per trade: `Q = R/d`, plus one risk cap for the whole portfolio** | v0.7 (ADR-0031) replaces vol targeting. IDM's correlation credit is lost; in exchange the loss per trade is a number known in advance, and the portfolio cap bounds total risk |
-| **P5** | **Backtest ≡ Live, same code** | Every rewrite is a new source of bugs |
+| **P5** | **Backtest ≡ Live is a goal to prove before live trading** | Python replay for new campaigns is an interim path (ADR-0032, ADR-0036); reconcile fills and account behavior with live before risking capital (O21) |
 | **P6** | **Holdout: write once, open once per research campaign — for one frozen portfolio** | Once you've looked, it's burned forever. Opening it per strategy = one more round of selection (§4.2) |
 
 ---
@@ -83,16 +87,16 @@ Six principles drawn from the research. Every technical decision defers to them.
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  STRATEGY RUNTIME          (venue-agnostic)                   ║
-║  Strategy → Signal(strength, stop_distance)                   ║
+║  Strategy → Signal(strength, stop_distance, take_profit)      ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  RISK & SIZING LAYER       ★ more important than Adapters ★   ║
-║  Vol targeting → Position sizing → FX conversion              ║
+║  Q = R/d → portfolio risk cap → FX conversion                 ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
-║  EXECUTION CORE            NautilusTrader (backtest ≡ live)   ║
+║  EXECUTION CORE        Nautilus + Python replay (P5: target)  ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
@@ -256,7 +260,7 @@ QuantEvolve admits it itself: *"strategies generated by the framework may be sus
 | **1** | `Score = SR + IR + MDD` (weights 1:1:1), **no deflation** | `Score = rank(DSR-rank within the population) − λ₁·AST_sim − λ₂·n_params`, **reject if PBO ≥ 0.5** (PBO over the candidate's own parameter grid, §3.2). ⚠️ This is a **ranking score for the search**, not a gate — the real DSR gate is ⑤, on the portfolio. 🆕 The primary term is a **rank**, not a value: the deflated benchmark climbs with `N` and can pass above the whole population, and the absolute value is then compressed below the auxiliary terms themselves (ADR-0030) | 150 generations × N islands = thousands of trials. Without deflation, Score only measures luck ([[07-VALIDATION-LAYER]]) |
 | **2** | Look-ahead prevented **by prompt alone**: *"The strategy must avoid Lookahead Bias… This is the most important constraint"* | **Structural guardrail**: AST scan blocking `.shift(-n)`, indicator whitelist, leaky-oracle test suite | A prompt is not an enforcement mechanism. LLMs still generate code that reads the future |
 | **3** | Does not count trials | **Two separate records:** (a) an **audit log** of *all* activity — LLM calls, compile failures, AST rejects; (b) **statistical trials** = every configuration whose **performance was measured** on data (including ones the feature map rejects after backtesting) | `N` determines DSR. A strategy that was backtested and then rejected is still a trial (P2). But a reviewer call or a file that doesn't compile is **not** a test on the data — counting them into `N` biases DSR the other way (§4.1) |
-| **4** | Zipline: `initialize(context)` + `handle_data(context, data)` | **`Signal(strength, stop_distance)`** on NautilusTrader | P3 + P5 — venue-agnostic, backtest ≡ live |
+| **4** | Zipline: `initialize(context)` + `handle_data(context, data)` | **`Signal(direction, strength, stop_distance, take_profit)`** → legacy Nautilus or bracket replay | P3 keeps strategies venue-agnostic; P5 requires live reconciliation before deployment |
 | **5** | Free-form Python, the LLM decides what to use | **Constrained DSL** + a deterministic engine owning the evaluation rules. The agent **may not modify** data splits, gate thresholds, or metric definitions during a session | Narrowing the search space ⇒ **fewer trials spent** ⇒ a more forgiving DSR bar. And it is a *structural* guardrail, not a promise (Crypto Constrained Agents, [[08-LLM-QUANT-RESEARCHER]] §7.3) |
 | **6** | The Evaluation Team sees the entire search history | **Fresh-context reviewer** + **veto power** | An agent that sees the history gets persuaded by the story the Coding Team tells. This is *temporal isolation applied to the agent itself* (AgonAlpha, [[08-LLM-QUANT-RESEARCHER]] §5.3) |
 
@@ -520,6 +524,7 @@ class Gate(Protocol):
 - **Selection rule** = highest IS Sharpe — the same rule the evolution loop uses.
 - **Meaning:** low PBO ⇒ the parameter-selection rule is OOS-stable in this region. High PBO ⇒ the chosen parameters won on noise. PBO does **not** replace DSR: it does not penalize the number of hypotheses tried across the project.
 - 🆕 **v0.6 — parameter stability (D20).** From the same grid (IS, no trials spent) also compute: the **grid's median Sharpe** (System Parameter Permutation, Walton) and the **plateau** = share of neighbouring configurations whose IS Sharpe is ≥ 50% of the candidate's. Both are IS-only, hence `public` metrics (§3.3.2), used as a **secondary term** in C-gp's ranking score; never used to pick a configuration from the grid (the grid is not trials, ADR-0011). PBO and CPCV stay `private`.
+- For 15m/1h histories, gate ④ splits the preregistered grid into sandbox jobs below the report-size limit, then joins every row in original order on an identical time axis. Missing rows or a mismatched axis fail closed; batches create no new trials (ADR-0036).
 - At portfolio level, if several portfolio-construction rules are tried (§3.2.1), run an additional CSCV whose configuration set is those portfolio variants.
 
 **🆕 IS→OOS degradation curve (v0.5, after MadEvolve Figure 11 — but without the holdout).** Every `K` candidates, take each engine's current IS record holder and record its median Sharpe across the **CPCV OOS paths** (a *private* metric, §3.3.2). Plot two lines: the IS record and that same strategy's CPCV-OOS. An OOS line that is flat or falling while IS rises = a p-hacking signal ⇒ **stop that engine early**. MadEvolve measures this curve on the *test set* for every champion — for us that would mean opening the holdout thousands of times, violating P6.
@@ -556,16 +561,18 @@ This is the most important interface in the whole system. It is what makes P3 + 
 class Signal:
     direction:     Literal["long", "short", "flat"]
     strength:      float          # ∈ [0, 1] — degree of participation; NOT a quantity, NOT % of capital
-    stop_distance: float          # price units (typically k × ATR) — used for exits + the risk cap
-    take_profit:   float | None = None
+    stop_distance: float          # price units (ATR or Bollinger) — entry stop and sizing
+    take_profit:   float | None = None  # required for bracket_timeout_v1; None for legacy locks
 
 class Strategy(Protocol):
     """Venue-agnostic. Knows NOTHING about lots, shares, contracts, or currency."""
     params: dict
 
     def indicators(self, bars: Bars) -> Features: ...
-    def signal(self, features: Features) -> Signal: ...
+    def signal(self, features: FeatureView) -> Signal: ...
 ```
+
+`bracket_timeout_v1` locks `take_profit / stop_distance` and the maximum held bars per campaign; SL/TP anchor to the signal bar close at entry. Later `flat` means no new entry, not a close of the held position. Old locks without `derived.exit_protocol` retain `legacy_flat` (ADR-0036).
 
 > 🔴 **A strategy must never import anything from the adapter layer.** This is a hard architectural boundary — enforce it with a lint rule, not just convention.
 
@@ -574,9 +581,11 @@ class Strategy(Protocol):
 Following MadEvolve's `EVOLVE-BLOCK` mechanism (§3.1.10 L1) and `TUNABLE` (L2) — but **enforced in code**, not by prompt.
 
 ```python
-# ═══ FIXED REGION — the agent may NOT edit this. Hash committed in evaluation.lock.yaml ═══
-from core.strategy.base import Signal, Strategy, Bars, Features
-from core.strategy.registry import ind            # whitelisted indicators only
+# ═══ FIXED REGION — only the evolvable block may change; this hash is locked per campaign ═══
+# Crucible Quant strategy template (Architecture §3.3.1). Signals only — sizing is not here.
+from quantcrucible.core.strategy.base import Bars, Features, FeatureView, Signal, Strategy
+from quantcrucible.core.strategy.registry import ind
+
 
 class GeneratedStrategy(Strategy):
     # ═══ EVOLVE-BLOCK-START ═══
@@ -589,17 +598,18 @@ class GeneratedStrategy(Strategy):
                 "s": ind.ema(bars.close, self.p.slow),
                 "atr": ind.atr(bars, 14)}
 
-    def signal(self, x: Features) -> Signal:
-        if ind.cross_up(x["f"], x["s"]):
-            return Signal("long", 1.0, self.p.k_atr * x["atr"])
-        return Signal("flat", 0.0, self.p.k_atr * x["atr"])
+    def signal(self, x: FeatureView) -> Signal:
+        stop = self.p.k_atr * x["atr"]
+        if stop > 0 and ind.cross_up(x["f"], x["s"]):
+            return Signal("long", 1.0, stop, 1.1 * stop)
+        return Signal("flat", 0.0, 0.0)
     # ═══ EVOLVE-BLOCK-END ═══
 ```
 
 **Rules enforced at gate ①a** (any violation ⇒ `AST_REJECT`, recorded in `generation_log`):
 
 1. `SHA256(prefix) ‖ SHA256(suffix)` — everything outside the two markers — must **exactly equal** the value in `evaluation.lock.yaml`. If the LLM returns a whole file instead of just the evolvable region, that file is rejected rather than merged (MadEvolve accepts such files — §3.1.10).
-2. Every free parameter needs a `TUNABLE` line with finite `bounds`; at most **6** lines. A numeric constant used as a threshold/period without being declared ⇒ reject (stops parameters being hidden to dodge the ≤ 6 rule). Exception: whitelisted constants (0, 1, the standard ATR period 14…).
+2. Every free parameter needs a `TUNABLE` line with finite `bounds`; at most **6** lines. An undeclared numeric threshold/period ⇒ reject. Exceptions: whitelisted constants (0, 1, ATR period 14…) and, only under a `bracket_timeout_v1` lock, Bollinger period 8 and the locked TP/SL ratio.
 3. Only whitelisted `ind.*` calls and DSL operators (§3.1.6).
 
 4. 🆕 **Indicator correlation constraint** (checked at gate ③, since it needs data): any two indicator series in the evolvable region with IS |ρ| > `max_indicator_corr` (default 0.9) ⇒ reject. Per MadEvolve §6.3: constraining the number of features and their pairwise correlation gave more consistent IS/OOS results.
@@ -612,11 +622,11 @@ class GeneratedStrategy(Strategy):
 
 ```python
     # ═══ EVOLVE-BLOCK-START: entry ═══      entry conditions
-    # ═══ EVOLVE-BLOCK-START: exit ═══       exits + stop_distance
+    # ═══ EVOLVE-BLOCK-START: exit ═══       stop_distance method; lock owns exit triggers
     # ═══ EVOLVE-BLOCK-START: regime ═══     market-regime filter (trading on/off)
 ```
 
-`evolve_scope` in `user.yaml` selects which blocks may be edited; the others are locked and count as part of the fixed region when hashing (rule 1). Uses: (a) debugging — lock entry, evolve only exit; (b) ablation — measure each block's contribution. Per MadEvolve Runs 1–5: joint evolution does **not** always beat component-wise evolution, and the widest joint scope showed the largest overfitting gap. Sizing is **never** an evolvable block — it belongs to the Risk layer (P3, P4). Each evolution scope is a separate run configuration; every trial of every scope adds to `N`.
+`evolve_scope` in `user.yaml` selects editable blocks; the others are locked and counted in the fixed-region hash (rule 1). For new campaigns, `exit` may change only the ATR/Bollinger stop method, not the TP/SL ratio, trigger order or timeout. Module-wise blocks remain a template capability; engine C currently emits one `joint` block (O13). Sizing is **never** evolvable — it belongs to Risk. Trials from every scope contribute to `N`.
 
 #### 3.3.2. 🆕 Evaluator contract: public / private metrics
 
@@ -690,7 +700,7 @@ The **portfolio-level** step is no longer a uniform rescale to `target_vol`. It 
 
 ### 3.5. Execution Core & Adapters
 
-**NautilusTrader** — why it was chosen: *"The DataEngine guarantees 100% identical data handling in both backtesting and live trading"*, deploying *"with no code changes"*. That is P5, exactly.
+**NautilusTrader** remains the adapter and P5 target. Legacy locks use the Nautilus bridge for fills; `bracket_timeout_v1` campaigns currently price spot in Python replay and perpetuals in shared-account replay. These paths have not been proven equivalent to live. Before risking capital, reconcile signal → order → fill and balances/positions with a live environment (ADR-0032, ADR-0036).
 
 | Adapter | Markets | Status |
 |---|---|---|
@@ -699,11 +709,11 @@ The **portfolio-level** step is no longer a uniform rescale to `target_vol`. It 
 | Databento | High-quality futures data | ✅ official |
 | **SSI FastConnect** | **HOSE/HNX, VN30F1M** | 🔴 **build it yourself** — 3–6 weeks |
 
-**🆕 Pessimistic fill model (v0.5).** Backtests use NautilusTrader's `FillModel` configured adversarially, locked in `evaluation.lock.yaml`:
+**Current exit pricing and costs (v0.8).** For new brackets, a Python resolver applies the locked input rules:
 
-- A limit order fills only when price **trades through** the limit (low < limit for a buy), not when it merely touches
-- Market/stop orders pay a fixed slippage in ticks, plus the spread
-- Fees follow the venue's actual fee schedule
+- Spot OHLC: TP needs a trade-through; when SL and TP both lie in one unordered bar, choose the stop. A stop through a gap fills at the open if worse than its level; timeout fills at the next open.
+- Perpetuals: trade-minute paths determine SL/TP, mark-minute paths determine liquidation; same-minute ties prioritize liquidation → stop → TP. Funding settles at segment cuts while held.
+- `CostModel.taker_rate = fee_rate + slippage_bps / 10_000`: slippage is currently a bps cost, not a tick/spread price shift. Gate ⑥′ stresses both fee and slippage.
 
 For reference: MadEvolve fills the **entire** quantity at exactly the limit price whenever price trades through, with no queue, on data aggregated across exchanges — the authors themselves write *"still far from being realistic"*; their baseline already shows Sharpe 4.81 for a passive minute-bar BTC strategy. For our low-frequency strategies, market impact is small at retail size; fees, spread and slippage dominate. Cost sensitivity is checked at gate ⑥′.
 
@@ -897,69 +907,22 @@ Enforced by `PRIMARY KEY (campaign_id)`: a second holdout opening within the sam
 ## 5. Directory structure
 
 ```
-TradingProject/                   ← Crucible Quant (package: quantcrucible)
-├── research_docs/                ← research + this document
-├── core/
-│   ├── strategy/
-│   │   ├── base.py                ← Strategy protocol, Signal
-│   │   ├── template.py            ← template: fixed region + EVOLVE-BLOCK (§3.3.1)
-│   │   ├── tunable.py             🆕 parses TUNABLE declarations → PBO grid, n_params
-│   │   └── registry.py            ← indicator whitelist
-│   ├── sizing/
-│   │   ├── vol_target.py          ★ vol targeting
-│   │   └── position_sizer.py      ← risk → lots/shares/contracts
-│   └── zoo/                       ← classic strategies, for AST similarity scoring
-├── agent/                         ← QuantEvolve architecture
-│   ├── loop.py                    ← Algorithm 1: the generation loop
-│   ├── data_agent.py              ← ① schema prompt + category detection
-│   ├── research_agent.py          ← ② hypothesis (6 XML tags)
-│   ├── coding_team.py             ← ③ code → backtest → refine (subprocess)
-│   ├── evaluation_team.py         ← ④ the 5 analysis functions
-│   ├── evolution/
-│   │   ├── feature_map.py         ← MAP-Elites, 16 bins × 6+ dims
-│   │   ├── islands.py             ← N islands + top-10% migration
-│   │   ├── sampling.py            ← SampleParent (Eq.1), SampleCousins (Eq.2)
-│   │   └── archive.py             ← also stores feature-map-rejected strategies
-│   ├── insights.py                ← repository + curation every K=50 gens
-│   ├── dsl.py                     🆕 closed DSL + AST rejection of non-whitelisted ops
-│   ├── drift.py                   🆕 gate ⓪: SHA256 logic + normalized Levenshtein, anchor trace
-│   ├── patcher.py                 🆕 strict SEARCH/REPLACE + block rewrite + retry with error
-│   ├── pipeline.py                🆕 LLM producers → prefetch queue → backtest slots
-│   ├── routing.py                 🆕 heterogeneous model routing (§3.1.9)
-│   ├── engines/                   🆕 §3.1.11
-│   │   ├── quantevolve.py         ← engine A (4 agents)
-│   │   ├── simple_loop.py         ← engine B (parent + inspirations → 1 LLM call)
-│   │   ├── gp_search.py           ← engine C-gp (GP, no LLM — main, v0.6)
-│   │   └── random_search.py       ← engine C-random (no LLM — control)
-│   ├── scheduler.py               🆕 enforces trial-budget shares across engines
-│   └── prompts/                   ← templates following the paper's Appendix A
-├── validation/
-│   ├── gates.py                   ← Gate protocol, pipeline
-│   ├── report.py                  🆕 EvaluationReport: public / private / feedback (§3.3.2)
-│   ├── sandbox.py                 🆕 Docker wrapper, --network none --read-only (§3.3.3)
-│   ├── guardrail.py               ← AST similarity + look-ahead scan
-│   ├── statistical.py             ← CPCV, PBO, DSR, MinBTL (purgedcv)
-│   ├── portfolio.py               🆕 builds the portfolio by the pre-registered rule (§3.2.1)
-│   ├── portfolio_dsr.py           🆕 DSR on the consolidated portfolio, N_eff + V[SR] (§4.1)
-│   ├── n_eff.py                   🆕 clusters trial returns → N_eff
-│   ├── temporal.py                ← holdout manager, decay
-│   └── oracles/                   ← the 4-level leaky oracle suite
-├── holdout/                       🔴 chmod 0400 + holdout.lock (committed hash)
-│   └── evaluator_proc.py          🆕 separate process, takes portfolio_hash, returns PASS/FAIL
-├── config/
-│   ├── user.yaml                  🆕 user configuration (§10.1)
-│   └── evaluation.lock.yaml       🆕 generated from user.yaml per campaign — read-only, hashed, no agent write path
-├── ledger/
-│   └── db.py
-├── execution/
-│   ├── engine.py                  ← NautilusTrader wrapper
-│   └── adapters/
-│       └── ssi/                   🔴 build it yourself
-├── data/
-└── tests/
+TradingProject/
+|-- config/                    user.yaml; generated evaluation.lock.yaml
+|-- research_docs_vi/, research_docs/   design and translation
+|-- implement_docs/, implement_docs_vi/ roadmap, ADRs, module map
+|-- src/quantcrucible/
+|   |-- core/strategy/, core/sizing/, core/path_summary.py
+|   |-- agent/engines/            C-gp and C-random; LLM engines deferred
+|   |-- data/                     spot/perp fetch, minute paths, holdout carve
+|   |-- execution/                legacy bridge, bracket policy, shared account
+|   |-- validation/               gates, PBO/CPCV, portfolio, sandbox
+|   `-- ledger/, holdout/evaluator_proc.py, review/
+|-- data/, holdout/             ignored research and holdout data
+`-- tests/, ui/
 ```
 
-> 🆕 **Implementation:** code lives under `src/quantcrucible/` (src layout); the root `holdout/` holds data only, and `evaluator_proc.py` lives in `src/quantcrucible/holdout/`. See [ADR-0001](../implement_docs/adr/0001-src-layout-and-holdout-split.md) and the [up-to-date tree](../implement_docs/04-MODULE-MAP.md).
+> **Implementation:** this is a condensed map of current code. Root `holdout/` holds data only; the evaluator lives under `src/quantcrucible/holdout/`. See [ADR-0001](../implement_docs/adr/0001-src-layout-and-holdout-split.md) and the [full module map](../implement_docs/04-MODULE-MAP.md) for implemented and planned modules.
 
 ---
 
@@ -967,10 +930,10 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 
 | Component | Choice | Reason |
 |---|---|---|
-| Execution core | **NautilusTrader** | Guaranteed backtest ≡ live; multi-asset native; Rust core |
-| Agent orchestration | **LangGraph** | Needs state + cycles; already familiar |
+| Execution core | **NautilusTrader + Python replay** | Legacy bridge uses Nautilus; new brackets replay; P5 needs live reconciliation |
+| Agent orchestration | **Plain Python** | Engine C uses queue/workers and derives state from the ledger; revisit LangGraph only if A/B resume (ADR-0024) |
 | Optimizer | **Optuna** | TPE/GP, the de-facto standard |
-| Validation | **`purgedcv`** (PyPI) ⚠️ *API unverified* | PBO + DSR + CPCV + WalkForward + MinBTL/MinTRL in one MIT-licensed library |
+| Validation | **`purgedcv` 0.1.6 + project code** | API verified; CPCV uses the library, DSR/PSR and PBO use independently checked code (ADR-0007, ADR-0011) |
 | Fast search | **vectorbt** *(optional)* | Parameter sweeps; ⚠️ *"lies about microstructure"* — coarse screening only |
 | Ledger | SQLite → Postgres | Start simple |
 | **Data** | **Entirely free** | See §6.1 — this is a **hard constraint** |
@@ -978,7 +941,7 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 
 ⚠️ **Licenses to check:** `vectorbt` carries a Commons Clause; `pypbo` is AGPL-3.0 (avoided by using MIT-licensed `purgedcv`).
 
-> 🆕 **`purgedcv` is the core of the validation layer but has not been verified.** The signatures of `deflated_sharpe_ratio` and `probability_of_backtest_overfitting` have not been checked against the source, and it is unclear whether it accepts `N_eff` / `V[SR]` as separate inputs (§4.1). First task of **phase 1**: (1) read the source and pin a version; (2) write tests against the numerical examples in the original DSR paper (Bailey & López de Prado 2014), and for PBO (Bailey et al. 2017) against hand-computed fixtures from the definition plus an independent implementation (version recorded); (3) if results differ or parameters are missing → implement DSR/PBO ourselves (~50 lines each) and use `purgedcv` only for CPCV/purging. The architecture does not depend on this library — `validation/statistical.py` is a wrapper.
+> ✅ **`purgedcv` was checked against version 0.1.6 source** (P1-01, ADR-0007). DSR/PSR use moments in `validation/statistical.py`; PBO uses the project's vectorized CSCV, cross-checked against the library (ADR-0011); CPCV uses `purgedcv` for splitting, purging, embargo and OOS path reconstruction. Project trial logic determines `N_eff`, not the library heuristic.
 
 ---
 
@@ -1154,7 +1117,7 @@ Stated explicitly to prevent scope creep:
 - ❌ **No cross-sectional factor + ML** — that is School A, a different architecture ([[08-LLM-QUANT-RESEARCHER]] — School A accounts for ~18 of the 22 surveyed systems)
 - ❌ **No MQL5 EA support** — A3 (decided 21 Sep 2026): live trading through NautilusTrader. Forex goes through **Interactive Brokers**, not an MT5 broker
 - ❌ **No HFT / order-book strategies** — low frequency is a survival condition for retail
-- ❌ **No custom backtest engine** — NautilusTrader already solved this
+- ❌ **No separate approximate engine for strategy selection** — current Python replay is an interim bracket/perpetual semantics path (ADR-0032, ADR-0036); P5 remains to be proven before live trading
 - ❌ **No price forecasting with an LLM** — out of scope
 - 🆕 ❌ **No meta-evolution prompt genome** (AlgoEvolve). It sounds appealing but the evidence is **negative**: the paper's own table shows that removing it gives a *higher* Sharpe (5.71 > 5.60) and nearly 4× lower drawdown. More importantly — every prompt variant is **a new search axis**, inflating `N` in DSR. We would be spending trials to buy something with no demonstrated value ([[08-LLM-QUANT-RESEARCHER]] §7.4)
 - 🆕 ❌ **No RFT / RL fine-tuning** (Alpha-R1, QuantEvolver). The newest direction of 2026 and probably right in the long run, but Alpha-R1 consumed **64×H800 for 120 hours** — violating A6
@@ -1186,9 +1149,10 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
 | D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
-| D18 | Research data | 🟡 Provisional default | Phases 0–2: Binance **spot**, 1d, 5 USDT pairs from 2018. Phase 3 (ADR-0031): Binance **USDT-M perpetual**, 5 contracts, configurable `timeframe`, IS from **2020-09-14** (SOL is the binding listing — measured 25 Sep 2026); holdout = last 12 months, its own lock | ADR-0002, ADR-0015, ADR-0031, §6.1. The 5.03-year window caps MinBTL at **1,475** trials at target 1.5 |
+| D18 | Research data | 🟡 Provisional default | Binance spot, 5 USDT pairs from 2018; **1h** default timeframe with **15m** support; optional `end`, where `null` uses the latest completed UTC boundary. USDT-M perpetual example starts 2020-09-14; 12-month holdout with its own lock | ADR-0031, ADR-0036, §6.1. Real-source perpetual coverage still awaits P3-24; the MinBTL ceiling depends on the locked IS window |
 | D19 | Focus engine | ✅ Decided (22 Sep 2026) | **No-LLM engine C**: C-gp (GP, typed grammar) main + C-random control; A/B deferred, design kept; the generator has no bias on trading frequency | §3.1.11, §7, [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only). Reopening A/B is the user's call |
 | D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
+| D21 | Exits for new campaigns | ✅ Decided (27 Sep 2026) | `bracket_timeout_v1`: ATR/Bollinger stop and TP fixed from signal close; default TP/SL **1.1**, maximum **100 held bars**, expiry fills at next open; `flat` does not close a held position | Ratio and limit are Group B; old locks lacking a version retain `legacy_flat` (ADR-0036) |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 
@@ -1196,7 +1160,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 
 - **Decisions** — only the ✅ rows above.
 - **Provisional defaults** — the 🟡 rows, and every number in the body marked "provisional default".
-- **Unverified API examples** — every code snippet that calls an external library (especially `purgedcv`, §6) is **illustrative** and has not been checked against the real signatures. See the verification item in [[07-VALIDATION-LAYER]] §7.
+- **External API examples** — illustrative unless checked; `purgedcv` 0.1.6 was verified in [[07-VALIDATION-LAYER]] §7 and ADR-0007.
 
 ### 10.1. User configuration
 
@@ -1211,12 +1175,11 @@ operational:            # GROUP A — change any time, does not affect statistic
   kill_switch_drawdown: 0.20    # D8
   models:                       # D11 — recorded in generation_log.model_used
     research: gpt-oss-120b
-    coding: <mid-tier>
-    eval: <mid-tier>
+    coding: null
+    eval: null
 
 research:               # GROUP B — locked per campaign; mid-campaign changes are refused
-  target_vol: 0.10              # D7
-  max_risk_pct: 0.01            # D12
+  max_risk_pct: 0.01            # D12; D7 retired target_vol
   portfolio:                    # D9
     max_corr: 0.5
     max_strategies: 20
@@ -1231,7 +1194,8 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   campaign: {purpose: research, trial_budget: null}   # harness_test = the phase-2 engine comparison: no portfolio, no freeze (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
-  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: the ⑥′ source (ADR-0015)
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = latest completed UTC boundary
+  exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; campaign-locked
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened (see below)
     dsr_min: 0.95

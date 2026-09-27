@@ -1,6 +1,6 @@
 # 04 — Module map
 
-Where code goes and what it may import. The tree is arch §5 moved under a src layout ([ADR-0001](adr/0001-src-layout-and-holdout-split.md)). Most modules below don't exist yet — the last column is the task that creates them.
+Where code goes and what it may import. The tree is arch §5 moved under a src layout ([ADR-0001](adr/0001-src-layout-and-holdout-split.md)). It mixes implemented and planned modules; the last column names the task or phase.
 
 ## Tree
 
@@ -22,7 +22,7 @@ TradingProject/
 │   ├── core/                      ── bottom layer ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
 │   │   │                          tunable
-│   │   ├── sizing/                vol_target, position_sizer                           §3.4    P1-06
+│   │   ├── sizing/                position_sizer (Q = R/d; vol_target retired)          §3.4    P3-02
 │   │   └── zoo/                   hand-written (ema, sma, rsi v1+v2); AST            §3.1.6  P1-12
 │   │                              similarity set                                               phase 2
 │   ├── data/                      DataSource protocol, ccxt/Stooq sources, store,      §6.1    P0-09
@@ -33,7 +33,7 @@ TradingProject/
 │   │   ├── guardrail.py           gate ①a static + ①b dynamic (leak_check.py)          §3.2    P0-07/11
 │   │   ├── sandbox.py             Docker runner (host) + sandbox_runner.py (in-container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, PSR, DSR, portfolio_dsr                      §3.2    P0-12, P1-02
-│   │   ├── pbo.py, pbo_gate.py    CSCV/PBO (vectorized) + gate ④ configuration set      §3.2    P1-03
+│   │   ├── pbo.py, pbo_gate.py    CSCV/PBO + batched gate-④ configuration set           §3.2    P3-25
 │   │   ├── cpcv.py                CPCV (purge/embargo) + IS→OOS degradation check       §3.2    P1-04
 │   │   ├── is_gates.py, run.py    gates ② ③; the phase-0 pipeline + `cli validate`     §3.2    P0-12
 │   │   ├── n_eff.py               ONC clustering → N_eff                               §4.1    P1-05
@@ -55,7 +55,8 @@ TradingProject/
 │   │   └── prompts/
 │   ├── holdout/                   evaluator_proc.py (own process), campaign.py         §4.2    P1-10
 │   ├── review/                    read-only read model + FastAPI app (`cli review`) ADR-0029  tooling
-│   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py, risk.py §3.5 P0-10, P1-06
+│   └── execution/                 engine.py (legacy Nautilus + bracket spot replay),    §3.5    P3-25
+│                                  nautilus_bridge.py, exit_policy.py, joint_account.py, perp_account.py, risk.py
 │       └── adapters/ssi/          VN30F1M adapter                                      §3.5    phase 6
 ├── ui/                            React + Vite front end: src/, e2e/ (Playwright)    ADR-0029  tooling
 └── tests/                         mirrors src/quantcrucible/; e2e/ for phase gates
