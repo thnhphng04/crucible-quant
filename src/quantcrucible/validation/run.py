@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +112,12 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
         n += 1
         campaign_id = f"{base}-{n}"
     derived = derived_settings(cfg.research.evolve_scope)
+    derived["exit_protocol"] = "bracket_timeout_v1"
+    # The manifest records the exact fetched window even when user.yaml requested latest (null).
+    fetched_end = date.fromisoformat(str(manifest["range"]).split("/")[1]) - timedelta(days=1)
+    if cfg.research.data.end is not None and fetched_end != cfg.research.data.end:
+        raise CampaignNotOpened("data manifest does not match research.data.end")
+    derived["resolved_data_end"] = fetched_end.isoformat()
     if perpetual:
         is_dir = root / "data" / "perp"
         perp_manifest = is_dir / "manifest.json"
@@ -120,6 +126,16 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
             cfg.research.data.symbols
         ):
             raise CampaignNotOpened("perpetual IS manifest has the wrong source or symbols")
+        trade_paths = {
+            f"{symbol.replace('/', '-').replace(':', '-')}_{cfg.research.data.timeframe}"
+            ".trade-paths.parquet"
+            for symbol in cfg.research.data.symbols
+        }
+        if (
+            not trade_paths <= data_manifest.files.keys()
+            or not trade_paths <= manifest["files"].keys()
+        ):
+            raise CampaignNotOpened("new perpetual campaign needs trade paths in IS and holdout")
         derived["perp_manifest_sha256"] = sha256_file(perp_manifest)
         if cfg.research.data.second_exchange is not None:
             second_dir = root / "data" / f"perp-second-{cfg.research.data.second_exchange}"
@@ -129,6 +145,8 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
                 second_manifest.coverage
             ) != set(cfg.research.data.symbols):
                 raise CampaignNotOpened("second perpetual IS manifest has wrong source or symbols")
+            if not trade_paths <= second_manifest.files.keys():
+                raise CampaignNotOpened("second perpetual source needs trade paths")
             derived["second_perp_manifest_sha256"] = sha256_file(second_path)
     open_campaign(
         cfg, ledger, campaign_id, lock_path,

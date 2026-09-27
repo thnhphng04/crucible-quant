@@ -138,6 +138,8 @@ def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOu
             for t in chosen
         )
         research = session.lock["research"]
+        from quantcrucible.execution.exit_policy import ExitPolicy
+
         replay = consolidate_on_account(
             members,
             streams,
@@ -148,6 +150,7 @@ def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOu
             initial_cash=100_000.0,
             leverage=int(research["data"]["leverage"]),
             max_portfolio_risk_pct=0.10,
+            exit_policy=ExitPolicy.from_lock(session.lock),
         )
         portfolio = Portfolio(
             session.campaign_id,

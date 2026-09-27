@@ -15,7 +15,7 @@ from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import TrialRecord
 from quantcrucible.validation.feature_stats import max_abs_change_corr
 from quantcrucible.validation.gates import G3_IS, GateContext, GatePipeline, StrategyCandidate
-from quantcrucible.validation.is_gates import InSampleGate, MinBtlGate
+from quantcrucible.validation.is_gates import InSampleGate, MinBtlGate, backtest_options
 from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
 from quantcrucible.validation.statistical import min_btl_years
 from tests.factories import make_bars
@@ -33,6 +33,20 @@ LOCK: dict[str, Any] = {
         "sizing": {"rule": "risk_over_stop"},
     },
 }
+
+
+def test_backtest_job_receives_the_locked_exit_policy() -> None:
+    assert backtest_options(LOCK, 0)["exit_policy"]["mode"] == "legacy_flat"
+    current = {
+        **LOCK,
+        "research": {**LOCK["research"], "exit": {"tp_sl_ratio": 1.1, "max_holding_bars": 100}},
+        "derived": {**LOCK["derived"], "exit_protocol": "bracket_timeout_v1"},
+    }
+    assert backtest_options(current, 0)["exit_policy"] == {
+        "mode": "bracket_timeout_v1",
+        "tp_sl_ratio": 1.1,
+        "max_holding_bars": 100,
+    }
 
 
 class FakeRunner:

@@ -13,6 +13,16 @@ from tests.factories import bars_from_close, make_bars
 NAN = np.nan
 
 
+def test_bollinger_bands_use_eight_closes_and_population_deviation() -> None:
+    closes = np.arange(1.0, 9.0)
+    middle, deviation = np.mean(closes), np.std(closes, ddof=0)
+    upper = registry.boll_upper(closes, 8)
+    lower = registry.boll_lower(closes, 8)
+    assert np.all(np.isnan(upper[:7])) and np.all(np.isnan(lower[:7]))
+    assert upper[7] == pytest.approx(middle + 2 * deviation)
+    assert lower[7] == pytest.approx(middle - 2 * deviation)
+
+
 def _compute(name: str, bars: Bars, n: int) -> np.ndarray:
     fn = getattr(registry, name)
     result: np.ndarray = fn(bars, n) if INDICATORS[name] == "bars" else fn(bars.close, n)
@@ -134,6 +144,6 @@ def test_every_indicator_has_a_spec() -> None:
     for name, spec in registry.OPS.items():
         assert spec.kind == INDICATORS[name]
         if spec.kind != "predicate":
-            assert spec.period is not None and 1 < spec.period[0] < spec.period[1]
+            assert spec.period is not None and 1 < spec.period[0] <= spec.period[1]
         if spec.output == "dimensionless":
             assert spec.value_range is not None

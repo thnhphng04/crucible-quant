@@ -447,16 +447,13 @@ trade bars alone. These tasks wire them in, fetch real data, and take the phase 
 
 **Phase-3 gate:** fixtures prove the joint-account path and the real-data preflight passes. **No real campaign opens inside this phase** — its shape is a separate decision, and the headroom is 1,185 trials.
 
-**Status, honestly.** Eleven of fifteen tasks are done. The four marked ◐ share one unfinished
-piece: **the sandbox payload still carries only trade bars.** `perp_account`, `joint_account`,
-`path_summary` and `admission` are built and tested, but nothing in the gate pipeline calls them,
-because a backtest inside the container cannot yet receive mark prices or funding. Until that
-lands, a perpetual campaign cannot be run end to end — the components exist, the wiring does not.
-What is blocked by it: gate ③/④ on the perpetual path (P3-07, P3-08), the holdout evaluator on
-that path (P3-10), and the account-equity endpoint and contribution chart (P3-15).
+**Current status.** P3-16 through P3-23 are implemented and tested: the sandbox now receives
+mark, funding, paths and brackets; gates ③/④/⑥′, holdout replay and the account chart use them.
+P3-24 still requires a real-source coverage check before a perpetual campaign opens. P3-25 adds
+the versioned bracket exit without reinterpreting any earlier campaign or result.
 
-That piece was deferred out of P3-07 into P3-08 and then not built. Recording it here rather than
-marking the tasks done is the point: the phase gate above is not met yet.
+The old sandbox-payload blocker is resolved. The phase gate remains open until the real-data
+preflight and its dry run are verified on the intended symbols and window.
 
 **Five defects found in review, all fixed (INV-92c, INV-93, INV-93c, INV-95b).** Each was code
 whose tests passed while the path a campaign actually takes was broken. `RiskSizer` returned 0
@@ -472,6 +469,11 @@ demand one.
 ---
 
 ## Phases 3b–6 — milestones (break into tasks when the phase starts)
+
+### ✅ P3-25 Fixed bracket exits and a maximum holding period
+**Goal:** every new campaign enters with immutable SL/TP and exits at the next open after 100 held bars if neither level trades through. **Decision:** ADR-0036. **Needs:** P3-24
+**Work:** lock the exit ratio, holding limit and data window; sample ATR or Bollinger stops; replay spot and perpetual with the same exit ordering. Batch large PBO grids for 15m/1h while preserving the full configuration set.
+**Accept when:** single-strategy and one-slot portfolio equity agree, old locks still select legacy exits, 15m and 1h data are covered, and all CI gates pass.
 
 | Phase | Milestones | Arch |
 |---|---|---|

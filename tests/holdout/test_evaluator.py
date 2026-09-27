@@ -27,7 +27,7 @@ from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.data.holdout_split import carve
 from quantcrucible.data.perp_carve import carve_perp
 from quantcrucible.holdout.campaign import HoldoutRefused, claim, find_frozen
-from quantcrucible.holdout.evaluator_proc import evaluate, main
+from quantcrucible.holdout.evaluator_proc import Paths, evaluate, main, perp_evaluation_inputs
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import GateResultRecord, TrialRecord, utc_now
 from quantcrucible.validation.archive import StrategyArchive
@@ -263,6 +263,14 @@ def test_perp_holdout_uses_one_account_signal_replay(tmp_path: Path) -> None:
         assert len(bars) - int(np.sum(bars.ts >= start)) == 400
     access = proj.ledger.holdout_access("c1")
     assert access is not None and access.verdict == "PASS" and access.sharpe_oos is not None
+
+
+def test_new_perpetual_exit_refuses_legacy_bundle_without_trade_paths(tmp_path: Path) -> None:
+    proj = build_perp_project(tmp_path)
+    with pytest.raises(HoldoutRefused, match="trade-paths"):
+        perp_evaluation_inputs(
+            Paths(proj.root), ["BTC/USDT:USDT"], "1d", 400, require_trade_paths=True
+        )
 
 
 def test_second_opening_raises(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

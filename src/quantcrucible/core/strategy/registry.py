@@ -104,6 +104,28 @@ def zscore(x: FloatArray, n: int) -> FloatArray:
     return out
 
 
+def boll_upper(x: FloatArray, n: int) -> FloatArray:
+    """Upper Bollinger band, two population standard deviations above SMA."""
+    _check_period(n)
+    x = _as_float(x)
+    out = np.full(len(x), np.nan)
+    if len(x) >= n:
+        windows = sliding_window_view(x, n)
+        out[n - 1 :] = windows.mean(axis=1) + 2.0 * windows.std(axis=1)
+    return out
+
+
+def boll_lower(x: FloatArray, n: int) -> FloatArray:
+    """Lower Bollinger band, two population standard deviations below SMA."""
+    _check_period(n)
+    x = _as_float(x)
+    out = np.full(len(x), np.nan)
+    if len(x) >= n:
+        windows = sliding_window_view(x, n)
+        out[n - 1 :] = windows.mean(axis=1) - 2.0 * windows.std(axis=1)
+    return out
+
+
 def atr(bars: Bars, n: int) -> FloatArray:
     """Wilder's average true range."""
     _check_period(n)
@@ -164,6 +186,8 @@ class _Indicators:
     rolling_max = staticmethod(rolling_max)
     rolling_min = staticmethod(rolling_min)
     zscore = staticmethod(zscore)
+    boll_upper = staticmethod(boll_upper)
+    boll_lower = staticmethod(boll_lower)
     atr = staticmethod(atr)
     rsi = staticmethod(rsi)
     cross_up = staticmethod(cross_up)
@@ -202,6 +226,8 @@ OPS: dict[str, OpSpec] = {
     "rolling_max": OpSpec("series", "same", (2, 300)),
     "rolling_min": OpSpec("series", "same", (2, 300)),
     "zscore": OpSpec("series", "dimensionless", (5, 300), (-3.0, 3.0)),
+    "boll_upper": OpSpec("series", "same", (8, 8)),
+    "boll_lower": OpSpec("series", "same", (8, 8)),
     "rsi": OpSpec("series", "dimensionless", (2, 100), (0.0, 100.0), warmup_extra=1),
     "atr": OpSpec("bars", "price", (2, 100)),
     "cross_up": OpSpec("predicate", "bool"),

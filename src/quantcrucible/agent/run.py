@@ -23,6 +23,7 @@ from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
 from quantcrucible.agent.evolution.archive import scope_args
 from quantcrucible.agent.evolution.feature_map import FeatureMap
+from quantcrucible.agent.grammar import GrammarConfig
 from quantcrucible.agent.monitor import EarlyStop, stopped_keys
 from quantcrucible.agent.pipeline import (
     DEFAULT_WORKERS,
@@ -70,15 +71,21 @@ def _submitted(session: ResearchSession, key: Key) -> int:
 
 def _engine(session: ResearchSession, key: Key, run_label: str) -> Engine:
     rng_seed = engine_seed(key.engine, key.seed, key.instrument, key.direction)
+    new_exit = session.lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
+    grammar = GrammarConfig(
+        boll_stop_probability=0.5 if new_exit else 0.0,
+        tp_sl_ratio=float(session.lock["research"]["exit"]["tp_sl_ratio"]) if new_exit else None,
+    )
     if key.engine == "gp":
         gp_settings = session.lock["research"].get("gp", {})
         return GpSearch(
             session.ledger, session.campaign_id, key, rng_seed,
             FeatureMap.from_lock(session.lock), periods_per_year(session.timeframe),
             float(gp_settings.get("param_only_max", 0.30)), f"{run_label}-{key}",
+            config=grammar,
         )  # fmt: skip
     if key.engine == "random":
-        e = RandomSearch(seed=rng_seed)
+        e = RandomSearch(seed=rng_seed, config=grammar)
         for _ in range(_submitted(session, key)):  # resume: replay what was already submitted
             e.next()
         return e

@@ -84,6 +84,27 @@ def test_take_profit_renders_when_enabled() -> None:
     assert "k_tp" in p.params and "self.p.k_tp * atr" in p.source
 
 
+def test_bracket_campaign_samples_both_stop_kinds_without_a_tp_tunable(
+    ctx: GateContext,
+) -> None:
+    ctx.lock["derived"]["exit_protocol"] = "bracket_timeout_v1"
+    ctx.lock["research"]["exit"] = {"tp_sl_ratio": 1.1}
+    engine = RandomSearch(
+        seed=42,
+        config=grammar.GrammarConfig(boll_stop_probability=0.5, tp_sl_ratio=1.1),
+    )
+    kinds = set()
+    for _ in range(100):
+        proposal = engine.next()
+        kinds.add(proposal.genome.stop_kind)
+        assert "k_tp" not in proposal.params
+        assert "1.1 * stop" in proposal.source
+        assert len(parse(proposal.source).tunables) <= MAX_TUNABLES
+        ok, reason = _static(ctx, proposal.source, proposal.params)
+        assert ok, reason
+    assert kinds == {"atr", "bollinger"}
+
+
 def test_the_readiness_guard_is_always_emitted() -> None:
     """ATR and the stop must be finite and positive before any entry (rsi_momentum v1 bug)."""
     engine = RandomSearch(seed=2)

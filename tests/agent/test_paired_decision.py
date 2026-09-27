@@ -109,7 +109,7 @@ def test_an_individual_scope_carries_no_win_or_loss() -> None:
 
 
 def test_the_protocol_names_the_wider_unit() -> None:
-    assert PROTOCOL["version"] == 5
+    assert PROTOCOL["version"] == 6
     assert "instrument" in PROTOCOL["unit"] and "direction" in PROTOCOL["unit"]
 
 

@@ -17,6 +17,7 @@ So the contract is deliberately narrow:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -76,6 +77,17 @@ def test_a_bundle_holds_one_path_per_bar() -> None:
     b = bundle(4)
     assert len(b) == 4
     assert len(b.paths) == len(b.marks) == 4
+
+
+def test_trade_paths_follow_slice_and_sidecar_round_trip(tmp_path: Path) -> None:
+    original = bundle(4)
+    with_trade = replace(original, trade_paths=original.paths)
+    cut = with_trade.slice(1, 3)
+    assert cut.trade_paths == original.paths[1:3]
+    names = write_bundle(tmp_path, cut)
+    assert "trade_paths" in names
+    restored = read_bundle(tmp_path, cut.symbol, cut.timeframe, names)
+    assert restored.trade_paths == cut.trade_paths
 
 
 def test_a_path_missing_for_one_bar_is_refused() -> None:

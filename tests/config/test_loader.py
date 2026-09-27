@@ -76,6 +76,9 @@ def test_tightening_is_allowed() -> None:
         ({"research": {"drift": {"allow_below": 0.2}}}, "allow_below"),
         ({"research": {"max_risk_pct": 2}}, "<= 1"),
         ({"research": {"data": {"start": "yesterday"}}}, "date"),
+        ({"research": {"data": {"end": "2010-01-01"}}}, "start must be before"),
+        ({"research": {"exit": {"tp_sl_ratio": 0}}}, "tp_sl_ratio"),
+        ({"research": {"exit": {"max_holding_bars": 0}}}, "max_holding_bars"),
         ({"research": {"data": {"symbols": []}}}, "symbols"),
         ({"research": {"data": {"second_exchange": "binance"}}}, "second_exchange"),
         ({"research": {"data": {"market": "perp"}}}, "not one of"),
@@ -95,6 +98,21 @@ def test_invalid_values_rejected(data: dict[str, Any], message: str) -> None:
 def test_holdout_pass_optional_until_used() -> None:
     assert parse_user_config({}).research.holdout_pass is None
     assert parse_user_config({"research": {"holdout_pass": 0.5}}).research.holdout_pass == 0.5
+
+
+def test_exit_and_window_are_campaign_settings() -> None:
+    cfg = parse_user_config(
+        {
+            "research": {
+                "exit": {"tp_sl_ratio": 2.0, "max_holding_bars": 24},
+                "data": {"timeframe": "15m", "end": "2024-01-01"},
+            }
+        }
+    )
+    assert cfg.research.exit.tp_sl_ratio == 2.0
+    assert cfg.research.exit.max_holding_bars == 24
+    assert cfg.research.data.timeframe == "15m"
+    assert cfg.research.data.end is not None and cfg.research.data.end.isoformat() == "2024-01-01"
 
 
 def test_perpetual_market_requires_contract_symbols_and_locks_venue_assumptions() -> None:

@@ -447,16 +447,13 @@ nến giao dịch. Các task này nối dây, tải dữ liệu thật, và đư
 
 **Cổng giai đoạn 3:** fixture chứng minh đường tài khoản chung và preflight dữ liệu thật đạt. **Không campaign thật nào mở trong giai đoạn này** — hình dạng của nó là quyết định riêng, và headroom là 1.185 trial.
 
-**Trạng thái, nói thẳng.** Mười một trên mười lăm task đã xong. Bốn task mang dấu ◐ cùng thiếu
-đúng một mảnh: **payload vào sandbox vẫn chỉ mang nến giao dịch.** `perp_account`,
-`joint_account`, `path_summary` và `admission` đã dựng và đã test, nhưng không gì trong đường ống
-gate gọi tới chúng, vì một backtest bên trong container chưa nhận được mark price hay funding.
-Chừng nào mảnh đó chưa xong, một campaign perpetual không chạy được end-to-end — linh kiện có đủ,
-đường dây thì chưa. Những thứ bị chặn bởi nó: gate ③/④ trên đường perpetual (P3-07, P3-08),
-evaluator holdout trên đường đó (P3-10), và endpoint equity tài khoản cùng chart đóng góp (P3-15).
+**Trạng thái hiện tại.** P3-16 đến P3-23 đã triển khai và kiểm thử: sandbox hiện nhận mark,
+funding, path và bracket; gate ③/④/⑥′, replay holdout và chart tài khoản đều dùng dữ liệu đó.
+P3-24 vẫn cần kiểm tra coverage nguồn thật trước khi mở campaign perpetual. P3-25 bổ sung
+thoát theo bracket có phiên bản mà không diễn giải lại campaign hay kết quả cũ.
 
-Mảnh này bị hoãn từ P3-07 sang P3-08 rồi không được làm. Ghi lại ở đây thay vì đánh dấu task đã
-xong chính là điều đáng làm: cổng giai đoạn phía trên chưa đạt.
+Điểm chặn payload sandbox cũ đã được giải quyết. Cổng giai đoạn còn mở cho đến khi xác minh
+preflight và dry run với đúng symbol và khoảng dữ liệu dự kiến.
 
 **Năm lỗi tìm ra khi review, đã sửa hết (INV-92c, INV-93, INV-93c, INV-95b).** Cả năm đều là code
 có test xanh trong khi đường mà một campaign thật sự đi thì hỏng. `RiskSizer` trả 0 cho mọi
@@ -472,6 +469,11 @@ một reader bị cấm migrate thì không thể đồng thời đòi hỏi ph�
 ---
 
 ## Giai đoạn 3b–6 — các mốc (chia thành task khi bắt đầu giai đoạn)
+
+### ✅ P3-25 Thoát bằng SL/TP cố định và thời gian giữ lệnh tối đa
+**Mục tiêu:** mọi campaign mới vào lệnh với SL/TP đứng yên và thoát ở giá mở cửa nến kế sau 100 nến giữ nếu chưa chạm mức. **Quyết định:** ADR-0036. **Cần:** P3-24
+**Việc làm:** khóa tỷ lệ TP/SL, giới hạn giữ lệnh và cửa sổ dữ liệu; sinh stop ATR hoặc Bollinger; replay spot và perpetual với cùng thứ tự exit. Chia lưới PBO lớn cho 15m/1h nhưng giữ đầy đủ tập cấu hình.
+**Đạt khi:** equity backtest riêng và danh mục một slot khớp, lock cũ vẫn chọn exit legacy, dữ liệu 15m và 1h chạy được, mọi cổng CI xanh.
 
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|

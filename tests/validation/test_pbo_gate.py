@@ -14,6 +14,7 @@ import pytest
 from quantcrucible.core.strategy.tunable import parse_tunables
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import TrialRecord
+from quantcrucible.validation import pbo_gate
 from quantcrucible.validation.gates import (
     G3_IS,
     G4_PBO,
@@ -56,7 +57,12 @@ class GridRunner:
             rets += np.linspace(-0.001, 0.001, m)[:, None] * regime
         rets[: max(1, m // 5)] += self.edge
         ts = [str(t) for t in pd.date_range("2020-01-02", periods=T, freq="D")]
-        result = {"ts": ts, "returns": rets.tolist(), "n_trades": [40] * m}
+        result = {
+            "ts": ts,
+            "returns": rets.tolist(),
+            "n_trades": [40] * m,
+            "avg_holding_bars": [1.0] * m,
+        }
         return SandboxResult(True, {"ok": True, "result": result}, "", "", 0, False, None, 0.1)
 
 
@@ -133,6 +139,36 @@ def test_g4_passes_a_stable_edge_and_keeps_pbo_private(ledger: Ledger, tmp_path:
     assert result.detail is not None
     saved = pd.read_parquet(result.detail["matrix_path"])
     assert saved.shape == (T, 1 + len(job.options["grid"]))
+
+
+def test_large_grid_is_batched_without_dropping_or_reordering_configs(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pbo_gate, "GRID_REPORT_TARGET_BYTES", T * 32 * 3)
+    runner = GridRunner(edge=0.002)
+    result = PboGate().check(cand(), ctx(ledger, tmp_path, runner))
+    expected = configuration_set(cand(), [], GRID, seed=0)
+    assert len(runner.jobs) > 1
+    assert [item for job in runner.jobs for item in job.options["grid"]] == expected
+    assert result.detail is not None
+    saved = pd.read_parquet(result.detail["matrix_path"])
+    assert saved.shape == (T, 1 + len(expected))
+
+
+def test_grid_batches_refuse_different_time_axes(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pbo_gate, "GRID_REPORT_TARGET_BYTES", T * 32 * 3)
+
+    class ShiftedGrid(GridRunner):
+        def run(self, job: SandboxJob) -> SandboxResult:
+            result = super().run(job)
+            if len(self.jobs) == 2 and result.report is not None:
+                result.report["result"]["ts"][0] = "1999-01-01"
+            return result
+
+    outcome = PboGate().check(cand(), ctx(ledger, tmp_path, ShiftedGrid()))
+    assert not outcome.passed and "different bar axes" in outcome.reason
 
 
 def test_g4_rejects_an_overfit_configuration_set(ledger: Ledger, tmp_path: Path) -> None:

@@ -135,12 +135,20 @@ def backtest_options(lock: Mapping[str, Any], seed: int) -> dict[str, Any]:
     """Everything a sandbox backtest job needs from the campaign lock: costs, lookback, sizing."""
     derived: Mapping[str, Any] = lock["derived"]
     data: Mapping[str, Any] = lock["research"].get("data", {})
+    from quantcrucible.execution.exit_policy import ExitPolicy
+
+    policy = ExitPolicy.from_lock(lock)
     return {
         "costs": dict(derived["costs"]),
         "lookback": int(derived.get("lookback", 400)),
         "risk": risk_settings(lock),
         "leverage": int(data.get("leverage", 5)),
         "seed": seed,
+        "exit_policy": {
+            "mode": policy.mode,
+            "tp_sl_ratio": policy.tp_sl_ratio,
+            "max_holding_bars": policy.max_holding_bars,
+        },
     }
 
 

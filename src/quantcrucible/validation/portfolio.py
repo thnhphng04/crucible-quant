@@ -31,6 +31,7 @@ import pandas as pd
 
 from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars, Direction, Signal
+from quantcrucible.execution.exit_policy import ExitPolicy
 from quantcrucible.execution.joint_account import SignalReplay, SlotPlan, replay_signals
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.execution.risk import RiskSettings
@@ -468,6 +469,7 @@ def consolidate_on_account(
     initial_cash: float,
     leverage: int,
     max_portfolio_risk_pct: float = 0.10,
+    exit_policy: ExitPolicy | None = None,
 ) -> SignalReplay:
     """§3.2.1 steps 4–5 on the perpetual path: replace the weighted sum with one account replay.
 
@@ -519,4 +521,5 @@ def consolidate_on_account(
         costs=costs,
         leverage=leverage,
         max_portfolio_risk_pct=max_portfolio_risk_pct,
+        exit_policy=exit_policy,
     )

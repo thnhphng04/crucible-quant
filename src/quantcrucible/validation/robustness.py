@@ -167,6 +167,8 @@ def account_returns(
         for m in portfolio.members
     }
     with tempfile.TemporaryDirectory(prefix="qc-robustness-signals-") as tmp:
+        from quantcrucible.execution.exit_policy import ExitPolicy
+
         replay = consolidate_on_account(
             portfolio.members,
             _write_rerun_streams(Path(tmp), portfolio.members, reports),
@@ -177,6 +179,7 @@ def account_returns(
             initial_cash=float(options.get("initial_cash", 100_000.0)),
             leverage=int(options.get("leverage", 5)),
             max_portfolio_risk_pct=float(options.get("max_portfolio_risk_pct", 0.10)),
+            exit_policy=ExitPolicy(**options.get("exit_policy", {})),
         )
     return pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:]))
 

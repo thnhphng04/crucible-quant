@@ -151,6 +151,12 @@ def _validate(cfg: UserConfig) -> None:
             problems.append(f"{name} must be <= 1")
     if not r.data.symbols:
         problems.append("research.data.symbols must not be empty")
+    if not math.isfinite(r.exit.tp_sl_ratio) or r.exit.tp_sl_ratio <= 0:
+        problems.append("research.exit.tp_sl_ratio must be finite and > 0")
+    if r.exit.max_holding_bars <= 0:
+        problems.append("research.exit.max_holding_bars must be > 0")
+    if r.data.end is not None and r.data.start >= r.data.end:
+        problems.append("research.data.start must be before research.data.end")
     if r.data.market == "usdt_m_perpetual":
         if r.data.exchange != "binance":
             problems.append("research.data.exchange must be binance for USDT-M perpetuals")

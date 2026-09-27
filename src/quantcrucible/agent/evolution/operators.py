@@ -170,9 +170,15 @@ def _swap_indicator(c: Clause, rng: np.random.Generator) -> Clause:
     return child
 
 
-def mutate_point(g: Genome, rng: np.random.Generator) -> Genome:
+def mutate_point(
+    g: Genome, rng: np.random.Generator, config: GrammarConfig | None = None
+) -> Genome:
     clauses = g.clauses()
     choice = rng.random()
+    if config is not None and config.boll_stop_probability > 0 and choice < 0.15:
+        return dataclasses.replace(
+            g, stop_kind="atr" if g.stop_kind == "bollinger" else "bollinger"
+        )
     if isinstance(g.entry, Combine) and choice < 0.2:
         return dataclasses.replace(
             g, entry=Combine("or" if g.entry.op == "and" else "and", g.entry.items)
@@ -204,7 +210,7 @@ def crossover(a: Genome, b: Genome, rng: np.random.Generator, config: GrammarCon
             i = int(rng.integers(len(clauses)))
             child = _with_clauses(a, (*clauses[:i], clause, *clauses[i + 1 :]))
         if rng.random() < 0.5:
-            child = dataclasses.replace(child, stop=b.stop)
+            child = dataclasses.replace(child, stop=b.stop, stop_kind=b.stop_kind)
         if _fits(child, config) and child != a:
             return child
     raise OperatorFailed("no crossover child fits the TUNABLE budget")
@@ -220,7 +226,7 @@ def breed(
     if kind == "param":
         return mutate_param(parent, rng)
     if kind == "point":
-        return mutate_point(parent, rng)
+        return mutate_point(parent, rng, config)
     if kind == "subtree":
         return mutate_subtree(parent, rng, config)
     if other is None:

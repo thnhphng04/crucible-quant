@@ -54,6 +54,7 @@ def _leak_check(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any])
 def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -> dict[str, Any]:
     # imported here: NautilusTrader takes ~2 s to import and only this job needs it (O6)
     from quantcrucible.execution.engine import run_backtest
+    from quantcrucible.execution.exit_policy import ExitPolicy
     from quantcrucible.execution.nautilus_bridge import CostModel
     from quantcrucible.execution.risk import RiskSettings
 
@@ -70,6 +71,7 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
         risk=RiskSettings(**job["risk"]),  # required: sizing is locked per campaign (ADR-0010)
         perp=perp,
         leverage=int(job.get("leverage", 5)),
+        exit_policy=ExitPolicy(**job.get("exit_policy", {})),
     )
     strategy = cls(job.get("params") or {})
     corr, pair = 0.0, None
@@ -93,6 +95,8 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
         "liquidated": list(res.liquidated),
         "terminated_at": str(res.terminated_at) if res.terminated_at is not None else None,
         "stops_placed": [[s.ts, s.symbol, s.direction, s.trigger, s.qty] for s in res.stops_placed],
+        "exits": [[e.bar, e.symbol, e.side, e.price, e.reason] for e in res.exits],
+        "ambiguous_bars": res.ambiguous_bars,
         # The stream a portfolio replay needs later: it sizes from signals, not from these fills
         # (ADR-0035), so gate ③ is where it has to be captured.
         "signals_stream": {
@@ -111,6 +115,7 @@ def _grid_backtest(
     """Gate ④: one backtest per configuration of the pre-registered set, same data and costs.
     Returns the (n_configs × n_obs) return matrix on the shared bar-close axis."""
     from quantcrucible.execution.engine import run_backtest
+    from quantcrucible.execution.exit_policy import ExitPolicy
     from quantcrucible.execution.nautilus_bridge import CostModel
     from quantcrucible.execution.risk import RiskSettings
 
@@ -134,6 +139,7 @@ def _grid_backtest(
             risk=RiskSettings(**job["risk"]),
             perp=perp,
             leverage=int(job.get("leverage", 5)),
+            exit_policy=ExitPolicy(**job.get("exit_policy", {})),
         )
         rows.append(res.returns.tolist())
         trades.append(res.n_trades)

@@ -57,13 +57,16 @@ def data_fetch(config: Path, root: Path, market: str | None = None) -> int:
         return 2
     if requested == "perp":
         return data_fetch_perp(config, root)
-    now = datetime.now(UTC)
-    today = now.date()
-    holdout_start = add_months(today, -cfg.holdout_months)
-    holdout_end = today + timedelta(days=1)
+    today = datetime.now(UTC).date()
+    end_day = cfg.end or today
+    if end_day > today:
+        raise ValueError("research.data.end cannot be in the future")
+    end = datetime.combine(end_day, time(), tzinfo=UTC)
+    holdout_start = add_months(end_day, -cfg.holdout_months)
+    holdout_end = end_day + timedelta(days=1)
     source = CcxtSource(cfg.exchange)
     start = datetime.combine(cfg.start, time(), tzinfo=UTC)
-    bars = {s: source.bars(s, cfg.timeframe, start, now) for s in cfg.symbols}
+    bars = {s: source.bars(s, cfg.timeframe, start, end) for s in cfg.symbols}
     summary = carve(
         bars,
         holdout_start,
@@ -91,8 +94,11 @@ def data_fetch_perp(config: Path, root: Path) -> int:
     if cfg.market != "usdt_m_perpetual":
         raise ValueError("research.data.market must be usdt_m_perpetual")
     today = datetime.now(UTC).date()
+    end_day = cfg.end or today
+    if end_day > today:
+        raise ValueError("research.data.end cannot be in the future")
     start = datetime.combine(cfg.start, time(), tzinfo=UTC)
-    end = datetime.combine(today, time(), tzinfo=UTC)  # only completed bars
+    end = datetime.combine(end_day, time(), tzinfo=UTC)  # only completed bars
     prepared = prepare_perpetual(
         PerpSource(),
         root / "data" / "perp-minutes",
@@ -110,8 +116,8 @@ def data_fetch_perp(config: Path, root: Path) -> int:
     directory = root / "data" / "perp"
     summary = carve_perp(
         prepared.data,
-        add_months(today, -cfg.holdout_months),
-        today + timedelta(days=1),
+        add_months(end_day, -cfg.holdout_months),
+        end_day + timedelta(days=1),
         in_sample_dir=directory,
         holdout_dir=root / "holdout" / "perp",
         lock_path=root / "holdout" / "perp.lock",
@@ -252,6 +258,7 @@ def _session(config: Path, root: Path, label: str = "default") -> ResearchSessio
                 "mark": f"{stem}_{data.timeframe}.mark.parquet",
                 "funding": f"{stem}.funding.parquet",
                 "paths": f"{stem}_{data.timeframe}.paths.parquet",
+                "trade_paths": f"{stem}_{data.timeframe}.trade-paths.parquet",
                 "brackets": f"{stem}.brackets.json",
             }
             bundle = read_bundle(is_dir, symbol, data.timeframe, names)
@@ -287,6 +294,7 @@ def _session(config: Path, root: Path, label: str = "default") -> ResearchSessio
                         "mark": f"{stem}_{data.timeframe}.mark.parquet",
                         "funding": f"{stem}.funding.parquet",
                         "paths": f"{stem}_{data.timeframe}.paths.parquet",
+                        "trade_paths": f"{stem}_{data.timeframe}.trade-paths.parquet",
                         "brackets": f"{stem}.brackets.json",
                     }
                     bundle = read_bundle(second_dir, symbol, data.timeframe, names)

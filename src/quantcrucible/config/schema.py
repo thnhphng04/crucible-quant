@@ -107,12 +107,19 @@ class Gates:
 
 
 @dataclass(frozen=True, slots=True)
+class Exit:
+    tp_sl_ratio: float = 1.1
+    max_holding_bars: int = 100
+
+
+@dataclass(frozen=True, slots=True)
 class Data:
     exchange: str = "binance"
     symbols: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT")
     market: Market = "spot"
-    timeframe: str = "1d"
+    timeframe: str = "1h"
     start: date = date(2018, 1, 1)
+    end: date | None = None  # exclusive UTC bar-open boundary; resolved at fetch time
     holdout_months: int = 12
     second_exchange: str | None = "gate"  # gate ⑥′ data-source robustness (P1-09, ADR-0015)
     leverage: int = 5  # maximum allowed; execution chooses the lowest funded integer
@@ -134,6 +141,7 @@ class Research:
     seeds: int = 3
     minbtl_target_sharpe: float = MINBTL_TARGET_SHARPE_CEILING
     data: Data = field(default_factory=Data)
+    exit: Exit = field(default_factory=Exit)
     calibration: Calibration = field(default_factory=Calibration)
     gates: Gates = field(default_factory=Gates)
     holdout_pass: float | None = None  # D4 — required before the holdout can be opened

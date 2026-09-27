@@ -27,9 +27,18 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
+from quantcrucible.core.path_summary import SegmentedPath
 from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars, ScopeDirection, Signal
 from quantcrucible.execution.admission import EntryRequest, admit_batch
+from quantcrucible.execution.exit_policy import (
+    Bracket,
+    ExitPolicy,
+    ExitReason,
+    bracket_at_signal,
+    expires,
+    resolve_paths,
+)
 from quantcrucible.execution.margin import BracketTable
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.execution.perp_account import (
@@ -232,6 +241,16 @@ class Opened:
 
 
 @dataclass(frozen=True, slots=True)
+class Closed:
+    bar: int
+    instrument: str
+    direction: ScopeDirection
+    qty: float
+    price: float
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class _EntryTerms:
     leverage: int
     margin: float
@@ -248,6 +267,7 @@ class SignalReplay:
     contributions: dict[Slot, npt.NDArray[np.float64]] = field(default_factory=dict)
     funding_paid: dict[Slot, float] = field(default_factory=dict)
     opened: list[Opened] = field(default_factory=list)
+    closed: list[Closed] = field(default_factory=list)
     liquidations: list[Slot] = field(default_factory=list)
     denied: list[tuple[Slot, str]] = field(default_factory=list)
     ambiguous_bars: int = 0
@@ -278,6 +298,7 @@ def replay_signals(
     max_portfolio_risk_pct: float = 0.10,
     max_drawdown: float = 0.20,
     clearance: float = 0.25,
+    exit_policy: ExitPolicy | None = None,
 ) -> SignalReplay:
     """Walk one shared USDT account through every slot's signals.
 
@@ -294,6 +315,12 @@ def replay_signals(
     ``test_one_member_reproduces_the_single_strategy_curve`` pins this against.
     """
     axis = _common_axis(bars)
+    policy = exit_policy or ExitPolicy()
+    bracket_mode = policy.mode == "bracket_timeout_v1"
+    if bracket_mode and policy.max_holding_bars is None:
+        raise ValueError("bracket policy needs max_holding_bars")
+    if bracket_mode and any(bundle.trade_paths is None for bundle in inputs.values()):
+        raise ValueError("bracket replay requires trade-minute paths")
     n = len(axis)
     account = PerpAccount(
         balance=initial_cash,
@@ -304,10 +331,12 @@ def replay_signals(
     booked: dict[Slot, float] = dict.fromkeys(by_slot, 0.0)
     stop_level: dict[Slot, float] = {}
     stop_distance: dict[Slot, float] = {}
+    take_profit_level: dict[Slot, float] = {}
+    entry_bar: dict[Slot, int] = {}
     # Exits decided at a bar's close, filling at the next bar's open — the same next-open
     # convention entries use (ADR-0003). Closing at the deciding bar's own close would price the
     # exit on information the order could not have acted on.
-    exit_pending: set[Slot] = set()
+    exit_pending: dict[Slot, str] = {}
     curves: dict[Slot, npt.NDArray[np.float64]] = {
         slot: np.zeros(n, dtype=np.float64) for slot in by_slot
     }
@@ -398,11 +427,16 @@ def replay_signals(
             if wallet is None:
                 continue
             fill = float(bars[plan.instrument].open[bar])
+            result.closed.append(
+                Closed(bar, plan.instrument, plan.direction, wallet.qty, fill, exit_pending[slot])
+            )
             charge(slot, -abs(wallet.qty * fill) * float(costs.taker_rate))
             margin = wallet.margin
             book(slot, margin + account.close(plan.instrument, plan.direction, fill))
             stop_level.pop(slot, None)
             stop_distance.pop(slot, None)
+            take_profit_level.pop(slot, None)
+            entry_bar.pop(slot, None)
         exit_pending.clear()
 
         # 1. funding, then liquidation and the stop, per open slot
@@ -412,6 +446,88 @@ def replay_signals(
                 continue
             bundle = inputs[plan.instrument]
             if bar >= len(bundle):
+                continue
+            if bracket_mode:
+                trade_path = bundle.trade_paths
+                if trade_path is None:
+                    raise ValueError("bracket replay requires trade-minute paths")
+                mark_path = bundle.paths[bar]
+                trade_bar = trade_path[bar]
+                if mark_path.starts != trade_bar.starts:
+                    raise ValueError("trade and mark paths have different funding cuts")
+                timeframe = bars[plan.instrument].timeframe
+                unit_minutes = {"m": 1, "h": 60, "d": 1440}[timeframe[-1]]
+                period_minutes = int(timeframe[:-1]) * unit_minutes
+                close_ns = int(
+                    bars[plan.instrument].ts[bar].astype("datetime64[ns]").astype("int64")
+                )
+                open_ns = close_ns - period_minutes * 60_000_000_000
+                funding_by_minute: dict[int, list[tuple[float, float]]] = {}
+                for row in bundle.funding_at(bar):
+                    minute = round((float(row[1]) - open_ns) / 60_000_000_000)
+                    funding_by_minute.setdefault(minute, []).append((float(row[2]), float(row[3])))
+                if set(funding_by_minute) - set(mark_path.starts):
+                    raise ValueError("funding event has no matching path segment")
+                event: ExitReason | None = None
+                level_at_liquidation = 0.0
+                for start, trade_segment, mark_segment in zip(
+                    mark_path.starts, trade_bar.segments, mark_path.segments, strict=True
+                ):
+                    for rate, at_mark in funding_by_minute.get(start, []):
+                        current = account.wallet(plan.instrument, plan.direction)
+                        if current is None:
+                            break
+                        cost = account.apply_funding_side(
+                            plan.instrument, plan.direction, rate, at_mark
+                        )
+                        result.funding_paid[slot] += cost
+                    level_at_liquidation = account.liquidation_price(
+                        plan.instrument, plan.direction
+                    )
+                    chosen, _minute, ambiguous = resolve_paths(
+                        Bracket(plan.direction, stop_level[slot], take_profit_level[slot]),
+                        SegmentedPath((0,), (trade_segment,)),
+                        SegmentedPath((0,), (mark_segment,)),
+                        [level_at_liquidation],
+                    )
+                    if ambiguous:
+                        result.ambiguous_bars += 1
+                    if chosen is not None:
+                        event = chosen
+                        break
+                if event == "liquidation":
+                    result.closed.append(
+                        Closed(
+                            bar,
+                            plan.instrument,
+                            plan.direction,
+                            wallet.qty,
+                            level_at_liquidation,
+                            "liquidation",
+                        )
+                    )
+                    account.liquidate(plan.instrument, plan.direction)
+                    result.liquidations.append(slot)
+                elif event in ("stop", "take_profit"):
+                    bracket = Bracket(plan.direction, stop_level[slot], take_profit_level[slot])
+                    fill = (
+                        bracket.stop_fill(float(bars[plan.instrument].open[bar]))
+                        if event == "stop"
+                        else bracket.take_profit
+                    )
+                    result.closed.append(
+                        Closed(bar, plan.instrument, plan.direction, wallet.qty, fill, event)
+                    )
+                    charge(slot, -abs(wallet.qty * fill) * float(costs.taker_rate))
+                    margin = wallet.margin
+                    book(slot, margin + account.close(plan.instrument, plan.direction, fill))
+                if event is not None:
+                    stop_level.pop(slot, None)
+                    stop_distance.pop(slot, None)
+                    take_profit_level.pop(slot, None)
+                    entry_bar.pop(slot, None)
+                elif expires(entry_bar[slot], bar, policy.max_holding_bars or 0):
+                    exit_pending[slot] = "timeout"
                 continue
             levels = [account.liquidation_price(plan.instrument, plan.direction)]
             for row in bundle.funding_at(bar):
@@ -444,7 +560,7 @@ def replay_signals(
                 stop_level.pop(slot, None)
                 stop_distance.pop(slot, None)
             elif plan.wants(bar) is None:
-                exit_pending.add(slot)  # leaves at the next bar's open, like every other order
+                exit_pending[slot] = "flat"  # leaves at the next bar's open
 
         # 2. one equity snapshot for the whole bar — this is what every entry sizes from
         equity = account.equity(marks)
@@ -467,24 +583,34 @@ def replay_signals(
             if wallet is not None:
                 open_risk += wallet.qty * distance  # commitment at the stop, frozen at entry
         requests: list[EntryRequest] = []
-        wanted: dict[Slot, tuple[Signal, float, float]] = {}
+        wanted: dict[Slot, tuple[Signal, float, float, float | None, float]] = {}
         for slot, plan in sorted(by_slot.items()):
             if account.wallet(plan.instrument, plan.direction) is not None:
                 continue
             sig = plan.wants(bar)
             if sig is None or bar + 1 >= len(bars[plan.instrument]):
                 continue
+            policy.validate_signal(sig)
             entry = float(bars[plan.instrument].open[bar + 1])
             anchor = float(bars[plan.instrument].close[bar])
-            trigger = (
-                anchor - sig.stop_distance
-                if plan.direction == "long"
-                else anchor + sig.stop_distance
-            )
-            if trigger <= 0:
-                continue
-            wanted[slot] = (sig, entry, trigger)
-            requests.append(EntryRequest(plan.instrument, plan.direction, entry, sig.stop_distance))
+            if bracket_mode:
+                bracket = bracket_at_signal(plan.direction, anchor, sig)
+                if not bracket.accepts_entry(entry):
+                    result.denied.append((slot, "bracket_entry"))
+                    continue
+                trigger, target = bracket.stop, bracket.take_profit
+                distance = abs(entry - trigger)
+            else:
+                trigger = (
+                    anchor - sig.stop_distance
+                    if plan.direction == "long"
+                    else anchor + sig.stop_distance
+                )
+                if trigger <= 0:
+                    continue
+                target, distance = None, sig.stop_distance
+            wanted[slot] = (sig, entry, trigger, target, distance)
+            requests.append(EntryRequest(plan.instrument, plan.direction, entry, distance))
         if not requests:
             continue
         for decision in admit_batch(
@@ -494,7 +620,7 @@ def replay_signals(
             if not decision.admitted:
                 result.denied.append((slot, decision.reason))
                 continue
-            sig, entry, trigger = wanted[slot]
+            sig, entry, trigger, target, distance = wanted[slot]
             terms = admission_terms(
                 decision.instrument, decision.direction, decision.quantity, entry, trigger
             )
@@ -516,7 +642,10 @@ def replay_signals(
             book(slot, -wallet.margin)  # `open` already moved it out of the shared balance
             charge(slot, -terms.fee)
             stop_level[slot] = trigger
-            stop_distance[slot] = sig.stop_distance
+            stop_distance[slot] = distance
+            if target is not None:
+                take_profit_level[slot] = target
+                entry_bar[slot] = bar + 1
             result.opened.append(
                 Opened(
                     bar + 1, int(axis[bar + 1].astype("int64")), decision.instrument,
