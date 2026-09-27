@@ -232,7 +232,7 @@ No agent code in this phase (P1).
 - **Arch:** §3.1.11 (C-random), §3.3.1.
 - **Files:** `agent/grammar.py`, `agent/engines/random_search.py`.
 - **Details:** typed syntax tree → evolvable-block text through `template.render`; ≤ 6 TUNABLE, uniform within bounds; the warm-up/finiteness guard always emitted; dedup by `strategy_hash`; deterministic per seed; the engine API takes no results.
-- **Accept when:** 1,000 consecutive samples pass ①a (property test); the same seed gives the same sequence; every clause type is produced; C-random cannot read metrics (API + import test). Done: `agent/grammar.py` (typed genome: 7 clause types over price series and oscillators, and/or, ATR stop; renderer), `agent/engines/random_search.py`; `tests/agent/engines/test_random_search.py`. No take-profit until O19.
+- **Accept when:** 1,000 consecutive samples pass ①a (property test); the same seed gives the same sequence; every clause type is produced; C-random cannot read metrics (API + import test). At P2-05 completion the grammar emitted ATR stops without TP; P3-25 later added ATR/Bollinger stops and locked TP for new campaigns (O19, ADR-0036). Evidence: `agent/grammar.py`, `agent/engines/random_search.py`, `tests/agent/engines/test_random_search.py`.
 - **Needs:** P2-04.
 
 ### ✅ P2-06 Trial-budget scheduler + harness-test campaign

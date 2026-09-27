@@ -1,6 +1,6 @@
 # 04 — Bản đồ module
 
-Code đặt ở đâu và được import những gì. Cây thư mục là §5 của kiến trúc chuyển sang src layout ([ADR-0001](adr/0001-src-layout-va-tach-holdout.md)). Phần lớn module bên dưới chưa tồn tại — cột cuối là task sẽ tạo ra chúng.
+Code đặt ở đâu và được import những gì. Cây thư mục là §5 của kiến trúc chuyển sang src layout ([ADR-0001](adr/0001-src-layout-va-tach-holdout.md)). Cây gồm module đã làm và dự kiến; cột cuối ghi task hoặc giai đoạn.
 
 ## Cây thư mục
 
@@ -22,7 +22,7 @@ TradingProject/
 │   ├── core/                      ── tầng đáy ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
 │   │   │                          tunable
-│   │   ├── sizing/                vol_target, position_sizer                           §3.4    P1-06
+│   │   ├── sizing/                position_sizer (Q = R/d; đã bỏ vol_target)            §3.4    P3-02
 │   │   └── zoo/                   viết tay (ema, sma, rsi v1+v2); tập so độ           §3.1.6  P1-12
 │   │                              giống AST                                                    GĐ 2
 │   ├── data/                      protocol DataSource, nguồn ccxt/Stooq, store,        §6.1    P0-09
@@ -33,7 +33,7 @@ TradingProject/
 │   │   ├── guardrail.py           cổng ①a tĩnh + ①b động (leak_check.py)               §3.2    P0-07/11
 │   │   ├── sandbox.py             bộ chạy Docker (host) + sandbox_runner.py (trong container) §3.3.3 P0-08
 │   │   ├── statistical.py         MinBTL, PSR, DSR, portfolio_dsr                      §3.2    P0-12, P1-02
-│   │   ├── pbo.py, pbo_gate.py    CSCV/PBO (vector hoá) + tập cấu hình cổng ④           §3.2    P1-03
+│   │   ├── pbo.py, pbo_gate.py    CSCV/PBO + tập cấu hình cổng ④ chia batch              §3.2    P3-25
 │   │   ├── cpcv.py                CPCV (purge/embargo) + kiểm tra suy giảm IS→OOS       §3.2    P1-04
 │   │   ├── is_gates.py, run.py    cổng ② ③; pipeline GĐ 0 + `cli validate`             §3.2    P0-12
 │   │   ├── n_eff.py               phân cụm ONC → N_eff                                 §4.1    P1-05
@@ -55,7 +55,8 @@ TradingProject/
 │   │   └── prompts/
 │   ├── holdout/                   evaluator_proc.py (tiến trình riêng), campaign.py    §4.2    P1-10
 │   ├── review/                    read model chỉ đọc + app FastAPI (`cli review`)   ADR-0029  công cụ
-│   └── execution/                 engine.py (NautilusTrader), nautilus_bridge.py, risk.py §3.5 P0-10, P1-06
+│   └── execution/                 engine.py (Nautilus legacy + replay spot bracket),    §3.5    P3-25
+│                                  nautilus_bridge.py, exit_policy.py, joint_account.py, perp_account.py, risk.py
 │       └── adapters/ssi/          adapter VN30F1M                                      §3.5    GĐ 6
 ├── ui/                            front-end React + Vite: src/, e2e/ (Playwright)    ADR-0029  công cụ
 └── tests/                         phản chiếu src/quantcrucible/; e2e/ cho cổng giai đoạn

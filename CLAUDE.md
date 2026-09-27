@@ -1,6 +1,6 @@
 # CLAUDE.md — Crucible Quant
 
-An AI quantitative research lab: an LLM loop **generates deterministic rule-based trading strategies**, and a validation harness tries to **reject** them before any capital is at risk. Package: `quantcrucible` (src layout). Status: **phase 0 — harness first**; the tree under `src/` is still a skeleton.
+An AI quantitative research lab: engine C currently generates deterministic rule-based strategies, and a validation harness tries to reject them before any capital is at risk. The LLM engines A/B remain deferred. Package: `quantcrucible` (src layout). Status: phase-3 implementation; fixed bracket exits are implemented (P3-25), while real-source perpetual coverage remains open (P3-24). No live parity has been established.
 
 **Talk to the user in Vietnamese.** Code, identifiers, commit messages, docstrings and `implement_docs/` are in English; `implement_docs_vi/` is its Vietnamese 1:1 mirror, for the user.
 
@@ -20,7 +20,7 @@ If code and the architecture disagree, **stop and ask** — don't silently "fix"
 | **P2** Every backtest goes through the ledger. No bypass, no reset, no "quick test" path | §4.1 | ledger API is the only way to run a backtest |
 | **P3** Strategies emit `Signal(direction, strength∈[0,1], stop_distance, take_profit)` — never lots/shares/contracts | §3.3 | types + import-linter |
 | **P4′** Position size is `Q = R/d` (`R = max_risk_pct × equity`); one risk cap for the whole portfolio. Retired P4/vol targeting, ADR-0031 | §3.4 | the risk-at-the-stop test |
-| **P5** Backtest ≡ live: same code path (NautilusTrader) | §3.5 | `execution` depends on `core` only |
+| **P5** Backtest ≡ live remains a goal before live trading; the current bracket/perpetual Python replay is interim | §3.5, ADR-0032, ADR-0036 | Reconcile fills, funding, liquidation and balances against live before capital; import layering alone does not prove parity |
 | **P6** Holdout: written once, opened once **per campaign**, for one frozen `portfolio_hash`, returns PASS/FAIL only | §4.2 | DB PK + separate process + `.claude/hooks/guard_paths.py` |
 | **A4** No LLM at runtime — LLM SDKs are imported only under `quantcrucible.agent` | §0 | `tests/test_architecture_boundaries.py` |
 | **A7** Free data only | §6.1 | review |
@@ -38,7 +38,7 @@ Full list with test names: [implement_docs/03-INVARIANT-TEST-MAP.md](implement_d
 - Hand-edit `config/evaluation.lock.yaml` (generated per campaign from `config/user.yaml`).
 - Loosen a gate threshold, reset the ledger, or delete `trials` rows.
 - Add paid data sources, or AGPL dependencies (e.g. `pypbo`). `vectorbt` (Commons Clause) is for coarse screening only.
-- Trust an external API from a doc snippet: snippets in the architecture that call libraries (`purgedcv`, NautilusTrader) are **unverified** (§10). Read the installed source first.
+- Trust an external API from a doc snippet without checking its version. `purgedcv` 0.1.6 has been verified (ADR-0007); read installed sources for any new or changed API.
 
 ## Commands
 

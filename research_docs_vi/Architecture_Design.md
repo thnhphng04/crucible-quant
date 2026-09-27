@@ -3,7 +3,7 @@
 > *Crucible Quant — phòng nghiên cứu định lượng dùng AI để tiến hóa chiến lược giao dịch hệ thống, và bắt mọi chiến lược qua lửa thử trước khi được giao dịch thật.*
 >
 > Thiết kế hệ thống AI sinh & kiểm định chiến lược trading deterministic, đa thị trường.
-> Phiên bản: 0.5 (draft) · Ngày: 2026-09-21
+> Phiên bản: 0.8 (draft) · Ngày: 2026-09-27
 > Nền tảng nghiên cứu: [[00-TONG-HOP-NGHIEN-CUU]] · [[04-TRUONG-PHAI-B-HIEU-QUA]] · [[06-PLATFORM-DA-THI-TRUONG]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Thay đổi 0.1 → 0.2** (nguồn: khảo sát 22 hệ trong [[08-LLM-QUANT-RESEARCHER]]): kiến trúc QuantEvolve được xác nhận độc lập bởi MadEvolve (§3.1) · thêm thay đổi bắt buộc **#5 DSL đóng** và **#6 reviewer ngữ cảnh mới tinh** (§3.1.6) · **DSR tính trên danh mục hợp nhất, không phải từng cell** (§3.1.6 — điểm dễ sai nhất) · thêm **gate ⓪ chống trôi spec** (§3.1.7) · thay khuyến nghị "dùng model nhỏ" bằng **bảng định tuyến dị thể + cảnh báo tránh reasoning model** (§3.1.9) · ledger thêm `model_used`/`gen_attempts`/`gen_failures`/`drift_delta` + view `starved_cells` (§4.1) · **P6 nâng lên cấp OS, evaluator chạy process riêng** (§4.2) · loại bỏ meta-evolution và RFT khỏi phạm vi (§9) · cảnh báo không lấy con số paper làm mốc (§11)
@@ -15,6 +15,10 @@
 > **Thay đổi 0.4 → 0.5** (nguồn: đọc toàn văn paper MadEvolve arXiv 2605.23007): **kiến trúc đa engine** — QuantEvolve 4 agent + vòng lặp đơn giản kiểu MadEvolve + random search chạy song song, chế độ cô lập/cộng tác (§3.1.11) · **tắt bộ tối ưu tham số trong vòng tiến hóa**, chỉ hiệu chỉnh một lần trước khi đóng băng (§3.3.1, §3.2.1) · **tiến hóa theo module**: vùng entry / exit+stop / regime (§3.3.1) · **ràng buộc số lệnh + thời gian nắm giữ tối thiểu** (gate ③) · **ràng buộc tương quan giữa indicator** (§3.3.1) · **đường cong suy giảm IS→OOS** trên CPCV (§3.2) · **fill model bi quan + kiểm tra độ nhạy chi phí** (§3.5, gate ⑥′) · **chạy nhiều seed** (§3.1.8)
 >
 > **Thay đổi 0.5 → 0.6** (quyết định của người dùng 22/9/2026, nguồn: [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]): **engine C không LLM là trọng tâm** — C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; engine A/B **hoãn**, thiết kế giữ nguyên (§3.1.11, D19) · GĐ 2 xây C (§7) · bộ sinh không thiên lệch theo tần suất giao dịch · GP được đột biến `TUNABLE` với trần tỉ lệ con chỉ đổi tham số; thêm trung vị SPP + plateau từ lưới gate ④ (§3.2, D20); calibration 5b giữ nguyên
+>
+> **Thay đổi 0.6 → 0.7** (ADR-0031–0035): sizing cố định `Q = R/d`, scope `(instrument, direction)`, tài khoản perpetual chung và replay phía host; P5 vẫn là mục tiêu cần đối chiếu với live (§3.4, §3.5).
+>
+> **Thay đổi 0.7 → 0.8** (ADR-0036, 27/9/2026): campaign mới khóa SL/TP và thời gian giữ tối đa, hỗ trợ 15m/1h; campaign cũ giữ exit legacy; ghi rõ replay hiện tại, chi phí và giới hạn P5 (§3.2, §3.3, §3.5, D18, D21).
 
 ---
 
@@ -44,7 +48,7 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 | **P2** | **Mọi backtest đi qua ledger, không có đường vòng**                | `N` quyết định DSR. Nếu bypass được, bạn sẽ bypass ([[07-VALIDATION-LAYER]] mục 6)                       |
 | **P3** | **Strategy nói bằng đơn vị TƯƠNG ĐỐI (`strength` + `stop_distance`), không phải lot/share/contract** | Điều kiện để cùng một code chạy trên 4 thị trường. Size là việc của tầng Risk (§3.4) |
 | **P4′** | **Rủi ro cố định mỗi lệnh: `Q = R/d`, và một trần rủi ro cho cả danh mục** | v0.7 (ADR-0031) thay vol targeting. Mất bù tương quan của IDM; đổi lại lỗ mỗi lệnh là con số biết trước, và trần danh mục chặn tổng rủi ro |
-| **P5** | **Backtest ≡ Live, cùng một code**                                      | Mỗi lần viết lại là một nguồn bug                                                      |
+| **P5** | **Backtest ≡ Live là mục tiêu phải chứng minh trước live** | Replay Python cho campaign mới là bước tạm (ADR-0032, ADR-0036); phải đối chiếu khớp lệnh và tài khoản với live trước khi dùng vốn thật (O21) |
 | **P6** | **Holdout ghi một lần, mở một lần cho mỗi đợt nghiên cứu — cho một danh mục đã đóng băng** | Nhìn rồi là cháy vĩnh viễn. Mở cho từng strategy = thêm một vòng chọn lọc (§4.2) |
 
 ---
@@ -83,16 +87,16 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  STRATEGY RUNTIME          (venue-agnostic)                   ║
-║  Strategy → Signal(strength, stop_distance)                   ║
+║  Strategy → Signal(strength, stop_distance, take_profit)      ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  RISK & SIZING LAYER       ★ quan trọng hơn Adapter ★         ║
-║  Vol targeting → Position sizing → FX conversion              ║
+║  Q = R/d → trần rủi ro danh mục → FX conversion               ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
-║  EXECUTION CORE            NautilusTrader (backtest ≡ live)   ║
+║  EXECUTION CORE        Nautilus + replay Python (P5: mục tiêu)║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
@@ -256,7 +260,7 @@ QuantEvolve tự thừa nhận: *"strategies generated by the framework may be s
 | **1** | `Score = SR + IR + MDD` (trọng số 1:1:1), **không deflate** | `Score = thứ_hạng(DSR-rank trong quần thể) − λ₁·AST_sim − λ₂·n_params`, **loại nếu PBO ≥ 0.5** (PBO trên lưới tham số của chính ứng viên, §3.2). ⚠️ Đây là **điểm xếp hạng để tìm kiếm**, không phải gate — gate DSR thật nằm ở ⑤, trên danh mục. 🆕 Số hạng chính là **thứ hạng** chứ không phải giá trị: ngưỡng deflate dâng theo `N` và có thể vượt lên trên cả quần thể, khi đó giá trị tuyệt đối bị nén xuống dưới chính các số hạng phụ (ADR-0030) | 150 generation × N island = hàng nghìn trial. Không deflate thì Score chỉ đo may mắn ([[07-VALIDATION-LAYER]]) |
 | **2** | Chống look-ahead**chỉ bằng prompt**: *"The strategy must avoid Lookahead Bias… This is the most important constraint"* | **Structural guardrail**: AST scan chặn `.shift(-n)`, whitelist indicator, leaky-oracle test suite                                                                    | Prompt không phải cơ chế cưỡng chế. LLM vẫn sinh code nhìn tương lai                                                                                                             |
 | **3** | Không đếm trial | **Hai sổ tách bạch:** (a) **audit log** ghi *mọi* hoạt động — lời gọi LLM, lỗi compile, AST reject; (b) **trial thống kê** = mỗi cấu hình đã được **đo hiệu suất** trên dữ liệu (kể cả bị feature map từ chối sau khi backtest) | `N` quyết định DSR. Strategy đã backtest rồi bị loại vẫn là trial (P2). Nhưng một lời gọi reviewer hay một file không compile **không phải** phép thử trên dữ liệu — đếm chúng vào `N` làm DSR sai theo hướng khác (§4.1) |
-| **4** | Zipline:`initialize(context)` + `handle_data(context, data)`                                                                   | **`Signal(strength, stop_distance)`** trên NautilusTrader                                                                                                             | P3 + P5 — venue-agnostic, backtest ≡ live                                                                                                                                                 |
+| **4** | Zipline: `initialize(context)` + `handle_data(context, data)` | **`Signal(direction, strength, stop_distance, take_profit)`** → Nautilus legacy hoặc replay bracket | P3 giữ strategy độc lập venue; P5 đòi đối chiếu live trước khi triển khai |
 | **5** | Code Python tự do, LLM tự quyết dùng gì                                                                                       | **DSL bị ràng buộc** + engine tất định giữ rule đánh giá. Agent **không được sửa** data split, ngưỡng gate, hay định nghĩa metric trong phiên | Thu hẹp không gian tìm kiếm ⇒**tốn ít trial hơn** ⇒ ngưỡng DSR dễ thở hơn. Và là guardrail *cấu trúc*, không phải lời hứa (Crypto Constrained Agents, [[08-LLM-QUANT-RESEARCHER]] §7.3) |
 | **6** | Evaluation Team thấy toàn bộ lịch sử tìm kiếm                                                                               | **Reviewer ngữ cảnh mới tinh** + **quyền phủ quyết**                                                                                                         | Agent thấy lịch sử sẽ bị thuyết phục bởi câu chuyện mà Coding Team tự kể. Đây là*temporal isolation áp dụng cho chính agent* (AgonAlpha, [[08-LLM-QUANT-RESEARCHER]] §5.3)                       |
 
@@ -520,6 +524,7 @@ class Gate(Protocol):
 - **Quy tắc chọn** = Sharpe IS cao nhất — đúng quy tắc mà vòng tiến hóa dùng.
 - **Ý nghĩa:** PBO thấp ⇒ quy tắc chọn tham số trong vùng này có tính ổn định OOS. PBO cao ⇒ tham số được chọn nhờ nhiễu. PBO **không** thay cho DSR: nó không phạt số hypothesis đã thử trên toàn dự án.
 - 🆕 **v0.6 — độ ổn định tham số (D20).** Từ chính lưới đó (IS, không tốn trial) tính thêm: **trung vị Sharpe của lưới** (System Parameter Permutation, Walton) và **plateau** = tỉ lệ cấu hình láng giềng có Sharpe IS ≥ 50% Sharpe của candidate. Cả hai chỉ dựa trên IS nên là chỉ số `public` (§3.3.2), được dùng làm **thành phần phụ** trong điểm xếp hạng của C-gp; không bao giờ dùng để chọn một cấu hình trong lưới (lưới không phải trial, ADR-0011). PBO và CPCV vẫn là `private`.
+- Với lịch sử 15m/1h, gate ④ chia lưới đã đăng ký thành nhiều job sandbox dưới giới hạn kích thước báo cáo, rồi ghép đủ hàng theo thứ tự gốc trên một trục thời gian giống nhau. Thiếu hàng hoặc lệch trục ⇒ fail closed; các batch không tạo trial mới (ADR-0036).
 - Ở cấp danh mục, nếu thử nhiều quy tắc dựng danh mục (§3.2.1), chạy thêm CSCV với tập cấu hình = các phương án danh mục đó.
 
 **🆕 Đường cong suy giảm IS→OOS (v0.5, theo MadEvolve Hình 11 — nhưng không dùng holdout).** Sau mỗi `K` candidate, lấy strategy đang giữ kỷ lục IS của từng engine và ghi Sharpe trung vị trên các **đường OOS của CPCV** (metric *private*, §3.3.2). Vẽ hai đường: kỷ lục IS và OOS-CPCV của chính strategy đó. Đường OOS phẳng hoặc đi xuống trong khi IS tăng = tín hiệu p-hacking ⇒ **dừng engine đó sớm**. MadEvolve đo đường này trên *tập test* cho mọi champion — với ta như vậy là mở holdout hàng nghìn lần, vi phạm P6.
@@ -556,16 +561,18 @@ Bản 0.2 bắt DSR tính trên danh mục nhưng không nói danh mục đượ
 class Signal:
     direction:     Literal["long", "short", "flat"]
     strength:      float          # ∈ [0, 1] — mức độ tham gia; KHÔNG phải số lượng, KHÔNG phải % vốn
-    stop_distance: float          # đơn vị giá (thường k × ATR) — dùng cho thoát lệnh + trần rủi ro
-    take_profit:   float | None = None
+    stop_distance: float          # đơn vị giá (ATR hoặc Bollinger) — stop và sizing tại entry
+    take_profit:   float | None = None  # bắt buộc với bracket_timeout_v1; None cho lock legacy
 
 class Strategy(Protocol):
     """Venue-agnostic. KHÔNG biết gì về lot, share, contract, tiền tệ."""
     params: dict
   
     def indicators(self, bars: Bars) -> Features: ...
-    def signal(self, features: Features) -> Signal: ...
+    def signal(self, features: FeatureView) -> Signal: ...
 ```
+
+`bracket_timeout_v1` khóa tỷ lệ `take_profit / stop_distance` và số bar giữ tối đa trong campaign; lúc vào, SL/TP neo tại close của nến tín hiệu. `flat` về sau chỉ nói không vào lệnh mới, không đóng vị thế đang giữ. Lock cũ thiếu `derived.exit_protocol` vẫn dùng `legacy_flat` (ADR-0036).
 
 > 🔴 **Strategy không bao giờ được import bất cứ gì từ tầng adapter.** Đây là ranh giới kiến trúc cứng — nên enforce bằng lint rule, không chỉ bằng quy ước.
 
@@ -574,9 +581,11 @@ class Strategy(Protocol):
 Theo cơ chế `EVOLVE-BLOCK` của MadEvolve (§3.1.10 L1) và `TUNABLE` (L2) — nhưng **cưỡng chế bằng code**, không bằng prompt.
 
 ```python
-# ═══ VÙNG CỐ ĐỊNH — agent KHÔNG được sửa. Hash cam kết trong evaluation.lock.yaml ═══
-from core.strategy.base import Signal, Strategy, Bars, Features
-from core.strategy.registry import ind            # chỉ indicator trong whitelist
+# ═══ FIXED REGION — only the evolvable block may change; this hash is locked per campaign ═══
+# Crucible Quant strategy template (Architecture §3.3.1). Signals only — sizing is not here.
+from quantcrucible.core.strategy.base import Bars, Features, FeatureView, Signal, Strategy
+from quantcrucible.core.strategy.registry import ind
+
 
 class GeneratedStrategy(Strategy):
     # ═══ EVOLVE-BLOCK-START ═══
@@ -589,17 +598,18 @@ class GeneratedStrategy(Strategy):
                 "s": ind.ema(bars.close, self.p.slow),
                 "atr": ind.atr(bars, 14)}
 
-    def signal(self, x: Features) -> Signal:
-        if ind.cross_up(x["f"], x["s"]):
-            return Signal("long", 1.0, self.p.k_atr * x["atr"])
-        return Signal("flat", 0.0, self.p.k_atr * x["atr"])
+    def signal(self, x: FeatureView) -> Signal:
+        stop = self.p.k_atr * x["atr"]
+        if stop > 0 and ind.cross_up(x["f"], x["s"]):
+            return Signal("long", 1.0, stop, 1.1 * stop)
+        return Signal("flat", 0.0, 0.0)
     # ═══ EVOLVE-BLOCK-END ═══
 ```
 
 **Luật cưỡng chế ở gate ①a** (mọi vi phạm ⇒ `AST_REJECT`, ghi `generation_log`):
 
 1. `SHA256(prefix) ‖ SHA256(suffix)` — phần ngoài hai marker — phải **bằng đúng** giá trị trong `evaluation.lock.yaml`. Nếu LLM trả nguyên file thay vì chỉ vùng tiến hóa, file đó bị từ chối chứ không được ghép (MadEvolve lại chấp nhận file nguyên như vậy — §3.1.10).
-2. Mỗi tham số tự do phải có dòng `TUNABLE` với `bounds` hữu hạn; tối đa **6** dòng. Hằng số số học dùng làm ngưỡng/chu kỳ mà không khai báo ⇒ reject (chống giấu tham số để lách luật ≤ 6). Ngoại lệ: hằng số trong whitelist (0, 1, chu kỳ ATR chuẩn 14…).
+2. Mỗi tham số tự do phải có dòng `TUNABLE` với `bounds` hữu hạn; tối đa **6** dòng. Hằng số số học dùng làm ngưỡng/chu kỳ mà không khai báo ⇒ reject. Ngoại lệ: hằng số trong whitelist (0, 1, chu kỳ ATR 14…) và, chỉ dưới lock `bracket_timeout_v1`, chu kỳ Bollinger 8 cùng tỷ lệ TP/SL đã khóa.
 3. Chỉ gọi `ind.*` trong whitelist và toán tử DSL (§3.1.6).
 
 4. 🆕 **Ràng buộc tương quan indicator** (kiểm ở gate ③, vì cần dữ liệu): hai chuỗi indicator bất kỳ trong vùng tiến hóa có |ρ| trên IS > `max_indicator_corr` (mặc định 0.9) ⇒ reject. Theo MadEvolve §6.3: ràng buộc số feature và tương quan cặp cho kết quả IS/OOS nhất quán hơn.
@@ -612,11 +622,11 @@ class GeneratedStrategy(Strategy):
 
 ```python
     # ═══ EVOLVE-BLOCK-START: entry ═══      điều kiện vào lệnh
-    # ═══ EVOLVE-BLOCK-START: exit ═══       thoát lệnh + stop_distance
+    # ═══ EVOLVE-BLOCK-START: exit ═══       cách tính stop_distance; trigger thoát do lock giữ
     # ═══ EVOLVE-BLOCK-START: regime ═══     bộ lọc chế độ thị trường (bật/tắt giao dịch)
 ```
 
-`evolve_scope` trong `user.yaml` chọn khối nào được sửa; khối còn lại bị khóa và tính vào phần cố định khi hash (luật 1). Dùng để: (a) debug — khóa entry, chỉ tiến hóa exit; (b) ablation — đo đóng góp của từng khối. Theo MadEvolve Run 1–5: tiến hóa chung (joint) **không** luôn thắng tiến hóa từng phần, và joint rộng nhất cho khoảng cách overfit lớn nhất. Sizing **không bao giờ** là một khối tiến hóa — nó thuộc tầng Risk (P3, P4). Mỗi phạm vi tiến hóa là một cấu hình run riêng; mọi trial của mọi phạm vi cộng vào `N`.
+`evolve_scope` trong `user.yaml` chọn khối nào được sửa; khối còn lại bị khóa và tính vào phần cố định khi hash (luật 1). Với campaign mới, khối `exit` chỉ được thay cách đặt stop ATR/Bollinger, không thay TP/SL ratio, thứ tự trigger hay timeout. Module-wise vẫn là khả năng của template; engine C hiện sinh một block `joint` (O13). Sizing **không bao giờ** là khối tiến hóa — nó thuộc tầng Risk. Mọi trial của mọi phạm vi cộng vào `N`.
 
 #### 3.3.2. 🆕 Hợp đồng evaluator: metric public / private
 
@@ -690,7 +700,7 @@ Bước **cấp danh mục** không còn là scale đồng đều về `target_v
 
 ### 3.5. Execution Core & Adapters
 
-**NautilusTrader** — lý do chọn: *"The DataEngine guarantees 100% identical data handling in both backtesting and live trading"*, deploy *"with no code changes"*. Đây chính là P5.
+**NautilusTrader** vẫn là adapter và mục tiêu P5. Lock legacy dùng bridge Nautilus để khớp lệnh; campaign `bracket_timeout_v1` hiện tính spot bằng replay Python và perpetual bằng replay tài khoản chung. Hai đường này chưa được chứng minh tương đương với live. Trước khi dùng vốn thật phải đối chiếu signal → lệnh → fill và số dư/vị thế với môi trường live (ADR-0032, ADR-0036).
 
 | Adapter                       | Thị trường                                          | Trạng thái                        |
 | ----------------------------- | ------------------------------------------------------ | ----------------------------------- |
@@ -699,11 +709,11 @@ Bước **cấp danh mục** không còn là scale đồng đều về `target_v
 | Databento                     | Futures data chất lượng cao                         | ✅ chính thức                     |
 | **SSI FastConnect**     | **HOSE/HNX, VN30F1M**                            | 🔴**tự viết** — 3–6 tuần |
 
-**🆕 Fill model bi quan (v0.5).** Backtest dùng `FillModel` của NautilusTrader cấu hình theo hướng bất lợi, khóa trong `evaluation.lock.yaml`:
+**Giá thoát và chi phí đang thực thi (v0.8).** Với bracket mới, resolver Python xử lý theo dữ liệu đã khóa:
 
-- Lệnh limit chỉ khớp khi giá **xuyên qua** mức limit (low < limit với lệnh mua), không khớp khi chỉ chạm
-- Lệnh market/stop chịu slippage cố định theo tick, cộng spread
-- Phí theo biểu phí thực của venue
+- Spot OHLC: TP cần giá đi xuyên qua mức limit; nếu SL và TP cùng ở một nến không rõ thứ tự, chọn stop. Stop qua gap khớp ở open nếu xấu hơn mức stop; timeout khớp ở open nến kế.
+- Perpetual: trade-minute path quyết định SL/TP, mark-minute path quyết định liquidation; cùng phút thì ưu tiên liquidation → stop → TP. Funding tính tại mốc cắt khi vị thế còn mở.
+- `CostModel.taker_rate = fee_rate + slippage_bps / 10_000`: trượt giá hiện là chi phí theo bps, không phải dịch giá theo tick/spread. Gate ⑥′ thử độ nhạy bằng cách tăng phí và slippage.
 
 Tham chiếu: MadEvolve khớp **toàn bộ** khối lượng đúng giá limit mỗi khi giá xuyên qua, không có hàng đợi, dữ liệu gộp nhiều sàn — chính tác giả viết *"still far from being realistic"*; baseline của họ có Sharpe 4.81 cho strategy passive BTC khung phút. Với strategy tần suất thấp của ta, market impact nhỏ ở quy mô retail; phí, spread và slippage là phần chi phối. Độ nhạy chi phí được kiểm ở gate ⑥′.
 
@@ -897,69 +907,22 @@ Cưỡng chế bằng `PRIMARY KEY (campaign_id)`: lần mở holdout thứ hai 
 ## 5. Cấu trúc thư mục
 
 ```
-TradingProject/                   ← Crucible Quant (package: quantcrucible)
-├── research_docs/                ← nghiên cứu + tài liệu này
-├── core/
-│   ├── strategy/
-│   │   ├── base.py                ← Strategy protocol, Signal
-│   │   ├── template.py            ← template: vùng cố định + EVOLVE-BLOCK (§3.3.1)
-│   │   ├── tunable.py             🆕 đọc khai báo TUNABLE → lưới PBO, n_params
-│   │   └── registry.py            ← whitelist indicator
-│   ├── sizing/
-│   │   ├── vol_target.py          ★ vol targeting
-│   │   └── position_sizer.py      ← risk → lot/share/contract
-│   └── zoo/                       ← strategy kinh điển, để đo AST similarity
-├── agent/                         ← kiến trúc QuantEvolve
-│   ├── loop.py                    ← Algorithm 1: vòng generation
-│   ├── data_agent.py              ← ① schema prompt + phát hiện category
-│   ├── research_agent.py          ← ② hypothesis (6 tag XML)
-│   ├── coding_team.py             ← ③ code → backtest → refine (subprocess)
-│   ├── evaluation_team.py         ← ④ 5 chức năng phân tích
-│   ├── evolution/
-│   │   ├── feature_map.py         ← MAP-Elites, 16 bin × 6+ chiều
-│   │   ├── islands.py             ← N island + migration top 10%
-│   │   ├── sampling.py            ← SampleParent (Eq.1), SampleCousins (Eq.2)
-│   │   └── archive.py             ← lưu cả strategy bị feature map từ chối
-│   ├── insights.py                ← repository + curate mỗi K=50 gen
-│   ├── dsl.py                     🆕 DSL đóng + AST reject toán tử ngoài whitelist
-│   ├── drift.py                   🆕 gate ⓪: SHA256 logic + Levenshtein chuẩn hóa, trace neo
-│   ├── patcher.py                 🆕 SEARCH/REPLACE strict + viết lại block + retry kèm lỗi
-│   ├── pipeline.py                🆕 LLM producer → hàng đợi prefetch → slot backtest
-│   ├── routing.py                 🆕 định tuyến model dị thể (§3.1.9)
-│   ├── engines/                   🆕 §3.1.11
-│   │   ├── quantevolve.py         ← engine A (4 agent)
-│   │   ├── simple_loop.py         ← engine B (parent + inspirations → 1 lời gọi LLM)
-│   │   ├── gp_search.py           ← engine C-gp (GP, không LLM — chính, v0.6)
-│   │   └── random_search.py       ← engine C-random (không LLM — đối chứng)
-│   ├── scheduler.py               🆕 ép tỉ lệ ngân sách trial giữa các engine
-│   └── prompts/                   ← template theo Appendix A của paper
-├── validation/
-│   ├── gates.py                   ← Gate protocol, pipeline
-│   ├── report.py                  🆕 EvaluationReport: public / private / feedback (§3.3.2)
-│   ├── sandbox.py                 🆕 wrapper Docker --network none --read-only (§3.3.3)
-│   ├── guardrail.py               ← AST similarity + lookahead scan
-│   ├── statistical.py             ← CPCV, PBO, DSR, MinBTL (purgedcv)
-│   ├── portfolio.py               🆕 dựng danh mục theo quy tắc đăng ký trước (§3.2.1)
-│   ├── portfolio_dsr.py           🆕 DSR trên danh mục hợp nhất, N_eff + V[SR] (§4.1)
-│   ├── n_eff.py                   🆕 gom cụm returns trial → N_eff
-│   ├── temporal.py                ← holdout manager, decay
-│   └── oracles/                   ← bộ leaky oracle 4 mức
-├── holdout/                       🔴 chmod 0400 + holdout.lock (hash cam kết)
-│   └── evaluator_proc.py          🆕 process riêng, nhận portfolio_hash, trả PASS/FAIL
-├── config/
-│   ├── user.yaml                  🆕 người dùng cấu hình (§10.1)
-│   └── evaluation.lock.yaml       🆕 sinh từ user.yaml mỗi đợt — đọc-chỉ, hash, agent không ghi được
-├── ledger/
-│   └── db.py
-├── execution/
-│   ├── engine.py                  ← wrapper NautilusTrader
-│   └── adapters/
-│       └── ssi/                   🔴 tự viết
-├── data/
-└── tests/
+TradingProject/
+|-- config/                    user.yaml; evaluation.lock.yaml được sinh ra
+|-- research_docs_vi/, research_docs/   thiết kế và bản dịch
+|-- implement_docs/, implement_docs_vi/ lộ trình, ADR, bản đồ module
+|-- src/quantcrucible/
+|   |-- core/strategy/, core/sizing/, core/path_summary.py
+|   |-- agent/engines/            C-gp và C-random; engine LLM hoãn
+|   |-- data/                     tải spot/perp, path phút, tách holdout
+|   |-- execution/                bridge legacy, bracket, tài khoản chung
+|   |-- validation/               các cổng, PBO/CPCV, danh mục, sandbox
+|   `-- ledger/, holdout/evaluator_proc.py, review/
+|-- data/, holdout/             dữ liệu nghiên cứu và holdout bị Git bỏ qua
+`-- tests/, ui/
 ```
 
-> 🆕 **Triển khai:** code nằm dưới `src/quantcrucible/` (src layout); `holdout/` ở gốc chỉ chứa dữ liệu, còn `evaluator_proc.py` nằm ở `src/quantcrucible/holdout/`. Xem [ADR-0001](../implement_docs/adr/0001-src-layout-and-holdout-split.md) và [cây thư mục cập nhật](../implement_docs/04-MODULE-MAP.md).
+> **Triển khai:** đây là sơ đồ rút gọn của code hiện tại. `holdout/` ở gốc chỉ chứa dữ liệu; evaluator nằm ở `src/quantcrucible/holdout/`. Xem [ADR-0001](../implement_docs_vi/adr/0001-src-layout-va-tach-holdout.md) và [bản đồ module đầy đủ](../implement_docs_vi/04-BAN-DO-MODULE.md) để biết module đã làm và module dự kiến.
 
 ---
 
@@ -967,10 +930,10 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 
 | Thành phần        | Chọn                               | Lý do                                                                          |
 | ------------------- | ----------------------------------- | ------------------------------------------------------------------------------- |
-| Execution core      | **NautilusTrader**            | Backtest ≡ live có bảo đảm; multi-asset native; Rust core                  |
-| Agent orchestration | **LangGraph**                 | Cần state + cycle; bạn đã quen                                              |
+| Execution core      | **NautilusTrader + replay Python** | Bridge legacy dùng Nautilus; bracket mới dùng replay; P5 cần đối chiếu live |
+| Agent orchestration | **Python chuẩn**              | Engine C dùng queue/worker và dựng lại trạng thái từ ledger; chỉ xét LangGraph khi mở lại A/B (ADR-0024) |
 | Optimizer           | **Optuna**                    | TPE/GP, chuẩn de-facto                                                         |
-| Validation          | **`purgedcv`** (PyPI) ⚠️ *API chưa kiểm chứng* | Đủ PBO + DSR + CPCV + WalkForward + MinBTL/MinTRL trong 1 lib, MIT            |
+| Validation          | **`purgedcv` 0.1.6 + code dự án** | API đã kiểm chứng; CPCV dùng thư viện, DSR/PSR và PBO dùng mã đã đối chiếu độc lập (ADR-0007, ADR-0011) |
 | Search nhanh        | **vectorbt** *(tùy chọn)* | Quét tham số; ⚠️*"lies about microstructure"* — chỉ dùng sàng lọc thô |
 | Ledger              | SQLite → Postgres                  | Bắt đầu đơn giản                                                          |
 | **Data**      | **Toàn bộ miễn phí**      | Xem mục 6.1 — đây là**ràng buộc cứng**                            |
@@ -978,7 +941,7 @@ TradingProject/                   ← Crucible Quant (package: quantcrucible)
 
 ⚠️ **License cần kiểm tra:** `vectorbt` có Commons Clause; `pypbo` là AGPL-3.0 (đã tránh bằng cách dùng `purgedcv` MIT).
 
-> 🆕 **`purgedcv` đang là lõi của validation layer nhưng chưa được kiểm chứng.** Chữ ký `deflated_sharpe_ratio` và `probability_of_backtest_overfitting` chưa đối chiếu với mã nguồn, và chưa rõ nó có nhận `N_eff`/`V[SR]` tách riêng (§4.1) hay không. Việc đầu tiên của **GĐ 1**: (1) đọc mã nguồn, pin phiên bản; (2) viết test đối chiếu với ví dụ số trong paper gốc DSR (Bailey & López de Prado 2014), và cho PBO (Bailey et al. 2017) với fixture tính tay theo định nghĩa cùng một cài đặt độc lập (ghi phiên bản); (3) nếu lệch hoặc thiếu tham số → tự cài đặt DSR/PBO (mỗi hàm ~50 dòng) và chỉ dùng `purgedcv` cho CPCV/purging. Kiến trúc không phụ thuộc vào thư viện này — `validation/statistical.py` là lớp bọc.
+> ✅ **`purgedcv` đã được đối chiếu với source ở phiên bản 0.1.6** (P1-01, ADR-0007). DSR/PSR tính từ moment trong `validation/statistical.py`; PBO dùng CSCV vector hóa của dự án và đối chiếu với thư viện (ADR-0011); CPCV dùng `purgedcv` cho split, purge, embargo và tái dựng đường OOS. `N_eff` vẫn do logic trial của dự án xác định, không lấy heuristic của thư viện.
 
 ---
 
@@ -1154,7 +1117,7 @@ Ghi rõ để tránh scope creep:
 - ❌ **Không làm cross-sectional factor + ML** — đó là trường phái A, kiến trúc khác ([[08-LLM-QUANT-RESEARCHER]] — trường phái A chiếm ~18/22 hệ khảo sát)
 - ❌ **Không hỗ trợ EA MQL5** — A3 (đã chốt 21/9/2026): live trade qua NautilusTrader. Forex đi qua **Interactive Brokers**, không qua broker MT5
 - ❌ **Không làm HFT / order book strategy** — tần suất thấp là điều kiện sống sót của retail
-- ❌ **Không tự viết backtest engine** — NautilusTrader đã giải quyết
+- ❌ **Không thêm engine xấp xỉ riêng để chọn strategy** — replay Python hiện tại là bước tạm cho semantics bracket/perpetual (ADR-0032, ADR-0036); P5 vẫn cần chứng minh trước live
 - ❌ **Không dự báo giá bằng LLM** — ngoài phạm vi dự án
 - 🆕 ❌ **Không làm meta-evolution prompt genome** (AlgoEvolve). Nghe hay nhưng bằng chứng đang **âm**: bảng của chính paper cho thấy bỏ nó đi lại cho Sharpe cao hơn (5.71 > 5.60) và drawdown thấp hơn gần 4 lần. Quan trọng hơn — mỗi biến thể prompt là **một trục tìm kiếm mới**, làm phình `N` trong DSR. Ta đang trả trial để mua thứ chưa chứng minh được giá trị ([[08-LLM-QUANT-RESEARCHER]] §7.4)
 - 🆕 ❌ **Không làm RFT / RL fine-tuning** (Alpha-R1, QuantEvolver). Hướng mới nhất 2026 và có lẽ là hướng đúng về dài hạn, nhưng Alpha-R1 tốn **64×H800 × 120 giờ** — vi phạm A6
@@ -1186,9 +1149,10 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D15 | Số lệnh / thời gian nắm giữ tối thiểu; tương quan indicator tối đa; số seed | 🟡 Mặc định tạm | 30 lệnh trên IS / 1 bar; 0.9; 3 seed | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Phạm vi tiến hóa | 🟡 Mặc định tạm | `joint` (cả entry + exit + regime) | §3.3.1 |
 | D17 | Sharpe mục tiêu của MinBTL (gate ②) | 🟡 Mặc định tạm | 1.5 năm hóa; chỉ được hạ | ADR-0002. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial |
-| D18 | Dữ liệu nghiên cứu | 🟡 Mặc định tạm | GĐ 0–2: Binance **spot**, 1d, 5 cặp USDT từ 2018. GĐ 3 (ADR-0031): Binance **USDT-M perpetual**, 5 contract, `timeframe` cấu hình được, IS từ **2020-09-14** (SOL là ràng buộc — đo ngày 25/9/2026); holdout = 12 tháng cuối, khoá riêng | ADR-0002, ADR-0015, ADR-0031, §6.1. Cửa sổ 5,03 năm cho trần MinBTL **1.475** trial ở target 1,5 |
+| D18 | Dữ liệu nghiên cứu | 🟡 Mặc định tạm | Binance spot, 5 cặp USDT từ 2018; timeframe mặc định **1h**, hỗ trợ **15m**; `end` tùy chọn, `null` lấy đến mốc UTC đã hoàn tất. USDT-M perpetual có ví dụ từ 2020-09-14; holdout 12 tháng, khóa riêng | ADR-0031, ADR-0036, §6.1. Coverage nguồn perpetual thật vẫn chờ P3-24; trần MinBTL phụ thuộc cửa sổ IS đã khóa |
 | D19 | Engine trọng tâm | ✅ Đã chốt (22/9/2026) | **Engine C không LLM**: C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; A/B hoãn, thiết kế giữ nguyên; bộ sinh không thiên lệch theo tần suất giao dịch | §3.1.11, §7, [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]. Mở lại A/B là quyết định của người dùng |
 | D20 | Tham số trong engine C | 🟡 Mặc định tạm | Con chỉ đổi tham số ≤ 30% số con C-gp; trung vị SPP + plateau (ngưỡng 50%) là thành phần phụ của điểm xếp hạng; calibration 5b giữ nguyên (một lần, trước freeze) | §3.1.11, §3.2, §3.2.1 5b |
+| D21 | Thoát lệnh campaign mới | ✅ Đã chốt (27/9/2026) | `bracket_timeout_v1`: stop ATR/Bollinger và TP cố định từ close nến tín hiệu; mặc định TP/SL = **1,1**, giữ tối đa **100 bar**, hết hạn khớp ở open nến kế; `flat` không đóng lệnh đang giữ | Tỷ lệ và giới hạn là Nhóm B; lock cũ thiếu phiên bản giữ `legacy_flat` (ADR-0036) |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 
@@ -1196,7 +1160,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 
 - **Quyết định** — chỉ những dòng ✅ ở bảng trên.
 - **Mặc định tạm** — dòng 🟡, và mọi con số có ghi "mặc định tạm" trong thân tài liệu.
-- **Ví dụ API chưa kiểm chứng** — mọi đoạn code gọi thư viện bên ngoài (đặc biệt `purgedcv`, §6) là **minh họa**, chưa đối chiếu với chữ ký thật. Xem mục kiểm chứng ở [[07-VALIDATION-LAYER]] mục 7.
+- **Ví dụ API ngoài** — chỉ là minh họa trừ khi đã đối chiếu; `purgedcv` 0.1.6 đã được xác minh ở [[07-VALIDATION-LAYER]] mục 7 và ADR-0007.
 
 ### 10.1. Cấu hình người dùng
 
@@ -1211,12 +1175,11 @@ operational:            # NHÓM A — đổi bất cứ lúc nào, không ảnh 
   kill_switch_drawdown: 0.20    # D8
   models:                       # D11 — ghi vào generation_log.model_used
     research: gpt-oss-120b
-    coding: <mid-tier>
-    eval: <mid-tier>
+    coding: null
+    eval: null
 
 research:               # NHÓM B — khóa theo đợt; đổi giữa đợt bị từ chối
-  target_vol: 0.10              # D7
-  max_risk_pct: 0.01            # D12
+  max_risk_pct: 0.01            # D12; D7 đã bỏ target_vol
   portfolio:                    # D9
     max_corr: 0.5
     max_strategies: 20
@@ -1231,7 +1194,8 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   campaign: {purpose: research, trial_budget: null}   # harness_test = đợt so sánh engine GĐ 2: không dựng danh mục, không đóng băng (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
-  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], timeframe: 1d, start: 2018-01-01, holdout_months: 12}   # D18; second_exchange: nguồn ⑥′ (ADR-0015)
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = mốc UTC đã hoàn tất
+  exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; khóa theo campaign
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 bước 5b
   gates:                        # chỉ được SIẾT, không được NỚI (xem bên dưới)
     dsr_min: 0.95

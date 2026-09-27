@@ -6,7 +6,7 @@
 
 ## Context
 
-The generator currently emits flat outside its entry condition; take_profit is validated but not executed. A fixed-position perpetual stop already stays at the signal close, while spot replaces its stop each bar.
+Before this decision, the generator emitted flat outside its entry condition; take_profit was validated but not executed. A fixed-position perpetual stop already stayed at the signal close, while spot replaced its stop each bar.
 
 ## Decision
 
@@ -21,3 +21,5 @@ For intraday histories, gate ④ splits the preregistered configuration grid int
 ## Consequences
 
 All price-setting jobs and portfolio replay must receive the version from the campaign lock. The trade-minute path becomes a required companion to the mark path for new perpetual campaigns. Existing archived results retain their original semantics.
+
+The new bracket backtests price fills in Python spot or shared-account replay rather than NautilusTrader's fill engine. P5 remains a target, not a current guarantee: reconcile entry and exit fills, fees, funding, liquidation and account equity against live venue behavior before risking capital (O21). ADR-0032 describes the earlier legacy bridge and account decision.

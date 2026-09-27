@@ -232,7 +232,7 @@ Không có code agent trong giai đoạn này (P1).
 - **Kiến trúc:** §3.1.11 (C-random), §3.3.1.
 - **File:** `agent/grammar.py`, `agent/engines/random_search.py`.
 - **Chi tiết:** cây cú pháp có kiểu → text của block tiến hóa qua `template.render`; ≤ 6 TUNABLE, lấy đều trong biên; luôn sinh guard warm-up/hữu hạn; loại trùng theo `strategy_hash`; tất định theo seed; API của engine không nhận kết quả nào.
-- **Nghiệm thu khi:** 1.000 mẫu liên tiếp qua ①a (property test); cùng seed cho cùng chuỗi; mọi loại clause đều được sinh; C-random không đọc được metric (test API + import). Xong: `agent/grammar.py` (genome có kiểu: 7 loại clause trên chuỗi giá và oscillator, and/or, stop theo ATR; renderer), `agent/engines/random_search.py`; `tests/agent/engines/test_random_search.py`. Chưa có take-profit cho tới O19.
+- **Nghiệm thu khi:** 1.000 mẫu liên tiếp qua ①a (property test); cùng seed cho cùng chuỗi; mọi loại clause đều được sinh; C-random không đọc được metric (test API + import). Lúc hoàn thành P2-05, văn phạm chỉ sinh stop ATR, không có TP; P3-25 sau đó bổ sung stop ATR/Bollinger và TP khóa cho campaign mới (O19, ADR-0036). Bằng chứng: `agent/grammar.py`, `agent/engines/random_search.py`, `tests/agent/engines/test_random_search.py`.
 - **Cần:** P2-04.
 
 ### ✅ P2-06 Scheduler ngân sách trial + campaign thử harness
