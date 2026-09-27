@@ -149,12 +149,17 @@ def _bundle_names(symbol: str, timeframe: str) -> dict[str, str]:
         "mark": f"{stem}.mark.parquet",
         "funding": f"{bare}.funding.parquet",
         "paths": f"{stem}.paths.parquet",
+        "trade_paths": f"{stem}.trade-paths.parquet",
         "brackets": f"{bare}.brackets.json",
     }
 
 
 def perp_evaluation_inputs(
-    paths: Paths, symbols: Sequence[str], timeframe: str, warmup: int
+    paths: Paths,
+    symbols: Sequence[str],
+    timeframe: str,
+    warmup: int,
+    require_trade_paths: bool = False,
 ) -> dict[str, PerpBundle]:
     """The warm-up window joined to the out-of-sample window, for every perpetual symbol.
 
@@ -170,6 +175,8 @@ def perp_evaluation_inputs(
         if ":" not in symbol:
             continue  # spot: there is no mark and no funding to carry
         names = _bundle_names(symbol, timeframe)
+        if not require_trade_paths:
+            names.pop("trade_paths")
         for directory in (paths.perp_in_sample_dir, paths.perp_holdout_dir):
             missing = [n for n in names.values() if not (directory / n).is_file()]
             if missing:
@@ -264,6 +271,8 @@ def _evaluate_perp_portfolio(
     if missing:
         raise ValueError(f"no perpetual inputs for {missing}")
     with tempfile.TemporaryDirectory(prefix="qc-holdout-signals-") as tmp:
+        from quantcrucible.execution.exit_policy import ExitPolicy
+
         root = Path(tmp)
         streams = {
             m.trial_id: _member_signal_stream(
@@ -281,6 +290,7 @@ def _evaluate_perp_portfolio(
             initial_cash=float(options.get("initial_cash", 100_000.0)),
             leverage=int(options.get("leverage", 5)),
             max_portfolio_risk_pct=float(options.get("max_portfolio_risk_pct", 0.10)),
+            exit_policy=ExitPolicy(**options.get("exit_policy", {})),
         )
     out = pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:]))
     return out[out.index >= start]
@@ -315,7 +325,15 @@ def evaluate(
                 paths, symbols, timeframe, campaign.holdout_range, int(options["lookback"])
             )
             start = pd.Timestamp(parse_range(campaign.holdout_range)[0])
-            perp = perp_evaluation_inputs(paths, symbols, timeframe, int(options["lookback"]))
+            perp = perp_evaluation_inputs(
+                paths,
+                symbols,
+                timeframe,
+                int(options["lookback"]),
+                require_trade_paths=(
+                    options.get("exit_policy", {}).get("mode") == "bracket_timeout_v1"
+                ),
+            )
             if _is_perpetual_portfolio(members, lock):
                 oos = _evaluate_perp_portfolio(members, sources, bars, perp, options, runner, start)
             else:

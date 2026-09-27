@@ -35,7 +35,7 @@ from quantcrucible.data.perp_store import (
 )
 from quantcrucible.data.source import timeframe_delta
 
-SUPPORTED_TIMEFRAMES = frozenset({"1d", "8h", "4h"})
+SUPPORTED_TIMEFRAMES = frozenset({"1d", "8h", "4h", "1h", "15m"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +110,10 @@ def prepare_perpetual(
         _ = _window_minutes(root, symbol, "trade", start_utc, end_utc)
 
         funding = _funding_rows(symbol, trades, raw.funding, mark_minutes)
-        paths = _paths_from_store(root, symbol, timeframe, funding, start_utc, end_utc)
+        paths = _paths_from_store(root, symbol, timeframe, funding, start_utc, end_utc, "mark")
+        trade_paths = _paths_from_store(
+            root, symbol, timeframe, funding, start_utc, end_utc, "trade"
+        )
         bundle = PerpBundle(
             symbol=symbol,
             timeframe=timeframe,
@@ -118,6 +121,7 @@ def prepare_perpetual(
             funding=funding,
             paths=tuple(paths),
             brackets=rows,
+            trade_paths=tuple(trade_paths),
         )
         bundle.aligned_with(trades)
 
@@ -157,8 +161,12 @@ def normalize_window(
     if (end_utc - start_utc) % step != timedelta(0):
         raise ValueError(f"{timeframe} window length must be an integer number of bars")
     for name, value in (("start", start_utc), ("end", end_utc)):
-        if value.minute or value.second or value.microsecond:
-            raise ValueError(f"{name} must be on an hour boundary")
+        if value.second or value.microsecond:
+            raise ValueError(f"{name} must be on the {timeframe} UTC grid")
+        if timeframe.endswith("m") and (value.hour * 60 + value.minute) % int(timeframe[:-1]) != 0:
+            raise ValueError(f"{name} must align to the {timeframe} UTC grid")
+        if timeframe.endswith(("h", "d")) and value.minute:
+            raise ValueError(f"{name} must align to the {timeframe} UTC grid")
         if timeframe == "1d" and value.hour != 0:
             raise ValueError(f"{name} must be midnight UTC for 1d data")
         if timeframe.endswith("h") and value.hour % int(timeframe[:-1]) != 0:
@@ -307,6 +315,7 @@ def _paths_from_store(
     funding: npt.NDArray[np.float64],
     start: datetime,
     end: datetime,
+    kind: str = "mark",
 ) -> tuple[SegmentedPath, ...]:
     step_ms = int(timeframe_delta(timeframe).total_seconds() * 1000)
     start_ms = _ms(start)
@@ -316,10 +325,10 @@ def _paths_from_store(
         root,
         symbol,
         timeframe,
-        kind="mark",
+        kind=kind,
         funding_times=funding_times,
     )
-    minute_ts = read_minutes(minute_path(root, symbol, "mark"))["ts"].to_numpy(dtype=np.int64)
+    minute_ts = read_minutes(minute_path(root, symbol, kind))["ts"].to_numpy(dtype=np.int64)
     first = int(minute_ts[0]) - int(minute_ts[0]) % step_ms
     starts = list(range(first, int(minute_ts[-1]) + 1, step_ms))
     selected = tuple(

@@ -146,6 +146,7 @@ class Genome:
     entry: Entry
     stop: Param
     take_profit: Param | None = None
+    stop_kind: Literal["atr", "bollinger"] = "atr"
 
     def clauses(self) -> tuple[Clause, ...]:
         return self.entry.items if isinstance(self.entry, Combine) else (self.entry,)
@@ -193,6 +194,8 @@ class GrammarConfig:
     # 0 until execution places take-profit orders: the bridge ignores Signal.take_profit (O19),
     # so a k_tp would be a TUNABLE that changes nothing
     take_profit_probability: float = 0.0
+    boll_stop_probability: float = 0.0
+    tp_sl_ratio: float | None = None
     max_params: int = MAX_TUNABLES
     clause_types: tuple[type, ...] = field(default=CLAUSE_TYPES)
 
@@ -283,7 +286,10 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
         tp = (
             _uniform(rng, "mult", *TP_RANGE) if rng.random() < cfg.take_profit_probability else None
         )
-        genome = Genome(entry, stop, tp)
+        kind: Literal["atr", "bollinger"] = (
+            "bollinger" if rng.random() < cfg.boll_stop_probability else "atr"
+        )
+        genome = Genome(entry, stop, tp, kind)
         if len(genome.params()) <= cfg.max_params:
             return genome
 
@@ -297,11 +303,14 @@ def _fmt(v: float | int, is_int: bool) -> str:
 
 
 class _Renderer:
-    def __init__(self, genome: Genome, direction: ScopeDirection = "long") -> None:
+    def __init__(
+        self, genome: Genome, direction: ScopeDirection = "long", tp_sl_ratio: float | None = None
+    ) -> None:
         if direction not in ("long", "short"):
             raise ValueError(f"direction must be long or short, got {direction!r}")
         self.genome = genome
         self.direction = direction
+        self.tp_sl_ratio = tp_sl_ratio
         self.names: dict[int, str] = {}  # id(Param) -> TUNABLE name
         self.features: list[tuple[str, str]] = []  # (feature name, indicators() expression)
         counters: dict[str, int] = {}
@@ -365,6 +374,13 @@ class _Renderer:
 
     def body(self) -> str:
         entry = self.entry()  # registers features first
+        if self.genome.stop_kind == "bollinger":
+            close = self.feature("bars.close")
+            band_name = "boll_lower" if self.direction == "long" else "boll_upper"
+            band = self.feature(f"ind.{band_name}(bars.close, 8)")
+            distance = f"({close} - {band})" if self.direction == "long" else f"({band} - {close})"
+        else:
+            distance = "atr"
         tunables = "".join(
             f"    # TUNABLE: {self.names[id(p)]} = {_fmt(p.value, p.is_int)}, "
             f"bounds=({_fmt(p.low, p.is_int)}, {_fmt(p.high, p.is_int)})\n"
@@ -372,7 +388,9 @@ class _Renderer:
         )
         feats = "".join(f'            "{n}": {e},\n' for n, e in self.features)
         tp = ""
-        if self.genome.take_profit is not None:
+        if self.tp_sl_ratio is not None:
+            tp = f", {self.tp_sl_ratio!r} * stop"
+        elif self.genome.take_profit is not None:
             tp = f", {self.p(self.genome.take_profit)} * atr"
         return (
             tunables
@@ -383,7 +401,7 @@ class _Renderer:
             + "        }\n\n"
             + "    def signal(self, x: FeatureView) -> Signal:\n"
             + '        atr = x["atr"] + 0\n'
-            + f"        stop = {self.p(self.genome.stop)} * atr\n"
+            + f"        stop = {self.p(self.genome.stop)} * {distance}\n"
             + "        ready = atr > 0 and atr - atr == 0 and stop > 0 and stop - stop == 0\n"
             + f"        if ready and ({entry}):\n"
             + f'            return Signal("{self.direction}", 1.0, stop{tp})\n'
@@ -395,7 +413,7 @@ class _Renderer:
 
 
 def render_genome(
-    genome: Genome, direction: ScopeDirection = "long"
+    genome: Genome, direction: ScopeDirection = "long", tp_sl_ratio: float | None = None
 ) -> tuple[str, dict[str, float | int]]:
     """(full strategy source, parameter values) — the source's TUNABLE defaults are the values.
 
@@ -404,7 +422,7 @@ def render_genome(
     second risk lever. The two renderings of one genome are different strategies with different
     hashes, so a long and a short scope never share a trial.
     """
-    r = _Renderer(genome, direction)
+    r = _Renderer(genome, direction, tp_sl_ratio)
     body = r.body()
     return render(canonical_template(), {"joint": body}), r.params()
 
@@ -464,7 +482,8 @@ def _clause_sig(c: Clause) -> str:
 def signature(genome: Genome) -> tuple[str, ...]:
     """The genome's clauses without their numbers, sorted — two strategies with the same
     signature differ only in parameter values or clause order."""
-    return tuple(sorted(_clause_sig(c) for c in genome.clauses()))
+    clauses = tuple(sorted(_clause_sig(c) for c in genome.clauses()))
+    return ("stop:bollinger", *clauses) if genome.stop_kind == "bollinger" else clauses
 
 
 # ── serialization: a genome is recorded with its submission (the ledger is the only state) ──

@@ -46,7 +46,12 @@ class Runner:
             m = len(job.options["grid"])
             rets = rng.normal(0, 0.01, (m, T))
             rets[0] += 0.002  # the candidate (first config) has a stable edge
-            result: dict[str, Any] = {"ts": ts, "returns": rets.tolist(), "n_trades": [40] * m}
+            result: dict[str, Any] = {
+                "ts": ts,
+                "returns": rets.tolist(),
+                "n_trades": [40] * m,
+                "avg_holding_bars": [5.0] * m,
+            }
         else:
             s = sharpe_for(dict(job.params))
             trades = 40.0 if float(job.params["fast"]) >= self.min_fast else 5.0

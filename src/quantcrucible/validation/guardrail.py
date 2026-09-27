@@ -61,8 +61,11 @@ class Violation:
 class _BlockChecker(ast.NodeVisitor):
     """Collects violations in one editable block (already dedented)."""
 
-    def __init__(self, tunables: frozenset[str]) -> None:
+    def __init__(
+        self, tunables: frozenset[str], locked_numbers: frozenset[int | float] = frozenset()
+    ) -> None:
         self.tunables = tunables
+        self.allowed_numbers = ALLOWED_NUMBERS | locked_numbers
         self.violations: list[Violation] = []
         self.locals: set[str] = set()
         self.params: tuple[str, ...] = ()
@@ -184,7 +187,7 @@ class _BlockChecker(ast.NodeVisitor):
         if isinstance(v, bool) or v is None or isinstance(v, str):
             return
         if isinstance(v, int | float):
-            if v not in ALLOWED_NUMBERS:
+            if v not in self.allowed_numbers:
                 shown = -v if negative else v
                 self.fail(node, f"undeclared constant {shown!r} — declare it as a TUNABLE")
             return
@@ -280,13 +283,15 @@ def _is_docstring(stmt: ast.stmt) -> bool:
     )
 
 
-def check_block(body: str, tunables: frozenset[str]) -> list[Violation]:
+def check_block(
+    body: str, tunables: frozenset[str], locked_numbers: frozenset[int | float] = frozenset()
+) -> list[Violation]:
     """AST-whitelist violations in one editable block."""
     try:
         tree = ast.parse(textwrap.dedent(body))
     except SyntaxError as e:
         return [Violation(e.lineno or 0, f"syntax error: {e.msg}")]
-    checker = _BlockChecker(tunables)
+    checker = _BlockChecker(tunables, locked_numbers)
     checker.check_module(tree)
     if checker.violations:
         return checker.violations
@@ -387,7 +392,11 @@ class StaticGuardrail:
             return reject("; ".join(problems))
         names = frozenset(t.name for t in parsed.tunables)
         editable = [b for b in parsed.blocks if b.name in parsed.editable(locked_scope)]
-        violations = [v for b in editable for v in check_block(b.body, names)]
+        locked_numbers: frozenset[int | float] = frozenset()
+        if ctx.lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1":
+            ratio = float(ctx.lock["research"]["exit"]["tp_sl_ratio"])
+            locked_numbers = frozenset({8, ratio})
+        violations = [v for b in editable for v in check_block(b.body, names, locked_numbers)]
         violations += [v for b in editable for v in check_direction(b.body, candidate.direction)]
         if violations:
             return GateResult(

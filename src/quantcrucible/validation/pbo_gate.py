@@ -33,12 +33,20 @@ from quantcrucible.validation.report import EvaluationReport
 from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
 
 SECONDS_PER_CONFIG = 30.0  # sandbox budget for the grid job, per configuration (O14)
+GRID_REPORT_TARGET_BYTES = 16 * 2**20  # well below the sandbox's 64 MiB report ceiling
+JSON_BYTES_PER_RETURN = 32  # conservative budget for a float, separator and JSON overhead
 
 Params = dict[str, float | int]
 
 
 def periods_per_year(timeframe: str) -> float:
     return 365.0 * 86_400 / timeframe_delta(timeframe).total_seconds()  # crypto trades 24/7
+
+
+def grid_batch_size(n_bars: int, n_configs: int) -> int:
+    """Bound each sandbox report while preserving the full preregistered grid on the host."""
+    per_config = max(n_bars - 1, 1) * JSON_BYTES_PER_RETURN
+    return max(1, min(n_configs, GRID_REPORT_TARGET_BYTES // per_config))
 
 
 def _key(p: Mapping[str, float | int]) -> str:
@@ -125,15 +133,44 @@ class PboGate:
             perp = perp_inputs(candidate, ctx)
         except ValueError as exc:
             return GateResult(False, self.id, None, str(exc))
-        job = SandboxJob(
-            "grid_backtest", candidate.source, universe_bars(candidate, ctx), candidate.params,
-            {**backtest_options(ctx.lock, candidate.seed), "grid": configs},
-            timeout_s=max(300.0, SECONDS_PER_CONFIG * len(configs)), perp=perp,
-        )  # fmt: skip
-        res = runner.run(job)
-        if not res.ok or res.report is None:
-            return sandbox_failure(self.id, res)
-        out: dict[str, Any] = res.report["result"]
+        bars = universe_bars(candidate, ctx)
+        batch_size = grid_batch_size(max(len(b) for b in bars.values()), len(configs))
+        rows: list[list[float]] = []
+        trades: list[int] = []
+        holding_bars: list[float] = []
+        ts: list[str] | None = None
+        for start in range(0, len(configs), batch_size):
+            batch = configs[start : start + batch_size]
+            job = SandboxJob(
+                "grid_backtest", candidate.source, bars, candidate.params,
+                {**backtest_options(ctx.lock, candidate.seed), "grid": batch},
+                timeout_s=max(300.0, SECONDS_PER_CONFIG * len(batch)), perp=perp,
+            )  # fmt: skip
+            res = runner.run(job)
+            if not res.ok or res.report is None:
+                return sandbox_failure(self.id, res)
+            part: dict[str, Any] = res.report["result"]
+            if ts is not None and list(part["ts"]) != ts:
+                return GateResult(False, self.id, None, "grid batches have different bar axes")
+            if (
+                len(part["returns"]) != len(batch)
+                or any(len(row) != len(part["ts"]) for row in part["returns"])
+                or len(part.get("n_trades", [])) != len(batch)
+                or len(part.get("avg_holding_bars", [])) != len(batch)
+            ):
+                return GateResult(
+                    False, self.id, None, "grid batch has an incomplete result matrix"
+                )
+            ts = list(part["ts"])
+            rows.extend(part["returns"])
+            trades.extend(part.get("n_trades", []))
+            holding_bars.extend(part.get("avg_holding_bars", []))
+        out: dict[str, Any] = {
+            "ts": ts or [],
+            "returns": rows,
+            "n_trades": trades,
+            "avg_holding_bars": holding_bars,
+        }
         matrix = np.asarray(out["returns"], dtype=np.float64)
         base = Path(ctx.services["results_dir"]) / "pbo" / candidate.campaign_id
         path = measurement_path(base, candidate.candidate_id)

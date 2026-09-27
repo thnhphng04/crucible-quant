@@ -180,11 +180,19 @@ class PerpAccount:
         single account-level number.
         """
         for side in ("long", "short"):
-            wallet = self._wallets.get((symbol, side))
-            if wallet is None:
-                continue
-            payment = wallet.qty * mark * rate
-            wallet.margin += -payment if side == "long" else payment
+            self.apply_funding_side(symbol, side, rate, mark)
+
+    def apply_funding_side(
+        self, symbol: str, side: ScopeDirection, rate: float, mark: float
+    ) -> float:
+        """Settle one wallet once; return positive cost when that wallet paid funding."""
+        wallet = self._wallets.get((symbol, side))
+        if wallet is None:
+            return 0.0
+        payment = wallet.qty * mark * rate
+        cost = payment if side == "long" else -payment
+        wallet.margin -= cost
+        return cost
 
 
 class ClearanceRefused(RuntimeError):

@@ -32,10 +32,12 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   data:                         # D18 — research data; holdout = last `holdout_months`
     exchange: binance
     symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT]
-    timeframe: 1d
+    timeframe: 1h
     start: 2018-01-01
+    end: null                  # latest completed UTC day; or set YYYY-MM-DD before campaign
     holdout_months: 12
     second_exchange: gate       # gate ⑥′: re-run on a second free source; Sharpe may drop ≤ 30%
+  exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened
     dsr_min: 0.95               # hard floor: ≥ 0.95

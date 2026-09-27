@@ -6,10 +6,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
-from quantcrucible.data.perp_pipeline import prepare_perpetual
+from quantcrucible.core.strategy.base import FLAT, Bars, Features, FeatureView, Signal, Strategy
+from quantcrucible.data.perp_pipeline import normalize_window, prepare_perpetual
 from quantcrucible.data.perp_source import CoverageError, PerpSource
+from quantcrucible.execution.engine import run_backtest
+from quantcrucible.execution.exit_policy import ExitPolicy
+from quantcrucible.execution.joint_account import SlotPlan, replay_signals
+from quantcrucible.execution.nautilus_bridge import CostModel
+from quantcrucible.execution.risk import RiskSettings
 
 SYMBOL = "BTC/USDT:USDT"
 START = datetime(2021, 1, 1, tzinfo=UTC)
@@ -118,6 +125,71 @@ def test_prepare_returns_carve_ready_aligned_data(tmp_path: Path) -> None:
     assert bundle.brackets == prep.brackets[SYMBOL]
     assert bundle.funding[0, 3] == pytest.approx(100.5 + 419 * 0.01 + 0.05)
     assert bundle.funding[1, 3] > trades.close[0], "mark_at_settlement comes from mark minutes"
+
+
+@pytest.mark.parametrize("timeframe,expected", [("1h", 24), ("15m", 96)])
+def test_intraday_windows_keep_trade_and_mark_paths(
+    tmp_path: Path, timeframe: str, expected: int
+) -> None:
+    prep = prepare_perpetual(
+        source(AssemblyExchange(funding_offsets_hours=(0, 8, 16, 24, 32))),
+        tmp_path,
+        [SYMBOL],
+        timeframe,
+        START,
+        START + timedelta(days=1),
+    )
+    trades, bundle = prep.data[SYMBOL]
+    assert len(trades) == expected
+    assert bundle.trade_paths is not None and len(bundle.trade_paths) == expected
+    assert bundle.trade_paths[0].segments[0].highs != bundle.paths[0].segments[0].highs
+
+
+@pytest.mark.parametrize("timeframe", ["1h", "15m"])
+def test_prepared_intraday_paths_replay_fixed_bracket(tmp_path: Path, timeframe: str) -> None:
+    prep = prepare_perpetual(
+        source(AssemblyExchange(funding_offsets_hours=(0, 8, 16, 24, 32))),
+        tmp_path,
+        [SYMBOL],
+        timeframe,
+        START,
+        START + timedelta(days=1),
+    )
+    bars, bundle = prep.data[SYMBOL]
+
+    class FirstBar(Strategy):
+        def indicators(self, data: Bars) -> Features:
+            return {"index": np.arange(len(data), dtype=float)}
+
+        def signal(self, x: FeatureView) -> Signal:
+            return Signal("long", 1.0, 10.0, 11.0) if float(x["index"]) == 0 else FLAT
+
+    policy = ExitPolicy("bracket_timeout_v1", 1.1, 100)
+    costs = CostModel(fee_rate=0.0, slippage_bps=0.0)
+    standalone = run_backtest(
+        FirstBar(), {SYMBOL: bars}, costs=costs, perp={SYMBOL: bundle}, exit_policy=policy
+    )
+    replay = replay_signals(
+        [SlotPlan(SYMBOL, "long", (Signal("long", 1.0, 10.0, 11.0),) + (FLAT,) * (len(bars) - 1))],
+        {SYMBOL: bars},
+        {SYMBOL: bundle},
+        100_000.0,
+        RiskSettings(),
+        costs,
+        exit_policy=policy,
+    )
+    assert standalone.exits and standalone.exits[0].reason == "take_profit"
+    np.testing.assert_allclose(standalone.equity, replay.equity)
+
+
+def test_15m_window_requires_a_quarter_hour_boundary() -> None:
+    start = START + timedelta(minutes=15)
+    assert normalize_window("15m", start, start + timedelta(minutes=45)) == (
+        start,
+        start + timedelta(minutes=45),
+    )
+    with pytest.raises(ValueError, match="UTC grid"):
+        normalize_window("15m", start + timedelta(minutes=1), start + timedelta(minutes=46))
 
 
 def test_prepare_4h_fetches_enough_tail_for_funding_preflight(tmp_path: Path) -> None:

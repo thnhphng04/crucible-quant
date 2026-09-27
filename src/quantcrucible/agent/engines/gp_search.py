@@ -97,6 +97,8 @@ class GpSearch:
                 clause_count_weights=self.config.clause_count_weights,
                 or_probability=self.config.or_probability,
                 take_profit_probability=self.config.take_profit_probability,
+                boll_stop_probability=self.config.boll_stop_probability,
+                tp_sl_ratio=self.config.tp_sl_ratio,
                 max_params=self.config.max_params,
                 clause_types=_clause_types(island_category(i)),
             )
@@ -112,7 +114,9 @@ class GpSearch:
             genome = detail.get("descriptors", {}).get("genome")
             source = None
             if genome is not None:
-                source, params = render_genome(load_genome(genome))
+                source, params = render_genome(
+                    load_genome(genome), tp_sl_ratio=self.config.tp_sl_ratio
+                )
                 self.seen.add((source, tuple(sorted(params.items()))))
             if detail.get("mutation"):
                 self.children += 1
@@ -146,7 +150,7 @@ class GpSearch:
     # ── one proposal ────────────────────────────────────────────────────────────────────
     def _fresh(self, island: str) -> Proposal:
         genome = sample_genome(self.rng, self.seeding[island])
-        source, params = render_genome(genome)
+        source, params = render_genome(genome, tp_sl_ratio=self.config.tp_sl_ratio)
         return Proposal(genome, source, params, island=island)
 
     def _bred(
@@ -174,7 +178,7 @@ class GpSearch:
             )  # fmt: skip
         except OperatorFailed:
             return None
-        source, params = render_genome(child)
+        source, params = render_genome(child, tp_sl_ratio=self.config.tp_sl_ratio)
         parents = (parent.strategy_hash,) + ((mate.strategy_hash,) if mate is not None else ())
         return Proposal(child, source, params, parents=parents, mutation=kind, island=island)
 

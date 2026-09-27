@@ -32,6 +32,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -56,6 +57,7 @@ class PerpBundle:
     funding: npt.NDArray[np.float64]  # (n, 4): see FUNDING_COLUMNS
     paths: tuple[SegmentedPath, ...]
     brackets: tuple[Bracket, ...]
+    trade_paths: tuple[SegmentedPath, ...] | None = None
 
     def __post_init__(self) -> None:
         if len(self.paths) != len(self.marks):
@@ -63,6 +65,8 @@ class PerpBundle:
                 f"{self.symbol}: one path per bar is required, got {len(self.paths)} paths for "
                 f"{len(self.marks)} bars — a short list shifts every later bar's intrabar answer"
             )
+        if self.trade_paths is not None and len(self.trade_paths) != len(self.marks):
+            raise ValueError(f"{self.symbol}: one trade path per bar is required")
         if not self.brackets:
             raise ValueError(f"{self.symbol}: no leverage bracket table, so margin is unknown")
         if self.funding.ndim != 2 or self.funding.shape[1] != len(FUNDING_COLUMNS):
@@ -106,6 +110,7 @@ class PerpBundle:
             funding=moved,
             paths=self.paths[start:stop],
             brackets=self.brackets,
+            trade_paths=(self.trade_paths[start:stop] if self.trade_paths is not None else None),
         )
 
     def followed_by(self, later: PerpBundle) -> PerpBundle:
@@ -122,6 +127,8 @@ class PerpBundle:
                 f"only windows of the same contract join: {self.symbol} {self.timeframe} and "
                 f"{later.symbol} {later.timeframe}"
             )
+        if (self.trade_paths is None) != (later.trade_paths is None):
+            raise ValueError(f"{self.symbol}: trade paths differ between joined windows")
         if len(self.marks) and len(later.marks) and later.marks.ts[0] <= self.marks.ts[-1]:
             raise ValueError(
                 f"{self.symbol}: the second window must come strictly after the first "
@@ -146,6 +153,11 @@ class PerpBundle:
             funding=np.concatenate([self.funding, moved]) if len(moved) else self.funding,
             paths=self.paths + later.paths,
             brackets=self.brackets,
+            trade_paths=(
+                self.trade_paths + later.trade_paths
+                if self.trade_paths is not None and later.trade_paths is not None
+                else None
+            ),
         )
 
     def aligned_with(self, trades: Bars) -> None:
@@ -197,6 +209,8 @@ def write_bundle(directory: Path, bundle: PerpBundle) -> dict[str, str]:
         "paths": f"{stem}.paths.parquet",
         "brackets": f"{_safe(bundle.symbol)}.brackets.json",
     }
+    if bundle.trade_paths is not None:
+        names["trade_paths"] = f"{stem}.trade-paths.parquet"
     directory.mkdir(parents=True, exist_ok=True)
 
     m = bundle.marks
@@ -219,6 +233,17 @@ def write_bundle(directory: Path, bundle: PerpBundle) -> dict[str, str]:
     pd.DataFrame(rows, columns=list(PATH_COLUMNS)).to_parquet(
         directory / names["paths"], index=False
     )
+    if bundle.trade_paths is not None:
+        trade_rows: list[tuple[int, int, int, int, int, float]] = []
+        for bar_ix, sp in enumerate(bundle.trade_paths):
+            for segment_ix, (start, summary) in enumerate(zip(sp.starts, sp.segments, strict=True)):
+                for side, series in ((0, summary.lows), (1, summary.highs)):
+                    trade_rows += [
+                        (bar_ix, segment_ix, start, side, minute, price) for minute, price in series
+                    ]
+        pd.DataFrame(trade_rows, columns=list(PATH_COLUMNS)).to_parquet(
+            directory / names["trade_paths"], index=False
+        )
 
     (directory / names["brackets"]).write_text(
         json.dumps([dict(b) for b in bundle.brackets], sort_keys=True), encoding="utf-8"
@@ -249,21 +274,13 @@ def read_bundle(
         funding = np.zeros((0, len(FUNDING_COLUMNS)), dtype=np.float64)
 
     table = pd.read_parquet(directory / names["paths"])
-    paths: list[SegmentedPath] = []
-    for bar_ix in range(len(marks)):
-        bar = table[table["bar_ix"] == bar_ix]
-        starts: list[int] = []
-        segments: list[PathSummary] = []
-        for segment_ix in sorted(bar["segment_ix"].unique()):
-            part = bar[bar["segment_ix"] == segment_ix]
-            starts.append(int(part["start_minute"].iloc[0]))
-            segments.append(
-                PathSummary(
-                    lows=_breakpoints(part[part["side"] == 0]),
-                    highs=_breakpoints(part[part["side"] == 1]),
-                )
-            )
-        paths.append(SegmentedPath(starts=tuple(starts), segments=tuple(segments)))
+    paths = _read_paths(table, len(marks))
+    trade_name = names.get("trade_paths")
+    trade_paths = (
+        _read_paths(pd.read_parquet(directory / trade_name), len(marks))
+        if trade_name is not None and (directory / trade_name).exists()
+        else None
+    )
 
     brackets = json.loads((directory / names["brackets"]).read_text(encoding="utf-8"))
     return PerpBundle(
@@ -271,8 +288,32 @@ def read_bundle(
         timeframe=timeframe,
         marks=marks,
         funding=funding,
-        paths=tuple(paths),
+        paths=paths,
         brackets=brackets_of(brackets),
+        trade_paths=trade_paths,
+    )
+
+
+def _read_paths(table: Any, n_bars: int) -> tuple[SegmentedPath, ...]:
+    grouped: dict[int, list[tuple[int, PathSummary]]] = {}
+    for (bar_ix, _segment_ix), part in table.groupby(["bar_ix", "segment_ix"], sort=True):
+        grouped.setdefault(int(bar_ix), []).append(
+            (
+                int(part["start_minute"].iloc[0]),
+                PathSummary(
+                    lows=_breakpoints(part[part["side"] == 0]),
+                    highs=_breakpoints(part[part["side"] == 1]),
+                ),
+            )
+        )
+    if set(grouped) != set(range(n_bars)):
+        raise ValueError("path table must contain exactly one entry for every bar")
+    return tuple(
+        SegmentedPath(
+            starts=tuple(start for start, _summary in grouped[i]),
+            segments=tuple(summary for _start, summary in grouped[i]),
+        )
+        for i in range(n_bars)
     )
 
 
