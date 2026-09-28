@@ -713,7 +713,10 @@ def _process_identity(pid: int) -> str | None:
         return None
     try:
         after_comm = text.rsplit(") ", 1)[1]
-        start_time = after_comm.split()[19]
+        fields = after_comm.split()
+        if fields[0] in {"Z", "X"}:  # A zombie retains /proc until its parent reaps it.
+            return None
+        start_time = fields[19]
     except IndexError:
         return None
     return f"proc-start:{start_time}"
