@@ -32,3 +32,7 @@ Lớp `Ledger` là lớp ghi: nó mở cơ sở dữ liệu ở chế độ đ�
 - **Dùng lại `Ledger` bên trong ứng dụng web** — nó mở cơ sở dữ liệu ở chế độ đọc-ghi và lấy lock; một bên chỉ đọc không được phép làm cả hai.
 - **Một báo cáo HTML tĩnh sinh ra cho mỗi campaign** — không lọc, không đi sâu được, và cũ ngay khi trial tiếp theo được ghi.
 - **Mở giao diện ra ngoài localhost** — sẽ cần xác thực và một lần rà soát xem nó được phép hiện gì; giai đoạn 0–2 không cần điều đó.
+
+## Ghi chú kế tiếp
+
+ADR-0037 thêm một mặt Studio local riêng để điều khiển tạo và chạy campaign. Ghi chú này không sửa ADR-0029: `cli review` và `quantcrucible.review` vẫn chỉ đọc, chỉ GET và đọc ledger trực tiếp.

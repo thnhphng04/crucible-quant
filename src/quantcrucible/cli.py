@@ -221,11 +221,21 @@ def holdout_reharden(root: Path) -> int:
     return 0
 
 
-def _session(config: Path, root: Path, label: str = "default") -> ResearchSession:
+def _session(
+    config: Path, root: Path, label: str = "default", campaign_id: str | None = None
+) -> ResearchSession:
     """The open campaign (verified against config/user.yaml, or a new one) and its IS data."""
-    from quantcrucible.config.lock import LockTamperedError, read_lock, sha256_file
+    from quantcrucible.config.lock import (
+        LockMismatchError,
+        LockTamperedError,
+        assert_lock_matches,
+        read_lock,
+        resolve_campaign,
+        sha256_file,
+    )
     from quantcrucible.core.perp_inputs import read_bundle
     from quantcrucible.data.manifest import verify_manifest
+    from quantcrucible.data.registry import DatasetRegistry, resolve_dataset
     from quantcrucible.data.store import ResearchStore, parse_range
     from quantcrucible.ledger.db import Ledger
     from quantcrucible.validation.research_run import ResearchSession
@@ -236,22 +246,34 @@ def _session(config: Path, root: Path, label: str = "default") -> ResearchSessio
     (root / "ledger").mkdir(exist_ok=True)
     ledger = Ledger.open(root / "ledger" / "crucible.db")
     lock_path = root / "config" / "evaluation.lock.yaml"
-    campaign_id = current_campaign(cfg, ledger, lock_path, root)
-    lock = read_lock(lock_path)
+    if campaign_id is None:
+        campaign_id = current_campaign(cfg, ledger, lock_path, root)
+        lock = read_lock(lock_path)
+    else:
+        resolved = resolve_campaign(campaign_id, ledger, lock_path)
+        active = read_lock(lock_path)
+        if resolved.campaign.status != "OPEN" or active["campaign_id"] != campaign_id:
+            raise LockMismatchError(f"campaign {campaign_id} is not the active OPEN campaign")
+        assert_lock_matches(cfg, resolved.path, ledger, campaign_id)
+        lock = resolved.data
     data = cfg.research.data
     holdout = [parse_range(lock["holdout_range"])]
-    is_dir = root / "data" / ("perp" if data.market == "usdt_m_perpetual" else "is")
+    locator = resolve_dataset(root, lock)
+    if locator.kind == "v1":
+        DatasetRegistry(root).verify_dataset(str(locator.dataset_id), verify_holdout_files=False)
+    is_dir = locator.is_dir
     store = ResearchStore(is_dir, holdout)
     bars = {s: store.bars(s, data.timeframe) for s in data.symbols}
     perps = {}
     if data.market == "usdt_m_perpetual":
-        manifest_path = is_dir / "manifest.json"
-        expected = lock.get("derived", {}).get("perp_manifest_sha256")
-        if expected != sha256_file(manifest_path):
-            raise LockTamperedError("perpetual IS manifest differs from the campaign lock")
-        manifest = verify_manifest(manifest_path, is_dir)
-        if manifest.source != "binanceusdm" or set(manifest.coverage) != set(data.symbols):
-            raise LockTamperedError("perpetual IS manifest has the wrong source or symbols")
+        if locator.kind == "legacy":
+            manifest_path = is_dir / "manifest.json"
+            expected = lock.get("derived", {}).get("perp_manifest_sha256")
+            if expected != sha256_file(manifest_path):
+                raise LockTamperedError("perpetual IS manifest differs from the campaign lock")
+            manifest = verify_manifest(manifest_path, is_dir)
+            if manifest.source != "binanceusdm" or set(manifest.coverage) != set(data.symbols):
+                raise LockTamperedError("perpetual IS manifest has the wrong source or symbols")
         for symbol, trade in bars.items():
             stem = symbol.replace("/", "-").replace(":", "-")
             names = {
@@ -267,27 +289,28 @@ def _session(config: Path, root: Path, label: str = "default") -> ResearchSessio
     second: dict[str, Bars] = {}
     second_perps = {}
     if data.second_exchange is not None:
-        second_dir = (
-            root / "data" / f"perp-second-{data.second_exchange}"
-            if data.market == "usdt_m_perpetual"
-            else second_source_dir(root, data.second_exchange)
-        )
+        second_dir = locator.second_dir
+        if second_dir is None:
+            raise LockTamperedError("second-source data directory is missing")
         if data.market == "usdt_m_perpetual" and not second_dir.is_dir():
             raise LockTamperedError("second perpetual IS bundle is missing")
         if second_dir.exists():
             second_store = ResearchStore(second_dir, holdout)
             second = {s: second_store.bars(s, data.timeframe) for s in data.symbols}
             if data.market == "usdt_m_perpetual":
-                expected_second = lock.get("derived", {}).get("second_perp_manifest_sha256")
-                if expected_second != sha256_file(second_dir / "manifest.json"):
-                    raise LockTamperedError(
-                        "second perpetual IS manifest differs from campaign lock"
-                    )
-                second_manifest = verify_manifest(second_dir / "manifest.json", second_dir)
-                if second_manifest.source != data.second_exchange or set(
-                    second_manifest.coverage
-                ) != set(data.symbols):
-                    raise LockTamperedError("second perpetual manifest has wrong source or symbols")
+                if locator.kind == "legacy":
+                    expected_second = lock.get("derived", {}).get("second_perp_manifest_sha256")
+                    if expected_second != sha256_file(second_dir / "manifest.json"):
+                        raise LockTamperedError(
+                            "second perpetual IS manifest differs from campaign lock"
+                        )
+                    second_manifest = verify_manifest(second_dir / "manifest.json", second_dir)
+                    if second_manifest.source != data.second_exchange or set(
+                        second_manifest.coverage
+                    ) != set(data.symbols):
+                        raise LockTamperedError(
+                            "second perpetual manifest has wrong source or symbols"
+                        )
                 for symbol, trade in second.items():
                     stem = symbol.replace("/", "-").replace(":", "-")
                     names = {
@@ -536,6 +559,9 @@ def main(argv: list[str] | None = None) -> int:
     review = sub.add_parser("review", help="open the local read-only research review UI")
     review.add_argument("--root", type=Path, default=Path("."))
     review.add_argument("--port", type=int, default=8765)
+    studio = sub.add_parser("studio", help="open the local campaign Studio UI")
+    studio.add_argument("--root", type=Path, default=Path("."))
+    studio.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
     try:
         return _dispatch(args)
@@ -545,6 +571,19 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    if args.command in {"review", "studio", "campaign-dryrun"}:
+        return _dispatch_unlocked(args)
+    from quantcrucible.studio.writer_lock import ProjectBusy, project_writer_lock
+
+    try:
+        with project_writer_lock(args.root.resolve()):
+            return _dispatch_unlocked(args)
+    except ProjectBusy as exc:
+        sys.stderr.write(f"refused: {exc}\n")
+        return 2
+
+
+def _dispatch_unlocked(args: argparse.Namespace) -> int:
     if args.command == "data-fetch":
         return data_fetch(args.config, args.root, args.market)
     if args.command == "campaign-dryrun":
@@ -571,6 +610,17 @@ def _dispatch(args: argparse.Namespace) -> int:
         from quantcrucible.review.app import create_app
 
         uvicorn.run(create_app(args.root.resolve()), host="127.0.0.1", port=args.port)
+        return 0
+    if args.command == "studio":
+        import uvicorn
+
+        from quantcrucible.studio.app import create_app as create_studio_app
+
+        uvicorn.run(
+            create_studio_app(args.root.resolve(), port=args.port),
+            host="127.0.0.1",
+            port=args.port,
+        )
         return 0
     return 2
 

@@ -40,6 +40,18 @@ from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
 from tests.factories import make_bars
 from tests.validation.test_pbo_gate import ZOO, cand
 
+
+def test_new_dataset_paths_keep_holdout_inside_its_immutable_bundle(tmp_path: Path) -> None:
+    dataset_id = "a" * 64
+    paths = Paths(tmp_path, dataset_id)
+    assert paths.in_sample_dir == tmp_path / "data" / "datasets" / dataset_id / "is"
+    assert paths.holdout_dir == tmp_path / "holdout" / "datasets" / dataset_id / "files"
+    assert paths.perp_holdout_dir == paths.holdout_dir
+    assert paths.perp_holdout_lock == paths.holdout_lock
+    with pytest.raises(HoldoutRefused, match="invalid dataset id"):
+        Paths(tmp_path, "../outside")
+
+
 HOLDOUT = (date(2024, 1, 1), date(2024, 12, 31))
 SYMBOL = "BTC/USDT"
 PERP_SYMBOL = "BTC/USDT:USDT"

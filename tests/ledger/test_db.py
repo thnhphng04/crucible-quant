@@ -32,6 +32,7 @@ TABLES = [
     "calibration_runs",
     "calibration_finishes",
     "campaign_purposes",
+    "campaign_creation_requests",
 ]
 
 
@@ -82,7 +83,14 @@ def _populate_every_table(lg: Ledger) -> None:
     lg.transition("c1", "FROZEN")
     now = datetime.now(UTC)
     lg.claim_holdout("c1", "p1", "2025-09-21/2026-09-21", "hl")
-    lg.open_campaign("c2", "2027-01-01/2027-12-31", lock_hash="def")
+    lg.open_campaign_with_creation_request(
+        request_key="request-c2",
+        draft_digest="draft-c2",
+        dataset_id="dataset-c2",
+        campaign_id="c2",
+        holdout_range="2027-01-01/2027-12-31",
+        lock_hash="def",
+    )
     lg.abandon_campaign("c2", "test")
     lg.record_holdout_access(
         HoldoutAccess("c1", "p1", now - timedelta(seconds=1), now, "2025/2026", "FAIL")
@@ -522,3 +530,41 @@ def test_a_campaign_from_before_v6_is_a_research_campaign(
     )
     raw.close()
     assert ledger.campaign_purpose("old") == ("research", None)
+
+
+# ── schema v8: explicit Studio campaign creation requests ──────────────────────────────
+def test_creation_request_and_campaign_are_atomic(ledger_path: Path) -> None:
+    lg = Ledger.open(ledger_path)
+    campaign = lg.open_campaign_with_creation_request(
+        request_key="rk1",
+        draft_digest="draft-a",
+        dataset_id="dataset-a",
+        campaign_id="c-studio",
+        holdout_range="2030-01-01/2031-01-01",
+        lock_hash="lock-a",
+        holdout_lock_hash="holdout-a",
+        purpose="harness_test",
+        trial_budget=100,
+    )
+    assert campaign.campaign_id == "c-studio"
+    assert lg.creation_request("rk1") == ("draft-a", "c-studio", "dataset-a")
+    assert lg.campaign_purpose("c-studio") == ("harness_test", 100)
+    again = lg.open_campaign_with_creation_request(
+        request_key="rk1",
+        draft_digest="draft-a",
+        dataset_id="dataset-a",
+        campaign_id="c-studio",
+        holdout_range="2030-01-01/2031-01-01",
+        lock_hash="lock-a",
+        holdout_lock_hash="holdout-a",
+    )
+    assert again == campaign
+    with pytest.raises(LedgerError, match="another payload"):
+        lg.open_campaign_with_creation_request(
+            request_key="rk1",
+            draft_digest="draft-b",
+            dataset_id="dataset-a",
+            campaign_id="c-studio",
+            holdout_range="2030-01-01/2031-01-01",
+            lock_hash="lock-a",
+        )

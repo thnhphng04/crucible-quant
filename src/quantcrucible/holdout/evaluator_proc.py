@@ -14,6 +14,7 @@ campaign and prints exactly ``PASS`` or ``FAIL`` — never a number. ``sharpe_oo
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -25,6 +26,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quantcrucible.config.lock import read_lock
 from quantcrucible.core.perp_inputs import PerpBundle, read_bundle
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.holdout_split import verify_holdout
@@ -80,6 +82,11 @@ class Verdict:
 @dataclass(frozen=True, slots=True)
 class Paths:
     root: Path
+    dataset_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.dataset_id is not None and re.fullmatch(r"[0-9a-f]{64}", self.dataset_id) is None:
+            raise HoldoutRefused("invalid dataset id in the campaign lock")
 
     @property
     def ledger(self) -> Path:
@@ -91,28 +98,38 @@ class Paths:
 
     @property
     def holdout_lock(self) -> Path:
+        if self.dataset_id is not None:
+            return self.root / "holdout" / "datasets" / self.dataset_id / "holdout.lock"
         return self.root / "holdout.lock"
 
     @property
     def holdout_dir(self) -> Path:
+        if self.dataset_id is not None:
+            return self.root / "holdout" / "datasets" / self.dataset_id / "files"
         return self.root / "holdout"
 
     @property
     def in_sample_dir(self) -> Path:
+        if self.dataset_id is not None:
+            return self.root / "data" / "datasets" / self.dataset_id / "is"
         return self.root / "data" / "is"
 
     @property
     def perp_in_sample_dir(self) -> Path:
+        if self.dataset_id is not None:
+            return self.in_sample_dir
         return self.root / "data" / "perp"
 
     @property
     def perp_holdout_dir(self) -> Path:
         """Nested inside the spot holdout on purpose: the guard hook matches anything under that
         directory, so the second carve is protected with no change to the rail (P3-22)."""
-        return self.holdout_dir / "perp"
+        return self.holdout_dir if self.dataset_id is not None else self.holdout_dir / "perp"
 
     @property
     def perp_holdout_lock(self) -> Path:
+        if self.dataset_id is not None:
+            return self.holdout_lock
         return self.holdout_dir / "perp.lock"
 
     @property
@@ -303,10 +320,21 @@ def evaluate(
     ledger = Ledger.open(paths.ledger)
     try:
         campaign, freeze = find_frozen(ledger, portfolio_hash)
+        candidate_lock = read_lock(paths.lock)
+        derived = candidate_lock.get("derived", {})
+        dataset_id = derived.get("dataset_id") if isinstance(derived, dict) else None
+        paths = Paths(root, str(dataset_id) if dataset_id is not None else None)
         now = now or utc_now()
         lock = preflight(
             ledger, campaign, freeze, paths.lock, paths.holdout_lock, paths.holdout_dir, now
         )
+        if paths.dataset_id is not None:
+            from quantcrucible.data.registry import DatasetRegistry, DatasetRegistryError
+
+            try:
+                DatasetRegistry(root).verify_dataset(paths.dataset_id)
+            except DatasetRegistryError as exc:
+                raise HoldoutRefused("dataset manifest failed verification") from exc
         variant = next(
             v for v in ledger.portfolio_variants(campaign.campaign_id)
             if v.portfolio_hash == portfolio_hash

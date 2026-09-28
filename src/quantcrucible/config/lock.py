@@ -14,7 +14,7 @@ import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -54,6 +54,73 @@ def read_lock(lock_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict) or "research" not in data or "campaign_id" not in data:
         raise LockTamperedError(f"{lock_path} is not a valid evaluation lock")
     return data
+
+
+ResolvedLockKind = Literal["active", "canonical", "legacy"]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCampaignLock:
+    """A campaign lock resolved by explicit ID and verified against the ledger hash."""
+
+    campaign: Campaign
+    path: Path
+    data: dict[str, Any]
+    kind: ResolvedLockKind
+
+    @property
+    def sha256(self) -> str:
+        return self.campaign.lock_hash
+
+
+def _lock_is_legacy(data: Mapping[str, Any]) -> bool:
+    derived = data.get("derived", {})
+    return not isinstance(derived, Mapping) or "dataset_id" not in derived
+
+
+def _verified_lock(
+    path: Path, ledger_hash: str, campaign_id: str, kind: ResolvedLockKind
+) -> ResolvedCampaignLock | None:
+    if not path.exists():
+        return None
+    if sha256_file(path) != ledger_hash:
+        raise LockTamperedError(f"{path} does not match the hash recorded for {campaign_id}")
+    data = read_lock(path)
+    if data["campaign_id"] != campaign_id:
+        raise LockMismatchError(f"{path} belongs to campaign {data['campaign_id']!r}")
+    # A canonical path can still hold a pre-dataset lock archived there by old code.
+    resolved_kind = "legacy" if _lock_is_legacy(data) else kind
+    return ResolvedCampaignLock(
+        campaign=Campaign(campaign_id, utc_now(), "", ledger_hash, None, "OPEN"),
+        path=path,
+        data=data,
+        kind=resolved_kind,
+    )
+
+
+def resolve_campaign(
+    campaign_id: str, ledger: Ledger, active_lock_path: Path
+) -> ResolvedCampaignLock:
+    """Resolve exactly ``campaign_id`` without falling through to another active campaign.
+
+    New campaigns live at ``config/locks/<campaign_id>.lock.yaml``. Older ledgers may only have
+    the active compatibility copy (``evaluation.lock.yaml``), or an archive written by the former
+    active-lock flow. Every candidate path is accepted only when both the file's campaign id and
+    SHA256 match the ledger row.
+    """
+    campaign = ledger.campaign(campaign_id)
+    if campaign is None:
+        raise LockMismatchError(f"unknown campaign {campaign_id!r}")
+    canonical = active_lock_path.parent / "locks" / f"{campaign_id}.lock.yaml"
+    candidates: tuple[tuple[Path, ResolvedLockKind], ...] = (
+        (canonical, "canonical"),
+        (active_lock_path, "active"),
+    )
+    for path, kind in candidates:
+        resolved = _verified_lock(path, campaign.lock_hash, campaign_id, kind)
+        if resolved is not None:
+            return ResolvedCampaignLock(campaign, resolved.path, resolved.data, resolved.kind)
+    raise LockTamperedError(f"lock for campaign {campaign_id!r} is missing")
 
 
 LOCK_HEADER = "# GENERATED when the campaign opened — never edit (Architecture §10.1).\n"

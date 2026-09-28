@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import s from './ui.module.css'
 import { useDocumentTitle } from './lib/api'
 import type { CampaignRow } from './lib/types'
@@ -31,6 +31,9 @@ export function Shell({ campaigns }: { campaigns: CampaignRow[] }) {
           QuantCrucible
           <small>Không gian review · chỉ đọc</small>
         </div>
+        <Link className={s.button} to="/studio">
+          Tạo campaign
+        </Link>
         <label className={s.muted} htmlFor="campaign">
           Campaign
         </label>

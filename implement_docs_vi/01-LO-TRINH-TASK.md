@@ -475,6 +475,11 @@ một reader bị cấm migrate thì không thể đồng thời đòi hỏi ph�
 **Việc làm:** khóa tỷ lệ TP/SL, giới hạn giữ lệnh và cửa sổ dữ liệu; sinh stop ATR hoặc Bollinger; replay spot và perpetual với cùng thứ tự exit. Chia lưới PBO lớn cho 15m/1h nhưng giữ đầy đủ tập cấu hình.
 **Đạt khi:** equity backtest riêng và danh mục một slot khớp, lock cũ vẫn chọn exit legacy, dữ liệu 15m và 1h chạy được, mọi cổng CI xanh.
 
+### ✅ P3-26 Studio UI local để điều khiển campaign
+**Mục tiêu:** người dùng cấu hình campaign spot hoặc perpetual, chuẩn bị/tái dùng dữ liệu bất biến, preview đúng các kiểm tra lock/quota, tạo một campaign, chạy hoặc tiếp tục search, rồi xem tiến độ/kết quả từ trình duyệt local mà không sửa YAML hay gõ `evolve`/`compare`/`portfolio`. **Quyết định:** ADR-0037. **Cần:** P3-25 và preflight dữ liệu thật P3-24 cho mọi đường Create perpetual nguồn thật.
+**File:** `src/quantcrucible/studio/{app,service,jobs,security}.py`, service campaign/run dùng chung, dataset registry, migration ledger cho request tạo idempotent, tách review router, `cli.py`, `ui/src/`, README/CLAUDE/architecture/ADR docs.
+**Đạt khi:** Studio chỉ phục vụ loopback; `cli review` vẫn chỉ GET và chỉ đọc; sửa draft không ghi config/lock/ledger; preview không có side effect và hết hạn khi input/ledger/lock đổi; Create idempotent và phục hồi được sau crash; Run không bao giờ tạo campaign; mỗi project chỉ có một writer/job; Stop/Resume sống qua restart mà không nhân đôi trial; giá holdout không vào browser; `harness_test` khóa protocol trước trial 1; `research` enqueue được portfolio sau search; unit, integration, Playwright và `scripts/check_doc_mirror.py` xanh. **Bằng chứng:** 993 test Python (trừ docker/network/slow), 28 test component UI, 18 test Playwright, typecheck/build, lint/hợp đồng import và doc mirror đều qua ngày 2026-09-28. Preflight perpetual nguồn thật vẫn thuộc P3-24.
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

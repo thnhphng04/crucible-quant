@@ -19,6 +19,8 @@
 > **Thay đổi 0.6 → 0.7** (ADR-0031–0035): sizing cố định `Q = R/d`, scope `(instrument, direction)`, tài khoản perpetual chung và replay phía host; P5 vẫn là mục tiêu cần đối chiếu với live (§3.4, §3.5).
 >
 > **Thay đổi 0.7 → 0.8** (ADR-0036, 27/9/2026): campaign mới khóa SL/TP và thời gian giữ tối đa, hỗ trợ 15m/1h; campaign cũ giữ exit legacy; ghi rõ replay hiện tại, chi phí và giới hạn P5 (§3.2, §3.3, §3.5, D18, D21).
+>
+> **Thay đổi 0.8 → 0.9** (ADR-0037, đã triển khai): thêm Studio UI local để cấu hình, chuẩn bị dữ liệu, preview, tạo và chạy campaign; giữ `cli review` chỉ đọc theo ADR-0029; tách dataset bất biến, job supervisor và ranh giới bảo mật localhost cho mọi mutation (§4.1, §4.2, §5, D22).
 
 ---
 
@@ -917,7 +919,7 @@ TradingProject/
 |   |-- data/                     tải spot/perp, path phút, tách holdout
 |   |-- execution/                bridge legacy, bracket, tài khoản chung
 |   |-- validation/               các cổng, PBO/CPCV, danh mục, sandbox
-|   `-- ledger/, holdout/evaluator_proc.py, review/
+|   `-- ledger/, holdout/evaluator_proc.py, review/, studio/
 |-- data/, holdout/             dữ liệu nghiên cứu và holdout bị Git bỏ qua
 `-- tests/, ui/
 ```
@@ -1153,6 +1155,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D19 | Engine trọng tâm | ✅ Đã chốt (22/9/2026) | **Engine C không LLM**: C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; A/B hoãn, thiết kế giữ nguyên; bộ sinh không thiên lệch theo tần suất giao dịch | §3.1.11, §7, [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]. Mở lại A/B là quyết định của người dùng |
 | D20 | Tham số trong engine C | 🟡 Mặc định tạm | Con chỉ đổi tham số ≤ 30% số con C-gp; trung vị SPP + plateau (ngưỡng 50%) là thành phần phụ của điểm xếp hạng; calibration 5b giữ nguyên (một lần, trước freeze) | §3.1.11, §3.2, §3.2.1 5b |
 | D21 | Thoát lệnh campaign mới | ✅ Đã chốt (27/9/2026) | `bracket_timeout_v1`: stop ATR/Bollinger và TP cố định từ close nến tín hiệu; mặc định TP/SL = **1,1**, giữ tối đa **100 bar**, hết hạn khớp ở open nến kế; `flat` không đóng lệnh đang giữ | Tỷ lệ và giới hạn là Nhóm B; lock cũ thiếu phiên bản giữ `legacy_flat` (ADR-0036) |
+| D22 | Studio UI local | ✅ Đã triển khai | `cli studio` là mặt điều khiển local trên `127.0.0.1`: draft không ghi config/ledger; preview không có side effect; Create/Run dùng service chung với CLI, dataset v1 bất biến, job store riêng và một writer lock; `cli review` vẫn chỉ đọc | ADR-0037 kế tiếp ADR-0029. Không có remote access, live trading, tự freeze hoặc mở holdout qua Studio |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 

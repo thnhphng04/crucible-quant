@@ -244,3 +244,138 @@ export interface LockData extends Snapshot {
   expected_hash: string | null
   actual_hash?: string
 }
+
+export interface StudioFieldError {
+  path: string
+  code: string
+  message: string
+}
+
+export interface StudioProblem extends StudioFieldError {}
+
+export interface StudioErrorBody {
+  code?: string
+  message?: string
+  fields?: StudioFieldError[]
+  detail?: string | { code?: string; message?: string; fields?: StudioFieldError[] }
+}
+
+export interface StudioCapabilities {
+  contract_version: number
+  session_token?: string
+  max_workers: number
+  docker_available?: boolean
+  markets_available?: Record<string, { enabled: boolean; reason?: string }>
+  defaults?: StudioDraftConfig
+  enums?: {
+    purposes?: string[]
+    markets?: string[]
+    timeframes?: string[]
+    engines?: string[]
+  }
+  ranges?: Record<string, { min?: number; max?: number; step?: number }>
+}
+
+export type StudioPurpose = 'research' | 'harness_test'
+export type StudioMarket = 'spot' | 'usdt_m_perpetual'
+export type StudioJobState =
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'succeeded'
+  | 'failed'
+  | 'interrupted'
+  | 'unknown'
+
+export interface StudioDraftConfig {
+  operational: Record<string, unknown>
+  research: {
+    max_risk_pct: number
+    portfolio?: Record<string, unknown>
+    pbo_grid?: Record<string, unknown>
+    drift?: Record<string, unknown>
+    engines: Record<string, number>
+    gp?: Record<string, unknown>
+    campaign: {
+      purpose: StudioPurpose
+      trial_budget: number | null
+    }
+    engine_mode?: string
+    evolve_scope: string
+    constraints?: Record<string, unknown>
+    seeds: number
+    minbtl_target_sharpe?: number
+    data: {
+      exchange: string
+      symbols: string[]
+      market: StudioMarket
+      timeframe: '15m' | '1h' | string
+      start: string
+      end: string | null
+      holdout_months: number
+      second_exchange?: string | null
+      leverage?: number
+      funding_interval_hours?: number
+    }
+    exit: {
+      tp_sl_ratio: number
+      max_holding_bars: number
+    }
+    calibration?: Record<string, unknown>
+    gates?: Record<string, unknown>
+    holdout_pass?: number | null
+  } & Record<string, unknown>
+}
+
+export interface StudioDraft {
+  draft_id: string
+  revision: number
+  config: StudioDraftConfig
+  dataset_id: string | null
+  campaign_id?: string | null
+  state: string
+}
+
+export interface StudioJobProgress {
+  trials?: number
+  quota?: number
+  per_arm?: Record<string, { trials: number; quota: number }>
+}
+
+export interface StudioJob {
+  job_id: string
+  state: StudioJobState
+  kind: 'prepare_data' | 'evolve' | 'portfolio' | string
+  phase?: string | null
+  started_at?: string | null
+  updated_at?: string | null
+  exit_code?: number | null
+  progress?: StudioJobProgress
+  error_code?: string | null
+  log_tail?: string
+}
+
+export interface StudioPreview {
+  ok: boolean
+  problems: StudioProblem[]
+  dataset?: {
+    id?: string | null
+    hash?: string | null
+    coverage?: Record<string, unknown> | null
+  }
+  lock_summary?: Record<string, unknown> | null
+  quota?: {
+    trials?: number
+    per_arm?: Record<string, number>
+    [key: string]: unknown
+  }
+  preview_token?: string
+  expires_at?: string
+}
+
+export interface StudioCampaignCreated {
+  campaign_id: string
+  lock_sha256: string
+  dataset_id: string
+}

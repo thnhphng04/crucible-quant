@@ -87,6 +87,9 @@
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -102,6 +105,21 @@
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.notice {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #27533e;
+  border-radius: 8px;
+  background: #102219;
+}
+
+.actionBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .filters {
@@ -170,6 +188,116 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+
+.studioLayout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.stepper {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.stepper button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.stepper span {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffffff12;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.stepper .stepActive {
+  background: var(--panel2);
+  border-color: #3b82c4;
+}
+
+.fieldset {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+}
+
+.fieldset legend {
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+
+.formGrid,
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summaryGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel2);
+  color: var(--text);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--red);
+}
+
+.field small,
+.fieldError {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.fieldError {
+  color: var(--red);
+}
+
+.progress {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #242c3a;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--green);
 }
 
 .verdict {
@@ -374,6 +502,14 @@
   .split {
     grid-template-columns: 1fr;
   }
+
+  .studioLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -397,6 +533,11 @@
   }
 
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .formGrid,
+  .summaryGrid {
     grid-template-columns: 1fr;
   }
 

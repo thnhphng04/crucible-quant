@@ -12,6 +12,7 @@ from quantcrucible.config.lock import (
     LockTamperedError,
     assert_lock_matches,
     open_campaign,
+    resolve_campaign,
     sha256_file,
 )
 from quantcrucible.config.schema import Operational, UserConfig
@@ -156,3 +157,35 @@ def test_a_lock_with_the_old_engine_keys_is_refused(
     monkeypatch.setattr(target, real)
     with pytest.raises(LockMismatchError, match="campaign, engines, gp"):
         assert_lock_matches(UserConfig(), lock_path, ledger, "c1")
+
+
+def test_resolve_campaign_uses_requested_canonical_lock(ledger: Ledger, lock_path: Path) -> None:
+    cfg = UserConfig()
+    open_campaign(cfg, ledger, "c1", lock_path, HOLDOUT, derived={"dataset_id": "d1"})
+    canonical = lock_path.parent / "locks" / "c1.lock.yaml"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(lock_path, stat.S_IREAD | stat.S_IWRITE)
+    canonical.write_bytes(lock_path.read_bytes())
+    os.chmod(canonical, stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)
+    os.chmod(lock_path, stat.S_IREAD | stat.S_IWRITE)
+    lock_path.write_text(lock_path.read_text(encoding="utf-8").replace("c1", "other"), "utf-8")
+
+    resolved = resolve_campaign("c1", ledger, lock_path)
+
+    assert resolved.path == canonical
+    assert resolved.kind == "canonical"
+    assert resolved.data["campaign_id"] == "c1"
+
+
+def test_resolve_campaign_legacy_fallback_is_hash_checked(ledger: Ledger, lock_path: Path) -> None:
+    cfg = UserConfig()
+    open_campaign(cfg, ledger, "legacy", lock_path, HOLDOUT)
+
+    resolved = resolve_campaign("legacy", ledger, lock_path)
+
+    assert resolved.kind == "legacy"
+    assert resolved.path == lock_path
+    os.chmod(lock_path, stat.S_IREAD | stat.S_IWRITE)
+    lock_path.write_text(lock_path.read_text(encoding="utf-8").replace("legacy", "other"), "utf-8")
+    with pytest.raises(LockTamperedError):
+        resolve_campaign("legacy", ledger, lock_path)

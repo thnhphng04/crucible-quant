@@ -19,6 +19,8 @@
 > **Changes 0.6 → 0.7** (ADR-0031–0035): fixed-fractional `Q = R/d` sizing, `(instrument, direction)` scopes, a shared perpetual account and host-side replay; P5 remains a live-reconciliation target (§3.4, §3.5).
 >
 > **Changes 0.7 → 0.8** (ADR-0036, 27 Sep 2026): new campaigns lock SL/TP and maximum holding time and support 15m/1h; old campaigns retain legacy exits; current replay, costs and P5 limits are explicit (§3.2, §3.3, §3.5, D18, D21).
+>
+> **Changes 0.8 → 0.9** (ADR-0037, implemented): adds the local Studio UI for configuring, preparing data, previewing, creating and running campaigns; keeps `cli review` read-only under ADR-0029; separates immutable datasets, the job supervisor and the localhost security boundary for every mutation (§4.1, §4.2, §5, D22).
 
 ---
 
@@ -917,7 +919,7 @@ TradingProject/
 |   |-- data/                     spot/perp fetch, minute paths, holdout carve
 |   |-- execution/                legacy bridge, bracket policy, shared account
 |   |-- validation/               gates, PBO/CPCV, portfolio, sandbox
-|   `-- ledger/, holdout/evaluator_proc.py, review/
+|   `-- ledger/, holdout/evaluator_proc.py, review/, studio/
 |-- data/, holdout/             ignored research and holdout data
 `-- tests/, ui/
 ```
@@ -1153,6 +1155,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D19 | Focus engine | ✅ Decided (22 Sep 2026) | **No-LLM engine C**: C-gp (GP, typed grammar) main + C-random control; A/B deferred, design kept; the generator has no bias on trading frequency | §3.1.11, §7, [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only). Reopening A/B is the user's call |
 | D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
 | D21 | Exits for new campaigns | ✅ Decided (27 Sep 2026) | `bracket_timeout_v1`: ATR/Bollinger stop and TP fixed from signal close; default TP/SL **1.1**, maximum **100 held bars**, expiry fills at next open; `flat` does not close a held position | Ratio and limit are Group B; old locks lacking a version retain `legacy_flat` (ADR-0036) |
+| D22 | Local Studio UI | ✅ Implemented | `cli studio` is the local control surface on `127.0.0.1`: drafts do not write config/ledger; preview has no side effect; Create/Run use the same services as CLI, immutable dataset v1, a separate job store and one writer lock; `cli review` remains read-only | ADR-0037 succeeds ADR-0029. No remote access, live trading, automatic freeze or holdout opening through Studio |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 

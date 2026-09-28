@@ -32,3 +32,7 @@ The `Ledger` class is a writer: it opens the database read-write, holds a run lo
 - **Reuse `Ledger` inside the web app** — it opens the database read-write and takes a lock; a reader must not be able to do either.
 - **A static HTML report generated per campaign** — no filtering or drill-down, and it goes stale the moment the next trial is written.
 - **Expose the UI beyond localhost** — would need authentication and an audit of what it may show; nothing in phase 0–2 needs it.
+
+## Successor note
+
+ADR-0037 adds a separate local Studio control surface for campaign creation and runs. This does not revise ADR-0029: `cli review` and `quantcrucible.review` remain read-only, GET-only and direct-ledger readers.

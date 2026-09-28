@@ -1,6 +1,6 @@
 # CLAUDE.md — Crucible Quant
 
-An AI quantitative research lab: engine C currently generates deterministic rule-based strategies, and a validation harness tries to reject them before any capital is at risk. The LLM engines A/B remain deferred. Package: `quantcrucible` (src layout). Status: phase-3 implementation; fixed bracket exits are implemented (P3-25), while real-source perpetual coverage remains open (P3-24). No live parity has been established.
+An AI quantitative research lab: engine C currently generates deterministic rule-based strategies, and a validation harness tries to reject them before any capital is at risk. The LLM engines A/B remain deferred. Package: `quantcrucible` (src layout). Status: phase-3 implementation; fixed bracket exits (P3-25) and local Studio campaign control (P3-26) are implemented, while real-source perpetual coverage remains open (P3-24). No live parity has been established.
 
 **Talk to the user in Vietnamese.** Code, identifiers, commit messages, docstrings and `implement_docs/` are in English; `implement_docs_vi/` is its Vietnamese 1:1 mirror, for the user.
 
@@ -29,6 +29,7 @@ If code and the architecture disagree, **stop and ask** — don't silently "fix"
 | `private` metrics never reach a prompt; prompts see `public` + `feedback` only | §3.3.2 | prompt-log test |
 | Generated code runs only in the Docker sandbox (no network, empty env, no view of `holdout/`, `config/`, `ledger/`) | §3.3.3 | sandbox tests |
 | No parameter optimizer inside the evolution loop; Optuna runs once, pre-freeze, and every evaluation is a `trials` row (`source='param_opt'`) | §3.3.1, §3.2.1 | ledger tests |
+| `cli review` stays read-only; campaign creation/runs through the browser belong only to the local Studio surface | ADR-0029, ADR-0037 | import-linter + Studio API/security/job tests |
 
 Full list with test names: [implement_docs/03-INVARIANT-TEST-MAP.md](implement_docs/03-INVARIANT-TEST-MAP.md).
 
@@ -36,6 +37,7 @@ Full list with test names: [implement_docs/03-INVARIANT-TEST-MAP.md](implement_d
 
 - Read, list, grep or copy anything under the root `holdout/` or `holdout.lock` — seeing holdout data is itself leakage. The guard hook blocks it; don't work around it.
 - Hand-edit `config/evaluation.lock.yaml` (generated per campaign from `config/user.yaml`).
+- Expose Studio outside loopback or route its mutations through `quantcrucible.review`; use `cli studio` for local control and keep `cli review` read-only.
 - Loosen a gate threshold, reset the ledger, or delete `trials` rows.
 - Add paid data sources, or AGPL dependencies (e.g. `pypbo`). `vectorbt` (Commons Clause) is for coarse screening only.
 - Trust an external API from a doc snippet without checking its version. `purgedcv` 0.1.6 has been verified (ADR-0007); read installed sources for any new or changed API.

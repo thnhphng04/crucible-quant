@@ -475,6 +475,11 @@ demand one.
 **Work:** lock the exit ratio, holding limit and data window; sample ATR or Bollinger stops; replay spot and perpetual with the same exit ordering. Batch large PBO grids for 15m/1h while preserving the full configuration set.
 **Accept when:** single-strategy and one-slot portfolio equity agree, old locks still select legacy exits, 15m and 1h data are covered, and all CI gates pass.
 
+### ✅ P3-26 Local Studio UI for campaign control
+**Goal:** a user can configure a spot or perpetual campaign, prepare/reuse immutable data, preview the exact lock/quota checks, create one campaign, run or resume search, and view progress/results from a local browser without editing YAML or typing `evolve`/`compare`/`portfolio`. **Decision:** ADR-0037. **Needs:** P3-25 and the P3-24 real-data preflight for any real-source perpetual Create path.
+**Files:** `src/quantcrucible/studio/{app,service,jobs,security}.py`, shared campaign/run services, dataset registry, ledger migration for idempotent creation requests, review router split, `cli.py`, `ui/src/`, README/CLAUDE/architecture/ADR docs.
+**Accept when:** Studio serves only on loopback; `cli review` stays GET-only and read-only; draft edits write no config/lock/ledger; preview writes no side effects and expires on input/ledger/lock changes; Create is idempotent and crash-recoverable; Run never creates a campaign; one writer/job runs per project; Stop/Resume survive restart without double trials; holdout values never enter the browser; `harness_test` locks protocol before trial 1; `research` can enqueue portfolio after search; unit, integration, Playwright and `scripts/check_doc_mirror.py` pass. **Evidence:** 993 Python tests (excluding docker/network/slow), 28 UI component tests, 18 Playwright tests, typecheck/build, lint/import contracts and doc mirror passed on 2026-09-28. Live-source perpetual preflight remains P3-24.
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |

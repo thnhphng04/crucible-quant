@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes } from 'react-router-dom'
 import s from './ui.module.css'
 import { useApi } from './lib/api'
 import type { CampaignRow } from './lib/types'
@@ -11,16 +11,21 @@ import { Candidates } from './screens/Candidates'
 import { Comparison } from './screens/Comparison'
 import { Overview } from './screens/Overview'
 import { Portfolios } from './screens/Portfolios'
+import { Studio } from './screens/Studio'
 
 export default function App() {
-  // The campaign list is read once: opening a campaign is a navigation, not a refresh.
+  // Studio refreshes the list after it creates a campaign; review navigation stays read-only.
   const { data, error, reload } = useApi<CampaignRow[]>('/api/campaigns', false)
 
   if (error) {
     return (
-      <main className={s.main}>
-        <ErrorBox text={error} onRetry={reload} />
-      </main>
+      <Routes>
+        <Route path="/studio" element={<main className={s.main}><Studio campaigns={[]} onCreated={reload} /></main>} />
+        <Route path="*" element={<main className={s.main}>
+          <ErrorBox text={error} onRetry={reload} />
+          <Link to="/studio">Mở Campaign Studio</Link>
+        </main>} />
+      </Routes>
     )
   }
   if (!data) {
@@ -34,6 +39,7 @@ export default function App() {
   const landing = data[0]?.campaign_id
   return (
     <Routes>
+      <Route path="/studio" element={<main className={s.main}><Studio campaigns={data} onCreated={reload} /></main>} />
       <Route path="/campaign/:cid" element={<Shell campaigns={data} />}>
         <Route index element={<Navigate to="overview" replace />} />
         <Route path="overview" element={<Overview />} />

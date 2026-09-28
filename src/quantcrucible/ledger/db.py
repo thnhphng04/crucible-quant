@@ -41,6 +41,7 @@ MIGRATIONS = (
     "migration_005_island.sql",
     "migration_006_campaign_purposes.sql",
     "migration_007_scope.sql",
+    "migration_008_campaign_creation_requests.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 # Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
@@ -158,6 +159,64 @@ class Ledger:
             self._insert(
                 "INSERT INTO campaign_purposes VALUES (?, ?, ?)",
                 (campaign_id, purpose, trial_budget),
+            )
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
+        return Campaign(campaign_id, started, holdout_range, lock_hash, holdout_lock_hash, "OPEN")
+
+    def creation_request(self, request_key: str) -> tuple[str, str, str] | None:
+        """Return ``(draft_digest, campaign_id, dataset_id)`` for an idempotent create key."""
+        row = self._conn.execute(
+            "SELECT draft_digest, campaign_id, dataset_id FROM campaign_creation_requests"
+            " WHERE request_key = ?",
+            (request_key,),
+        ).fetchone()
+        return None if row is None else (row[0], row[1], row[2])
+
+    def open_campaign_with_creation_request(
+        self,
+        *,
+        request_key: str,
+        draft_digest: str,
+        dataset_id: str,
+        campaign_id: str,
+        holdout_range: str,
+        lock_hash: str,
+        holdout_lock_hash: str | None = None,
+        started_at: datetime | None = None,
+        purpose: CampaignPurpose = "research",
+        trial_budget: int | None = None,
+    ) -> Campaign:
+        """Open a campaign and bind its Create idempotency key in the same transaction."""
+        existing = self.creation_request(request_key)
+        if existing is not None:
+            if existing != (draft_digest, campaign_id, dataset_id):
+                raise LedgerError("creation request key already belongs to another payload")
+            campaign = self.campaign(campaign_id)
+            if campaign is None:
+                raise LedgerError("creation request exists without its campaign row")
+            if campaign.lock_hash != lock_hash:
+                raise LedgerError("creation request campaign lock hash differs from this lock")
+            return campaign
+
+        started = started_at or utc_now()
+        self._conn.execute("BEGIN")
+        try:
+            self._insert(
+                "INSERT INTO campaigns VALUES (?, ?, ?, ?, ?, 'OPEN')",
+                (campaign_id, _ts(started), holdout_range, lock_hash, holdout_lock_hash),
+            )
+            self._insert(
+                "INSERT INTO campaign_purposes VALUES (?, ?, ?)",
+                (campaign_id, purpose, trial_budget),
+            )
+            self._insert(
+                "INSERT INTO campaign_creation_requests"
+                " (request_key, draft_digest, campaign_id, dataset_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (request_key, draft_digest, campaign_id, dataset_id, _ts(started)),
             )
         except BaseException:
             self._conn.execute("ROLLBACK")

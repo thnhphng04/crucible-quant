@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { StudioErrorBody, StudioFieldError } from './types'
 
 /** How often a visible tab re-reads the ledger (DESIGN: polling only while visible). */
 export const POLL_MS = 5000
@@ -6,10 +7,55 @@ export const POLL_MS = 5000
 export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal, headers: { accept: 'application/json' } })
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { detail?: string }
-    throw new Error(body.detail || `HTTP ${response.status}`)
+    const body = (await response.json().catch(() => ({}))) as StudioErrorBody
+    const detail = typeof body.detail === 'string' ? body.detail : body.detail?.message
+    throw new Error(body.message || detail || `HTTP ${response.status}`)
   }
   return (await response.json()) as T
+}
+
+export class ApiError extends Error {
+  status: number
+  code?: string
+  fields: StudioFieldError[]
+
+  constructor(status: number, body: StudioErrorBody) {
+    const detail = typeof body.detail === 'string' ? body.detail : body.detail?.message
+    super(body.message || detail || `HTTP ${status}`)
+    this.status = status
+    this.code = body.code || (typeof body.detail === 'object' ? body.detail.code : undefined)
+    this.fields = body.fields ?? (typeof body.detail === 'object' ? body.detail.fields : []) ?? []
+  }
+}
+
+export async function sendJson<T>({
+  url,
+  method = 'POST',
+  body,
+  token,
+  headers = {},
+}: {
+  url: string
+  method?: 'POST' | 'PATCH'
+  body: unknown
+  token?: string
+  headers?: Record<string, string>
+}): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      ...(token ? { 'x-studio-token': token } : {}),
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  })
+  const payload = (await response.json().catch(() => ({}))) as StudioErrorBody | T
+  if (!response.ok) {
+    throw new ApiError(response.status, payload as StudioErrorBody)
+  }
+  return payload as T
 }
 
 export interface ApiState<T> {
