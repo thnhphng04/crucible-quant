@@ -30,6 +30,8 @@ def test_stop_never_kills_a_reused_pid(tmp_path: Path, monkeypatch: pytest.Monke
         lambda _pid: pytest.fail("stale pid must not be killed"),
     )
     assert supervisor.stop(job.job_id).state == "interrupted"
+    supervisor._finish_from_exit(job.job_id, 1)
+    assert supervisor.status(job.job_id).state == "interrupted"
 
 
 def test_log_redaction_hides_secret_values(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -303,15 +303,17 @@ class JobSupervisor:
         if job.state == "queued":
             now = _utc_now()
             with self._connect() as conn:
-                conn.execute(
+                updated = conn.execute(
                     """
                     UPDATE jobs
                        SET state = 'interrupted', error_code = 'STOPPED_BEFORE_START',
                            updated_at = ?, finished_at = ?
-                     WHERE job_id = ?
+                     WHERE job_id = ? AND state = 'queued'
                     """,
                     (_ts(now), _ts(now), job_id),
                 )
+            if updated.rowcount == 0:
+                return self.stop(job_id)
             return self.status(job_id)
         with self._running_lock:
             locally_owned = job_id in self._running
@@ -326,16 +328,20 @@ class JobSupervisor:
             with self._connect() as conn:
                 conn.execute(
                     """UPDATE jobs SET state = 'interrupted', error_code = 'STALE_PROCESS',
-                       updated_at = ?, finished_at = ? WHERE job_id = ?""",
+                       updated_at = ?, finished_at = ?
+                       WHERE job_id = ? AND state NOT IN ('succeeded', 'failed', 'interrupted')""",
                     (_ts(now), _ts(now), job_id),
                 )
             return self.status(job_id)
         now = _utc_now()
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE jobs SET state = 'stopping', updated_at = ? WHERE job_id = ?",
+            updated = conn.execute(
+                """UPDATE jobs SET state = 'stopping', updated_at = ?
+                   WHERE job_id = ? AND state NOT IN ('succeeded', 'failed', 'interrupted')""",
                 (_ts(now), job_id),
             )
+        if updated.rowcount == 0:
+            return self.status(job_id)
         (self.worker_dir / f"{job_id}.stop").write_text("stop\n", encoding="ascii")
         self._terminate(job_id, job.pid, job.process_identity)
         if not locally_owned:
@@ -487,30 +493,33 @@ class JobSupervisor:
             )
 
     def _finish_from_exit(self, job_id: str, exit_code: int) -> None:
-        job = self.status(job_id)
-        postcondition = self._postconditions.get(job.kind)
-        if job.state == "stopping":
-            next_state: JobState = "interrupted"
-            error_code = "STOPPED"
-        elif exit_code == 0 and (postcondition is None or postcondition(job)):
-            next_state = "succeeded"
-            error_code = None
-        elif exit_code == 0:
-            next_state = "failed"
-            error_code = "POSTCONDITION_FAILED"
-        else:
-            next_state = "failed"
-            error_code = "EXIT_NONZERO"
-        now = _utc_now()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE jobs
-                   SET state = ?, exit_code = ?, error_code = ?, updated_at = ?, finished_at = ?
-                 WHERE job_id = ?
-                """,
-                (next_state, exit_code, error_code, _ts(now), _ts(now), job_id),
-            )
+        while True:
+            job = self.status(job_id)
+            if job.state in FINAL_STATES:
+                return
+            postcondition = self._postconditions.get(job.kind)
+            if job.state == "stopping":
+                next_state: JobState = "interrupted"
+                error_code = "STOPPED"
+            elif exit_code == 0 and (postcondition is None or postcondition(job)):
+                next_state = "succeeded"
+                error_code = None
+            elif exit_code == 0:
+                next_state = "failed"
+                error_code = "POSTCONDITION_FAILED"
+            else:
+                next_state = "failed"
+                error_code = "EXIT_NONZERO"
+            now = _utc_now()
+            with self._connect() as conn:
+                updated = conn.execute(
+                    """UPDATE jobs
+                       SET state = ?, exit_code = ?, error_code = ?, updated_at = ?, finished_at = ?
+                       WHERE job_id = ? AND state = ?""",
+                    (next_state, exit_code, error_code, _ts(now), _ts(now), job_id, job.state),
+                )
+            if updated.rowcount:
+                return
 
     def _terminate(self, job_id: str, pid: int | None, identity: str | None) -> None:
         with self._running_lock:
