@@ -408,7 +408,7 @@ else:
     import fcntl
 
     def _lock_file(fh: Any) -> None:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[attr-defined]
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def _unlock_file(fh: Any) -> None:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)

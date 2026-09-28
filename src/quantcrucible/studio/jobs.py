@@ -720,7 +720,7 @@ def _process_identity(pid: int) -> str | None:
 
 
 def _windows_creation_time(pid: int) -> str | None:
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = vars(ctypes)["WinDLL"]("kernel32", use_last_error=True)
     process_query_limited_information = 0x1000
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:
