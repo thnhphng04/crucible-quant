@@ -660,6 +660,8 @@ MadEvolve chạy code LLM bằng `subprocess` thường, kế thừa toàn bộ 
 
 Trên Windows local (A6): dùng container (Docker với `--network none`, `--read-only`) — không tự viết sandbox bằng Python.
 
+**Engine kernel trên host (D23, ADR-0038).** Genome của engine C là **dữ liệu**, không phải code: kernel do dự án viết (numba CPU/CUDA) thông dịch genome thành bảng số trên host, không bao giờ import, `exec` hay compile source của candidate. Chỉ nhận genome khi render lại khớp **từng byte** với source đã ghi ledger; bộ thông dịch phải *total* (kiểm biên mọi chỉ số). Source vẫn chạy trong sandbox cho ①a/①b; chiến lược không có genome đi đường sandbox.
+
 ### 3.4. Risk & Sizing Layer ★
 
 Tầng này **quan trọng hơn tầng Adapter** nhưng hay bị coi nhẹ.
@@ -703,6 +705,8 @@ Bước **cấp danh mục** không còn là scale đồng đều về `target_v
 ### 3.5. Execution Core & Adapters
 
 **NautilusTrader** vẫn là adapter và mục tiêu P5. Lock legacy dùng bridge Nautilus để khớp lệnh; campaign `bracket_timeout_v1` hiện tính spot bằng replay Python và perpetual bằng replay tài khoản chung. Hai đường này chưa được chứng minh tương đương với live. Trước khi dùng vốn thật phải đối chiếu signal → lệnh → fill và số dư/vị thế với môi trường live (ADR-0032, ADR-0036).
+
+**Engine kernel GPU (D23, ADR-0038).** Với genome engine C, gate ③④, ⑥′, calibration và holdout chạy bằng kernel numba (CUDA chính, CPU njit dự phòng) phải **khớp từng bit** với replay Python ở trên — replay Python là oracle chuẩn. Parity được kiểm bằng test, audit lúc chạy (lệch ⇒ dùng kết quả chuẩn, ngắt GPU) và xác minh mọi thành viên trước freeze. Precision `float64 | float32` khóa theo campaign; fp32 chỉ ở tầng feature/tín hiệu, sổ sách tài khoản luôn fp64.
 
 | Adapter                       | Thị trường                                          | Trạng thái                        |
 | ----------------------------- | ------------------------------------------------------ | ----------------------------------- |
@@ -937,6 +941,7 @@ TradingProject/
 | Optimizer           | **Optuna**                    | TPE/GP, chuẩn de-facto                                                         |
 | Validation          | **`purgedcv` 0.1.6 + code dự án** | API đã kiểm chứng; CPCV dùng thư viện, DSR/PSR và PBO dùng mã đã đối chiếu độc lập (ADR-0007, ADR-0011) |
 | Search nhanh        | **vectorbt** *(tùy chọn)* | Quét tham số; ⚠️*"lies about microstructure"* — chỉ dùng sàng lọc thô |
+| Engine kernel       | **numba + numba-cuda** *(group `gpu`)* | Thông dịch genome, khớp bit với replay Python (D23); wheel CUDA của NVIDIA là license độc quyền nhưng được phân phối lại; numpy < 2.5 |
 | Ledger              | SQLite → Postgres                  | Bắt đầu đơn giản                                                          |
 | **Data**      | **Toàn bộ miễn phí**      | Xem mục 6.1 — đây là**ràng buộc cứng**                            |
 | Đóng gói         | FastAPI + Docker                    | Bạn đã quen                                                                  |
@@ -1156,6 +1161,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D20 | Tham số trong engine C | 🟡 Mặc định tạm | Con chỉ đổi tham số ≤ 30% số con C-gp; trung vị SPP + plateau (ngưỡng 50%) là thành phần phụ của điểm xếp hạng; calibration 5b giữ nguyên (một lần, trước freeze) | §3.1.11, §3.2, §3.2.1 5b |
 | D21 | Thoát lệnh campaign mới | ✅ Đã chốt (27/9/2026) | `bracket_timeout_v1`: stop ATR/Bollinger và TP cố định từ close nến tín hiệu; mặc định TP/SL = **1,1**, giữ tối đa **100 bar**, hết hạn khớp ở open nến kế; `flat` không đóng lệnh đang giữ | Tỷ lệ và giới hạn là Nhóm B; lock cũ thiếu phiên bản giữ `legacy_flat` (ADR-0036) |
 | D22 | Studio UI local | ✅ Đã triển khai | `cli studio` là mặt điều khiển local trên `127.0.0.1`: draft không ghi config/ledger; preview không có side effect; Create/Run dùng service chung với CLI, dataset v1 bất biến, job store riêng và một writer lock; `cli review` vẫn chỉ đọc | ADR-0037 kế tiếp ADR-0029. Không có remote access, live trading, tự freeze hoặc mở holdout qua Studio |
+| D23 | Engine backtest & precision | ✅ Đã chốt (30/9/2026) | Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit dự phòng), khớp từng bit với replay Python; precision `float64 \| float32` khóa theo campaign, ngang hàng (fp32 được mở holdout); campaign fp32 từ chối chiến lược không có genome; holdout tự kiểm GPU trước khi claim | ADR-0038, ADR-0039. Lock cũ thiếu khóa ⇒ float64 |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 
@@ -1176,6 +1182,7 @@ operational:            # NHÓM A — đổi bất cứ lúc nào, không ảnh 
   live_capital: 10000           # D5
   base_currency: USD            # D6
   kill_switch_drawdown: 0.20    # D8
+  compute: {engine: auto, audit_rate: 0.02}   # D23 — auto | gpu | cpu_kernel | sandbox; audit chỉ được tăng
   models:                       # D11 — ghi vào generation_log.model_used
     research: gpt-oss-120b
     coding: null
@@ -1199,6 +1206,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = mốc UTC đã hoàn tất
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; khóa theo campaign
+  backtest: {precision: float64}   # D23 — float64 | float32; khóa theo campaign
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 bước 5b
   gates:                        # chỉ được SIẾT, không được NỚI (xem bên dưới)
     dsr_min: 0.95

@@ -17,7 +17,7 @@ Trên dữ liệu 1h (≈ 67k bar, L = 400), `step()` tính lại mọi indicato
    - `_smooth` tái tạo bước `y = (1−α)·y + α·x` của `lfilter` trong scipy, seed bằng trung bình pairwise đó.
    - trên CUDA, mọi phép fp64 đi qua `libdevice.*_rn` không gộp FMA. Không có `dsub_rn`, nên `a − b` được viết là `dadd_rn(a, −b)`, chính xác tuyệt đối. Toán tử thường bị gộp FMA và lệch 2676/4096 giá trị EMA.
 4. **Toolchain.** `numba` 0.67 + `numba-cuda[cu12]` 0.30.4 nằm trong group `gpu` không mặc định; wheel NVIDIA có license độc quyền nhưng được phân phối lại. Runtime CUDA 12.9 chạy trên driver 12.7 nhờ minor-version compat. numpy bị giới hạn `<2.5`, vì numba-cuda vẫn gọi `np.row_stack`.
-5. **Parity được cưỡng chế cả lúc chạy** (audit, fail closed). Precision khóa theo campaign (ADR-0039, dự kiến ở P3-35).
+5. **Parity được cưỡng chế cả lúc chạy** (audit, fail closed). Precision khóa theo campaign ([ADR-0039](0039-precision-backtest-khoa-theo-campaign.md)).
 
 ## Hệ quả
 

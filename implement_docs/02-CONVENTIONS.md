@@ -59,6 +59,8 @@ Add a dependency only in the task that needs it, with:
 
 LLM SDKs may be imported only under `quantcrucible.agent` (A4; `tests/test_architecture_boundaries.py`).
 
+The GPU engine (ADR-0038) lives in the non-default `gpu` group: run `uv sync --group gpu` (a bare `uv sync` removes numba). numba is imported only under `quantcrucible.execution.kernels`; tests that need a device are marked `gpu`, kernel-indexing tests under the CUDA simulator `cudasim` (`NUMBA_ENABLE_CUDASIM=1`). numpy stays `<2.5` until numba-cuda stops calling `np.row_stack` (O23).
+
 ## Front end (`ui/`, ADR-0029)
 
 - TypeScript strict, no `any` in application code; API payloads are typed once in `src/lib/types.ts`.

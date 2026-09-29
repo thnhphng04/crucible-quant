@@ -59,6 +59,8 @@ Chỉ thêm dependency trong task cần đến nó, kèm:
 
 SDK của LLM chỉ được import dưới `quantcrucible.agent` (A4; `tests/test_architecture_boundaries.py`).
 
+Engine GPU (ADR-0038) nằm trong group `gpu` không mặc định: chạy `uv sync --group gpu` (`uv sync` trần sẽ gỡ numba). numba chỉ được import dưới `quantcrucible.execution.kernels`; test cần thiết bị gắn marker `gpu`, test chỉ số kernel dưới CUDA simulator gắn `cudasim` (`NUMBA_ENABLE_CUDASIM=1`). numpy giữ `<2.5` cho tới khi numba-cuda thôi gọi `np.row_stack` (O23).
+
 ## Front-end (`ui/`, ADR-0029)
 
 - TypeScript strict, không dùng `any` trong code ứng dụng; payload API được khai kiểu một lần trong `src/lib/types.ts`.

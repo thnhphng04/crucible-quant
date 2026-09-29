@@ -480,6 +480,84 @@ một reader bị cấm migrate thì không thể đồng thời đòi hỏi ph�
 **File:** `src/quantcrucible/studio/{app,service,jobs,security}.py`, service campaign/run dùng chung, dataset registry, migration ledger cho request tạo idempotent, tách review router, `cli.py`, `ui/src/`, README/CLAUDE/architecture/ADR docs.
 **Đạt khi:** Studio chỉ phục vụ loopback; `cli review` vẫn chỉ GET và chỉ đọc; sửa draft không ghi config/lock/ledger; preview không có side effect và hết hạn khi input/ledger/lock đổi; Create idempotent và phục hồi được sau crash; Run không bao giờ tạo campaign; mỗi project chỉ có một writer/job; Stop/Resume sống qua restart mà không nhân đôi trial; giá holdout không vào browser; `harness_test` khóa protocol trước trial 1; `research` enqueue được portfolio sau search; unit, integration, Playwright và `scripts/check_doc_mirror.py` xanh. **Bằng chứng:** 993 test Python (trừ docker/network/slow), 28 test component UI, 18 test Playwright, typecheck/build, lint/hợp đồng import và doc mirror đều qua ngày 2026-09-28. Preflight perpetual nguồn thật vẫn thuộc P3-24.
 
+### Engine backtest GPU (P3-27 … P3-51, ADR-0038, ADR-0039, D23)
+Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU dự phòng), phải khớp từng bit với replay Python. Plan chia việc thành pha 0 (đo đạc), cổng tài liệu, nền móng, GPU-1 (spot ③④), GPU-2 (⑥′, calibration, holdout) và GPU-3 (perpetual).
+
+### ✅ P3-27 Benchmark baseline
+**Mục tiêu:** biết backtest tốn thời gian ở đâu. **File:** `scripts/bench_backtest.py`. **Đạt khi:** tỷ lệ theo tầng và chi phí gate ④ dự kiến nằm trong O14. **Bằng chứng:** tín hiệu chiếm 87–98%; lưới 200 cấu hình ≈ 0,4–3,3 giờ mỗi candidate (2026-09-30).
+
+### ✅ P3-28 Toolchain GPU
+**Mục tiêu:** numba + numba-cuda chạy trên GPU máy phát triển. **Đạt khi:** group `gpu` đã lock, license đã ghi, bộ test CI pass. **Bằng chứng:** numba 0.67, numba-cuda 0.30.4 (cu12); numpy giới hạn `<2.5`; 993 test pass.
+
+### ✅ P3-29 Numerics E7
+**Mục tiêu:** tìm thứ tự phép tính fp64 tái tạo chính xác `registry.py`. **Đạt khi:** 0 lệch bit cho mỗi op. **Bằng chứng:** `scripts/experiments/e7_*.py`, ADR-0038.
+
+### ✅ P3-30 Prototype và go/no-go
+**Mục tiêu:** genome G1 viết cứng trên CUDA và njit, khớp bit với `_run_spot_bracket`; chạy E0/E2/E8. **Quyết định:** ADR-0038 (user giữ CUDA làm chính khi chỉ hơn njit 2,1×). **Bằng chứng:** `scripts/experiments/run_proto.py`.
+
+### ✅ P3-31 Cổng tài liệu
+**Mục tiêu:** kiến trúc §3.3.3, §3.5, §6, §10 D23, khóa §10.1; ADR-0038/0039; lộ trình, bất biến, quy ước, vấn đề mở. **Đạt khi:** `scripts/check_doc_mirror.py` pass.
+
+### ☐ P3-32 Kiểu genome trong `core`
+**Mục tiêu:** chuyển dataclass genome, phần render và (giải) tuần tự hóa sang `core/strategy/genome.py`; `agent/grammar.py` re-export. **Đạt khi:** 1.000 lần `render_genome` có seed cho cùng hash trước và sau; `lint-imports` pass.
+
+### ☐ P3-33 Parser source → genome
+**Mục tiêu:** `core/strategy/genome_parse.py` dựng lại genome từ source đã render bằng `ast`, không bao giờ `exec`, chỉ nhận khi render lại khớp từng byte (E3). **Đạt khi:** round trip đúng dưới Hypothesis; source bị đột biến, lạ hoặc quá lớn bị từ chối.
+
+### ☐ P3-34 Report builder dùng chung
+**Mục tiêu:** sandbox và engine kernel dựng report gate ③/④ bằng cùng hàm thuần; `SandboxResult.engine`. **Đạt khi:** test sandbox không đổi.
+
+### ☐ P3-35 Precision trong config và lock
+**Mục tiêu:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, tương thích lock (lock cũ ⇒ float64), ô trong Studio. **Quyết định:** ADR-0039. **Đạt khi:** lock cũ với mặc định được nhận, với float32 bị từ chối; tag lạ bị từ chối.
+
+### ☐ P3-36 Ledger: engine theo trial
+**Mục tiêu:** migration 009 `trials.backtest_engine`, event `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Đạt khi:** migration idempotent; trigger append-only còn nguyên; NULL đọc là sandbox.
+
+### ☐ P3-37 Trình biên dịch program
+**Mục tiêu:** `execution/kernels/program.py` biến genome và danh sách tham số thành bảng số có giới hạn. **Đạt khi:** khử trùng lặp, ràng theo tên TUNABLE và fuzz tính total đều pass.
+
+### ☐ P3-38 Kernel feature
+**Mục tiêu:** mọi op của registry trên cửa sổ (`now`, `prev`), njit và CUDA từ một source (bố cục theo E1). **Đạt khi:** khớp bit với `registry.py` trên cửa sổ; test `cudasim` và `gpu`.
+
+### ☐ P3-39 Kernel tín hiệu
+**Mục tiêu:** đủ bảy loại clause, and/or, stop ATR/Bollinger, tỷ lệ TP. **Đạt khi:** khớp bit với `generate_signals` của source đã render trên genome lấy mẫu, cả hai chiều.
+
+### ☐ P3-40 Kernel replay spot
+**Mục tiêu:** replay spot `bracket_timeout_v1`, fp64, chia khúc dưới ngưỡng watchdog WDDM, có trade log. **Đạt khi:** trade log và equity khớp từng bit `_run_spot_bracket`; kết quả không phụ thuộc kích thước khúc.
+
+### ☐ P3-41 Backend và self-test
+**Mục tiêu:** `CudaBackend` và `CpuKernelBackend` dựng `BacktestResult` và hàng gate ④; self-test khi khởi động. **Đạt khi:** report gate ③ giống report sandbox.
+
+### ☐ P3-42 Engine router và audit
+**Mục tiêu:** `validation/engine_router.py` implement `JobRunner`, định tuyến, fallback, audit (L0–L2); gate ghi engine. **Đạt khi:** leak check luôn dùng sandbox; fp32 không bao giờ fallback sang fp64; lệch thì ngắt breaker cho phiên bản kernel đó.
+
+### ☐ P3-43 Executor GPU
+**Mục tiêu:** một chủ sở hữu CUDA context, có hàng đợi, ngân sách VRAM và hủy việc (E5). **Đạt khi:** 8 worker pipeline dùng chung GPU không lỗi.
+
+### ☐ P3-44 Parity đầu cuối và thông lượng
+**Mục tiêu:** một campaign tổng hợp chạy qua sandbox và qua router. **Đạt khi:** `trials.sharpe_is`, byte parquet returns và ma trận gate ④ giống hệt; cập nhật O14.
+
+### ☐ P3-45 Chế độ float32 và E6
+**Mục tiêu:** feature và tín hiệu fp32; audit fp32 so với njit; độ lệch E6 trên dữ liệu tổng hợp ghi vào ADR-0039.
+
+### ☐ P3-46 Gate ⑥′ và calibration trên engine
+**Mục tiêu:** chi phí ×2, chạy lại trên nguồn thứ hai và các lần thử Optuna đều đi qua router.
+
+### ☐ P3-47 Holdout trên engine
+**Mục tiêu:** holdout evaluator dùng engine theo precision của lock; self-test trước `claim()`, fallback CPU kernel giữa chừng. **Đạt khi:** preflight bị từ chối thì holdout chưa bị claim.
+
+### ☐ P3-48 Điều kiện freeze
+**Mục tiêu:** mọi thành viên danh mục được tái tạo theo đường chuẩn trước freeze (audit L3).
+
+### ☐ P3-49 Mảng đầu vào perpetual
+**Mục tiêu:** `core/perp_arrays.py` đóng gói `PerpBundle` thành mảng phẳng. **Đạt khi:** first-touch bằng `SegmentedPath`.
+
+### ☐ P3-50 Kernel replay perpetual
+**Mục tiêu:** replay bracket perpetual một slot (funding, thanh lý, leverage, clearance, timeout). **Đạt khi:** khớp bit với `replay_signals` cho một slot.
+
+### ☐ P3-51 Định tuyến perpetual
+**Mục tiêu:** job perpetual ③/④ và job `signals` cho replay danh mục đi qua router; INV-94 vẫn giữ.
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

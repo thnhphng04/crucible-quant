@@ -660,6 +660,8 @@ MadEvolve runs LLM code with a plain `subprocess` that inherits the full environ
 
 On local Windows (A6): use a container (Docker with `--network none`, `--read-only`) — do not hand-roll a sandbox in Python.
 
+**Host kernel engine (D23, ADR-0038).** An engine-C genome is **data**, not code: the project's own kernels (numba CPU/CUDA) interpret it as numeric tables on the host and never import, `exec` or compile candidate source. A genome is accepted only when its re-render matches the ledgered source **byte for byte**; the interpreter must be *total* (every index bounds-checked). Source still runs in the sandbox for ①a/①b; a strategy without a genome takes the sandbox path.
+
 ### 3.4. Risk & Sizing Layer ★
 
 This layer is **more important than the adapter layer** yet routinely treated as an afterthought.
@@ -703,6 +705,8 @@ The **portfolio-level** step is no longer a uniform rescale to `target_vol`. It 
 ### 3.5. Execution Core & Adapters
 
 **NautilusTrader** remains the adapter and P5 target. Legacy locks use the Nautilus bridge for fills; `bracket_timeout_v1` campaigns currently price spot in Python replay and perpetuals in shared-account replay. These paths have not been proven equivalent to live. Before risking capital, reconcile signal → order → fill and balances/positions with a live environment (ADR-0032, ADR-0036).
+
+**GPU kernel engine (D23, ADR-0038).** For engine-C genomes, gates ③④, ⑥′, calibration and the holdout run on numba kernels (CUDA primary, CPU njit fallback) that must match the Python replay above **bit for bit** — the Python replay is the canonical oracle. Parity is enforced by tests, by a runtime audit (a mismatch ⇒ use the canonical result, trip the GPU) and by verifying every member before freeze. Precision `float64 | float32` is locked per campaign; fp32 applies to features/signals only, account bookkeeping is always fp64.
 
 | Adapter | Markets | Status |
 |---|---|---|
@@ -937,6 +941,7 @@ TradingProject/
 | Optimizer | **Optuna** | TPE/GP, the de-facto standard |
 | Validation | **`purgedcv` 0.1.6 + project code** | API verified; CPCV uses the library, DSR/PSR and PBO use independently checked code (ADR-0007, ADR-0011) |
 | Fast search | **vectorbt** *(optional)* | Parameter sweeps; ⚠️ *"lies about microstructure"* — coarse screening only |
+| Kernel engine | **numba + numba-cuda** *(`gpu` group)* | Interprets genomes, bit-exact with the Python replay (D23); NVIDIA's CUDA wheels are proprietary but redistributable; numpy < 2.5 |
 | Ledger | SQLite → Postgres | Start simple |
 | **Data** | **Entirely free** | See §6.1 — this is a **hard constraint** |
 | Packaging | FastAPI + Docker | Already familiar |
@@ -1156,6 +1161,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
 | D21 | Exits for new campaigns | ✅ Decided (27 Sep 2026) | `bracket_timeout_v1`: ATR/Bollinger stop and TP fixed from signal close; default TP/SL **1.1**, maximum **100 held bars**, expiry fills at next open; `flat` does not close a held position | Ratio and limit are Group B; old locks lacking a version retain `legacy_flat` (ADR-0036) |
 | D22 | Local Studio UI | ✅ Implemented | `cli studio` is the local control surface on `127.0.0.1`: drafts do not write config/ledger; preview has no side effect; Create/Run use the same services as CLI, immutable dataset v1, a separate job store and one writer lock; `cli review` remains read-only | ADR-0037 succeeds ADR-0029. No remote access, live trading, automatic freeze or holdout opening through Studio |
+| D23 | Backtest engine & precision | ✅ Decided (30 Sep 2026) | Engine-C genomes run on host numba kernels (CUDA primary, njit fallback), bit-exact with the Python replay; precision `float64 \| float32` locked per campaign, equal standing (fp32 may open the holdout); an fp32 campaign refuses strategies without a genome; the holdout self-tests the GPU before its claim | ADR-0038, ADR-0039. An old lock without the key ⇒ float64 |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 
@@ -1176,6 +1182,7 @@ operational:            # GROUP A — change any time, does not affect statistic
   live_capital: 10000           # D5
   base_currency: USD            # D6
   kill_switch_drawdown: 0.20    # D8
+  compute: {engine: auto, audit_rate: 0.02}   # D23 — auto | gpu | cpu_kernel | sandbox; audit may only rise
   models:                       # D11 — recorded in generation_log.model_used
     research: gpt-oss-120b
     coding: null
@@ -1199,6 +1206,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = latest completed UTC boundary
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; campaign-locked
+  backtest: {precision: float64}   # D23 — float64 | float32; campaign-locked
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened (see below)
     dsr_min: 0.95

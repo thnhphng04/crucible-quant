@@ -46,6 +46,7 @@ Full list with test names: [implement_docs/03-INVARIANT-TEST-MAP.md](implement_d
 
 ```bash
 uv sync                                   # install (Python 3.12, .venv)
+uv sync --group gpu                       # + GPU kernel engine (numba, CUDA wheels; ADR-0038)
 uv run pytest                             # all tests (markers: slow, docker, network)
 uv run pytest -m "not docker and not network and not slow"   # what CI runs
 uv run ruff check . && uv run ruff format .

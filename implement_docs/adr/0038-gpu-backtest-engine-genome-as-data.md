@@ -17,7 +17,7 @@ On 1h data (≈ 67k bars, L = 400), `step()` recomputes every indicator on each 
    - `_smooth` reproduces scipy's `lfilter` step `y = (1−α)·y + α·x`, seeded with that pairwise mean.
    - on CUDA, every fp64 op goes through non-contracted `libdevice.*_rn`. There is no `dsub_rn`, so `a − b` is `dadd_rn(a, −b)`, which is exact. Plain operators contracted to FMA and mismatched 2676/4096 EMA values.
 4. **Toolchain.** `numba` 0.67 + `numba-cuda[cu12]` 0.30.4 are in the non-default `gpu` group; the NVIDIA wheels are proprietary but redistributable. The CUDA 12.9 runtime loads on driver 12.7 by minor-version compatibility. numpy is capped `<2.5`, because numba-cuda still calls `np.row_stack`.
-5. **Parity is enforced at runtime too** (audit, fail closed). Precision is locked per campaign (ADR-0039, planned in P3-35).
+5. **Parity is enforced at runtime too** (audit, fail closed). Precision is locked per campaign ([ADR-0039](0039-campaign-locked-backtest-precision.md)).
 
 ## Consequences
 

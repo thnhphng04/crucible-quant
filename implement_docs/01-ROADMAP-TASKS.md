@@ -480,6 +480,84 @@ demand one.
 **Files:** `src/quantcrucible/studio/{app,service,jobs,security}.py`, shared campaign/run services, dataset registry, ledger migration for idempotent creation requests, review router split, `cli.py`, `ui/src/`, README/CLAUDE/architecture/ADR docs.
 **Accept when:** Studio serves only on loopback; `cli review` stays GET-only and read-only; draft edits write no config/lock/ledger; preview writes no side effects and expires on input/ledger/lock changes; Create is idempotent and crash-recoverable; Run never creates a campaign; one writer/job runs per project; Stop/Resume survive restart without double trials; holdout values never enter the browser; `harness_test` locks protocol before trial 1; `research` can enqueue portfolio after search; unit, integration, Playwright and `scripts/check_doc_mirror.py` pass. **Evidence:** 993 Python tests (excluding docker/network/slow), 28 UI component tests, 18 Playwright tests, typecheck/build, lint/import contracts and doc mirror passed on 2026-09-28. Live-source perpetual preflight remains P3-24.
 
+### GPU backtest engine (P3-27 … P3-51, ADR-0038, ADR-0039, D23)
+Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) that must match the Python replay bit for bit. The plan groups the work into phase 0 (measure), a doc gate, foundations, GPU-1 (spot ③④), GPU-2 (⑥′, calibration, holdout) and GPU-3 (perpetual).
+
+### ✅ P3-27 Baseline benchmark
+**Goal:** know where a backtest spends its time. **Files:** `scripts/bench_backtest.py`. **Accept when:** the per-stage split and projected gate-④ cost are in O14. **Evidence:** signals 87–98%; a 200-config grid ≈ 0.4–3.3 h per candidate (2026-09-30).
+
+### ✅ P3-28 GPU toolchain
+**Goal:** numba + numba-cuda run on the development GPU. **Accept when:** the `gpu` group is locked, licences are recorded, the CI suite passes. **Evidence:** numba 0.67, numba-cuda 0.30.4 (cu12); numpy capped `<2.5`; 993 tests pass.
+
+### ✅ P3-29 E7 numerics
+**Goal:** find the fp64 operation order that reproduces `registry.py` exactly. **Accept when:** zero bit mismatches per op. **Evidence:** `scripts/experiments/e7_*.py`, ADR-0038.
+
+### ✅ P3-30 Prototype and go/no-go
+**Goal:** a hard-coded G1 genome on CUDA and njit, bit-exact with `_run_spot_bracket`; run E0/E2/E8. **Decision:** ADR-0038 (the user kept CUDA primary at 2.1× over njit). **Evidence:** `scripts/experiments/run_proto.py`.
+
+### ✅ P3-31 Documentation gate
+**Goal:** arch §3.3.3, §3.5, §6, §10 D23, §10.1 keys; ADR-0038/0039; roadmap, invariants, conventions, open items. **Accept when:** `scripts/check_doc_mirror.py` passes.
+
+### ☐ P3-32 Genome types in `core`
+**Goal:** move the genome dataclasses, rendering and (de)serialization to `core/strategy/genome.py`; `agent/grammar.py` re-exports. **Accept when:** 1,000 seeded `render_genome` outputs hash the same before and after; `lint-imports` passes.
+
+### ☐ P3-33 Source → genome parser
+**Goal:** `core/strategy/genome_parse.py` recovers a genome from rendered source with `ast`, never `exec`, and accepts only a byte-exact re-render (E3). **Accept when:** round trip holds under Hypothesis; mutated, foreign or oversized sources are refused.
+
+### ☐ P3-34 Shared report builder
+**Goal:** the sandbox and the kernel engine build the gate-③/④ report with the same pure functions; `SandboxResult.engine`. **Accept when:** sandbox tests are unchanged.
+
+### ☐ P3-35 Precision in config and lock
+**Goal:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, lock compatibility (old lock ⇒ float64), Studio field. **Decision:** ADR-0039. **Accept when:** an old lock with the default is accepted, with float32 refused; an unknown tag is refused.
+
+### ☐ P3-36 Ledger: engine per trial
+**Goal:** migration 009 `trials.backtest_engine`, events `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Accept when:** idempotent migration; append-only triggers intact; NULL reads as sandbox.
+
+### ☐ P3-37 Program compiler
+**Goal:** `execution/kernels/program.py` turns a genome and a parameter list into bounded numeric tables. **Accept when:** dedup, binding by TUNABLE name and a totality fuzz pass.
+
+### ☐ P3-38 Feature kernels
+**Goal:** every registry op on the window (`now`, `prev`), njit and CUDA from one source (E1 layout). **Accept when:** bit parity with `registry.py` on windows; `cudasim` and `gpu` tests.
+
+### ☐ P3-39 Signal kernel
+**Goal:** all seven clause types, and/or, the ATR/Bollinger stop, the TP ratio. **Accept when:** bit parity with `generate_signals` of the rendered source over sampled genomes, both directions.
+
+### ☐ P3-40 Spot replay kernel
+**Goal:** `bracket_timeout_v1` spot replay, fp64, chunked below the WDDM watchdog, with a trade log. **Accept when:** trade log and equity match `_run_spot_bracket` bit for bit; results do not depend on the chunk size.
+
+### ☐ P3-41 Backends and self-test
+**Goal:** `CudaBackend` and `CpuKernelBackend` build `BacktestResult`s and gate-④ rows; a start-up self-test. **Accept when:** gate-③ reports equal the sandbox's.
+
+### ☐ P3-42 Engine router and audit
+**Goal:** `validation/engine_router.py` implements `JobRunner`, routes, falls back, audits (L0–L2); gates record the engine. **Accept when:** leak checks always use the sandbox; fp32 never falls back to fp64; a mismatch trips the breaker for that kernel version.
+
+### ☐ P3-43 GPU executor
+**Goal:** one CUDA-context owner with a queue, VRAM budget and cancellation (E5). **Accept when:** 8 pipeline workers share the GPU without errors.
+
+### ☐ P3-44 End-to-end parity and throughput
+**Goal:** one synthetic campaign through the sandbox and through the router. **Accept when:** identical `trials.sharpe_is`, returns parquet bytes and gate-④ matrices; O14 updated.
+
+### ☐ P3-45 float32 mode and E6
+**Goal:** fp32 features and signals; fp32 audit against njit; E6 divergence on synthetic data in ADR-0039.
+
+### ☐ P3-46 Gate ⑥′ and calibration on the engine
+**Goal:** cost ×2, second-source reruns and Optuna attempts go through the router.
+
+### ☐ P3-47 Holdout on the engine
+**Goal:** the holdout evaluator uses the engine at the lock's precision; a self-test before `claim()`, CPU-kernel fallback mid-run. **Accept when:** a refused preflight leaves the holdout unclaimed.
+
+### ☐ P3-48 Freeze precondition
+**Goal:** every portfolio member is re-produced canonically before freeze (audit L3).
+
+### ☐ P3-49 Perpetual input arrays
+**Goal:** `core/perp_arrays.py` packs `PerpBundle` into flat arrays. **Accept when:** first-touch equals `SegmentedPath`.
+
+### ☐ P3-50 Perpetual replay kernel
+**Goal:** single-slot perpetual bracket replay (funding, liquidation, leverage, clearance, timeout). **Accept when:** bit parity with `replay_signals` for one slot.
+
+### ☐ P3-51 Perpetual routing
+**Goal:** ③/④ perpetual jobs and `signals` jobs for the portfolio replay go through the router; INV-94 holds.
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
