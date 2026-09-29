@@ -22,6 +22,7 @@ import numpy.typing as npt
 
 from quantcrucible.execution.kernels import program as P
 from quantcrucible.execution.kernels._numba import (
+    DEVICE_LOCK,
     Dtype,
     Target,
     arith,
@@ -289,16 +290,17 @@ def run_features(
         now, prev = np.empty(shape, x.dtype), np.empty(shape, x.dtype)
         cpu(x, h, lo, ops, pers, lookback, now, prev, err)
     else:
-        d = [cuda.to_device(v) for v in (x, h, lo, ops, pers)]
-        d_now, d_prev = cuda.device_array(shape, x.dtype), cuda.device_array(shape, x.dtype)
-        d_err = cuda.to_device(err)
-        count = ops.size * x.size
-        for offset in range(0, count, CUDA_LANES_PER_LAUNCH):
-            lanes = min(CUDA_LANES_PER_LAUNCH, count - offset)
-            blocks = math.ceil(lanes / THREADS)
-            gpu[blocks, THREADS](*d, lookback, d_now, d_prev, d_err, offset, count)
-            cuda.synchronize()
-        now, prev, err = d_now.copy_to_host(), d_prev.copy_to_host(), d_err.copy_to_host()
+        with DEVICE_LOCK:
+            d = [cuda.to_device(v) for v in (x, h, lo, ops, pers)]
+            d_now, d_prev = cuda.device_array(shape, x.dtype), cuda.device_array(shape, x.dtype)
+            d_err = cuda.to_device(err)
+            count = ops.size * x.size
+            for offset in range(0, count, CUDA_LANES_PER_LAUNCH):
+                lanes = min(CUDA_LANES_PER_LAUNCH, count - offset)
+                blocks = math.ceil(lanes / THREADS)
+                gpu[blocks, THREADS](*d, lookback, d_now, d_prev, d_err, offset, count)
+                cuda.synchronize()
+            now, prev, err = d_now.copy_to_host(), d_prev.copy_to_host(), d_err.copy_to_host()
     if err[0]:
         raise KernelInputError("the feature kernel met an instance outside its tables")
     return now, prev

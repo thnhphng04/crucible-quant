@@ -531,8 +531,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-42 Engine router và audit
 **Mục tiêu:** `validation/engine_router.py` implement `JobRunner`, định tuyến, fallback, audit (L0–L2); gate ghi engine. **Đạt khi:** leak check luôn dùng sandbox; fp32 không bao giờ fallback sang fp64; lệch thì ngắt breaker cho phiên bản kernel đó. **Bằng chứng:** `tests/validation/test_engine_router.py` (10 test): report gate ③ và gate ④ giống từng byte report của sandbox; `cli._session` giao router cho mọi gate.
 
-### ☐ P3-43 Executor GPU
-**Mục tiêu:** một chủ sở hữu CUDA context, có hàng đợi, ngân sách VRAM và hủy việc (E5). **Đạt khi:** 8 worker pipeline dùng chung GPU không lỗi.
+### ◐ P3-43 Executor GPU
+**Mục tiêu:** một chủ sở hữu CUDA context, có hàng đợi, ngân sách VRAM và hủy việc (E5). **Đạt khi:** 8 worker pipeline dùng chung GPU không lỗi. **Bằng chứng (E5, `scripts/experiments/e5_gpu_sharing.py`, 8 worker, lưới 200 cấu hình, 67k bar):** bỏ vòng JSON của report đưa router từ 0,17 lên ≈ 1,5 lưới/s; CPU njit đạt ≈ 4,2 lưới/s khi không khóa (2,0 khi khóa), CUDA ≈ 0,8–1,5 dù khóa phần thiết bị theo từng bước hay theo job — sức tính fp64 của GPU laptop là giới hạn. Engine mà `auto` chọn chờ user quyết.
 
 ### ☐ P3-44 Parity đầu cuối và thông lượng
 **Mục tiêu:** một campaign tổng hợp chạy qua sandbox và qua router. **Đạt khi:** `trials.sharpe_is`, byte parquet returns và ma trận gate ④ giống hệt; cập nhật O14.

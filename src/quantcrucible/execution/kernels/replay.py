@@ -28,6 +28,7 @@ import numpy as np
 import numpy.typing as npt
 
 from quantcrucible.execution.kernels._numba import (
+    DEVICE_LOCK,
     arith,
     cpu_kernel,
     cuda,
@@ -260,11 +261,12 @@ def run_spot_replay(
     if target == "cpu":
         cpu(*bars, entry, stop64, *args, equity, stats, ilog, flog)
     else:
-        d_in = [cuda.to_device(v) for v in (*bars, entry, stop64)]
-        d_out = [cuda.to_device(v) for v in (equity, stats, ilog, flog)]
-        gpu[math.ceil(m / THREADS), THREADS](*d_in, *args, *d_out)
-        cuda.synchronize()
-        equity, stats, ilog, flog = (d.copy_to_host() for d in d_out)
+        with DEVICE_LOCK:
+            d_in = [cuda.to_device(v) for v in (*bars, entry, stop64)]
+            d_out = [cuda.to_device(v) for v in (equity, stats, ilog, flog)]
+            gpu[math.ceil(m / THREADS), THREADS](*d_in, *args, *d_out)
+            cuda.synchronize()
+            equity, stats, ilog, flog = (d.copy_to_host() for d in d_out)
     if trade_log and stats[:, S_OVERFLOW].any():
         raise KernelInputError("trade log overflowed")
     return SpotReplay(

@@ -100,7 +100,8 @@ class EngineRouter:
         self.ledger_path = ledger_path
         self.run_label = run_label
         self._local = threading.local()  # a SQLite connection is bound to its thread
-        self._cuda_lock = threading.Lock()  # one CUDA context, used by one thread at a time
+        self._health_lock = threading.Lock()
+        self._job_lock = threading.Lock()  # CUDA jobs run one at a time (E5)
         self._cuda_ok: bool | None = None  # None: not self-tested yet
         self._banned = self._read_bans()
 
@@ -218,18 +219,18 @@ class EngineRouter:
         return cpu
 
     def _cuda_healthy(self) -> bool:
-        if self._cuda_ok is None:
-            try:
-                from quantcrucible.execution.kernels._numba import cuda_available
+        with self._health_lock:  # one self-test per process, however many workers ask at once
+            if self._cuda_ok is None:
+                try:
+                    from quantcrucible.execution.kernels._numba import cuda_available
 
-                with self._cuda_lock:
                     self._cuda_ok = cuda_available() and bool(
                         _kernels()[0].self_test(self.numerics.precision)
                     )
-            except Exception:
-                self._cuda_ok = False
-            if not self._cuda_ok and self.compute.engine == "gpu":
-                self._event(Event.ENGINE_FALLBACK, {"engine": CUDA, "reason": "self-test (L0)"})
+                except Exception:
+                    self._cuda_ok = False
+                if not self._cuda_ok and self.compute.engine == "gpu":
+                    self._event(Event.ENGINE_FALLBACK, {"engine": CUDA, "reason": "self-test (L0)"})
         return bool(self._cuda_ok)
 
     @staticmethod
@@ -275,9 +276,11 @@ class EngineRouter:
     # ── computing ────────────────────────────────────────────────────────────────────────────
     def _compute(self, plan: _Plan, kind: str, engine: str) -> dict[str, Any]:
         if engine == CUDA:
-            with self._cuda_lock:
+            # One CUDA job at a time, all three stages back to back (E5: letting workers
+            # interleave their stages made them fight over transfers — 0.89 vs 1.50 grids/s).
+            with self._job_lock:
                 return self._compute_on(plan, kind, "cuda")
-        return self._compute_on(plan, kind, "cpu")
+        return self._compute_on(plan, kind, "cpu")  # numba's threading layer shares the cores
 
     def _compute_on(self, plan: _Plan, kind: str, target: str) -> dict[str, Any]:
         backend, program, _ = _kernels()
@@ -297,20 +300,24 @@ class EngineRouter:
             p.genome, p.direction, p.tp_sl_ratio, plan.configs, plan.lookback
         )
         kb = backend.KernelBackend(target, self.numerics.precision)
+        # No JSON round trip, unlike the sandbox's report: every value here is already a Python
+        # float/int/str (a float's repr round-trips exactly), and the return matrix stays one
+        # numpy array — the gate stacks its rows anyway. A JSON pass cost ~5 s per 200-config
+        # grid (E5); the report-identity tests hold the two paths to the same values.
         if kind == "grid_backtest":
             grid = kb.grid(prog, plan.bars, spec)
+            m = prog.n_configs
             rows = [
-                GridRow(
-                    grid.returns[m].tolist(), grid.n_trades[m], grid.avg_holding_bars[m], 0.0, None
-                )
-                for m in range(prog.n_configs)
+                GridRow([], grid.n_trades[i], grid.avg_holding_bars[i], 0.0, None) for i in range(m)
             ]
-            return _json(grid_report(timestamps(plan.bars.ts[1:]), rows))
+            report = grid_report(timestamps(plan.bars.ts[1:]), rows)
+            report["returns"] = grid.returns  # [configs, bars - 1]
+            return report
         sig = kb.signals(prog, plan.bars)
         res = kb.backtest(prog, plan.bars, spec, sig)
         stream = signals_stream({plan.bars.symbol: _signals(sig, p)})
         corr, pair = indicator_corr([_features(p, plan.configs[0], plan.bars)])
-        return _json(backtest_report(res, corr, pair, stream))
+        return backtest_report(res, corr, pair, stream)
 
     # ── audits ───────────────────────────────────────────────────────────────────────────────
     def _sandbox_audit(
@@ -348,13 +355,15 @@ class EngineRouter:
 
 
 def _canon(result: Mapping[str, Any]) -> str:
-    return json.dumps(result, sort_keys=True)  # NaN serializes, so NaN == NaN here
+    """One text for a result, whichever engine built it: NaN serializes (so NaN == NaN here) and
+    a numpy matrix reads as the lists the sandbox's JSON report holds."""
+    return json.dumps(result, sort_keys=True, default=_plain)
 
 
-def _json(obj: dict[str, Any]) -> dict[str, Any]:
-    """What the sandbox report looks like after its JSON round trip."""
-    out: dict[str, Any] = json.loads(json.dumps(obj))
-    return out
+def _plain(obj: Any) -> Any:
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"not JSON serializable: {type(obj).__name__}")
 
 
 def _signals(sig: Any, parsed: ParsedGenome) -> list[Signal]:

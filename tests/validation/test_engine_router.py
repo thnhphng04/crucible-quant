@@ -118,7 +118,7 @@ def _router(sandbox: FakeSandbox, lock: dict[str, Any], ledger_path: Path | None
 
 
 def _canon(result: Any) -> str:
-    return json.dumps(result, sort_keys=True)
+    return json.dumps(result, sort_keys=True, default=lambda a: a.tolist())
 
 
 @pytest.mark.parametrize("kind", ["backtest", "grid_backtest"])
@@ -130,8 +130,13 @@ def test_a_genome_job_runs_on_the_kernel_and_reports_like_the_sandbox(kind: str)
     assert res.report is not None
     canonical = FakeSandbox().run(job).report
     assert canonical is not None
-    assert _canon(res.report["result"]) == _canon(canonical["result"])  # every byte
+    assert _canon(res.report["result"]) == _canon(canonical["result"])  # every value
     assert res.report["kernel_version"] and res.report["numerics"] == "fp64_oracle_v1"
+    if kind == "grid_backtest":  # what pbo_gate does with the rows: identical matrices
+        rows: list[Any] = []
+        rows.extend(res.report["result"]["returns"])
+        want = np.asarray(canonical["result"]["returns"], dtype=np.float64)
+        assert np.array_equal(np.asarray(rows, dtype=np.float64), want)
 
 
 def test_leak_checks_always_use_the_sandbox() -> None:

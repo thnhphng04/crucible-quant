@@ -26,6 +26,7 @@ import numpy.typing as npt
 
 from quantcrucible.execution.kernels import program as P
 from quantcrucible.execution.kernels._numba import (
+    DEVICE_LOCK,
     Dtype,
     Target,
     arith,
@@ -174,13 +175,15 @@ def run_signals(
         stop = np.zeros((n_bars, m), dtype=t)
         cpu(n_bars, cl, si, pv, now, prev, meta, entry, stop, err)
         return entry, stop
-    d = [cuda.to_device(v) for v in (cl, si, pv, now, prev, meta)]
-    d_entry = cuda.device_array((n_bars, m), dtype=np.int8)
-    d_stop = cuda.device_array((n_bars, m), dtype=t)
-    d_err = cuda.to_device(err)
-    count = m * n_bars
-    for offset in range(0, count, CUDA_LANES_PER_LAUNCH):
-        lanes = min(CUDA_LANES_PER_LAUNCH, count - offset)
-        gpu[math.ceil(lanes / THREADS), THREADS](n_bars, *d, d_entry, d_stop, d_err, offset, count)
-        cuda.synchronize()
-    return d_entry.copy_to_host(), d_stop.copy_to_host()
+    with DEVICE_LOCK:
+        d = [cuda.to_device(v) for v in (cl, si, pv, now, prev, meta)]
+        d_entry = cuda.device_array((n_bars, m), dtype=np.int8)
+        d_stop = cuda.device_array((n_bars, m), dtype=t)
+        d_err = cuda.to_device(err)
+        count = m * n_bars
+        for offset in range(0, count, CUDA_LANES_PER_LAUNCH):
+            lanes = min(CUDA_LANES_PER_LAUNCH, count - offset)
+            blocks = math.ceil(lanes / THREADS)
+            gpu[blocks, THREADS](n_bars, *d, d_entry, d_stop, d_err, offset, count)
+            cuda.synchronize()
+        return d_entry.copy_to_host(), d_stop.copy_to_host()

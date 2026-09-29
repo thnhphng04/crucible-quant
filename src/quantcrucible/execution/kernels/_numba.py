@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -28,6 +29,11 @@ cuda: Any = _cuda
 libdevice: Any = _libdevice
 # A one-candidate job launches few blocks by design; the occupancy hint is noise here.
 numba.config.CUDA_LOW_OCCUPANCY_WARNINGS = 0
+
+# One CUDA context serves every thread of the process. Only the device work — copies, launches,
+# synchronization — is serialized, so the pipeline's other workers keep compiling programs and
+# assembling reports on the host meanwhile (E5: locking whole jobs left the GPU starved).
+DEVICE_LOCK = threading.Lock()
 
 Target = Literal["cpu", "cuda"]
 Dtype = Literal["float64", "float32"]
