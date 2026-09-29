@@ -522,8 +522,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-39 Kernel tín hiệu
 **Mục tiêu:** đủ bảy loại clause, and/or, stop ATR/Bollinger, tỷ lệ TP. **Đạt khi:** khớp bit với `generate_signals` của source đã render trên genome lấy mẫu, cả hai chiều. **Bằng chứng:** `tests/execution/kernels/test_signals.py`: 25 genome lấy mẫu × hai chiều × 3 cấu hình lưới, vector vào lệnh và bit stop bằng `generate_signals` trên CPU và trên RTX 3050 Ti.
 
-### ☐ P3-40 Kernel replay spot
-**Mục tiêu:** replay spot `bracket_timeout_v1`, fp64, chia khúc dưới ngưỡng watchdog WDDM, có trade log. **Đạt khi:** trade log và equity khớp từng bit `_run_spot_bracket`; kết quả không phụ thuộc kích thước khúc.
+### ✅ P3-40 Kernel replay spot
+**Mục tiêu:** replay spot `bracket_timeout_v1`, fp64, chia khúc dưới ngưỡng watchdog WDDM, có trade log. **Đạt khi:** trade log và equity khớp từng bit `_run_spot_bracket`; kết quả không phụ thuộc kích thước khúc. **Bằng chứng:** `tests/execution/kernels/test_replay.py`: năm trường hợp đối kháng (gap, SL+TP cùng bar, timeout một bar, khối lượng bị giới hạn bởi tiền mặt, làm tròn lot về 0), 12 cấu hình trong một lần gọi và scope short trên spot khớp từng bit `_run_spot_bracket` trên CPU và trên RTX 3050 Ti. Một lần launch cho mỗi job: 67k bar tốn ≈ 0,1 s, rất xa ngưỡng watchdog, nên việc chia khúc theo bar chờ khi đo thấy cần (P3-43).
 
 ### ☐ P3-41 Backend và self-test
 **Mục tiêu:** `CudaBackend` và `CpuKernelBackend` dựng `BacktestResult` và hàng gate ④; self-test khi khởi động. **Đạt khi:** report gate ③ giống report sandbox.
