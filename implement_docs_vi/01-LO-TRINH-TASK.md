@@ -525,8 +525,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-40 Kernel replay spot
 **Mục tiêu:** replay spot `bracket_timeout_v1`, fp64, chia khúc dưới ngưỡng watchdog WDDM, có trade log. **Đạt khi:** trade log và equity khớp từng bit `_run_spot_bracket`; kết quả không phụ thuộc kích thước khúc. **Bằng chứng:** `tests/execution/kernels/test_replay.py`: năm trường hợp đối kháng (gap, SL+TP cùng bar, timeout một bar, khối lượng bị giới hạn bởi tiền mặt, làm tròn lot về 0), 12 cấu hình trong một lần gọi và scope short trên spot khớp từng bit `_run_spot_bracket` trên CPU và trên RTX 3050 Ti. Một lần launch cho mỗi job: 67k bar tốn ≈ 0,1 s, rất xa ngưỡng watchdog, nên việc chia khúc theo bar chờ khi đo thấy cần (P3-43).
 
-### ☐ P3-41 Backend và self-test
-**Mục tiêu:** `CudaBackend` và `CpuKernelBackend` dựng `BacktestResult` và hàng gate ④; self-test khi khởi động. **Đạt khi:** report gate ③ giống report sandbox.
+### ✅ P3-41 Backend và self-test
+**Mục tiêu:** `CudaBackend` và `CpuKernelBackend` dựng `BacktestResult` và hàng gate ④; self-test khi khởi động. **Đạt khi:** report gate ③ giống report sandbox. **Bằng chứng:** `tests/execution/kernels/test_backend.py`: 12 genome lấy mẫu, `BacktestResult` gate ③ bằng `run_backtest` từng trường (equity, returns, fills, stops, exits, turnover, public metrics) và hàng gate ④ bằng nhau theo từng cấu hình, trên CPU và trên RTX 3050 Ti; self-test pass trên thiết bị.
 
 ### ☐ P3-42 Engine router và audit
 **Mục tiêu:** `validation/engine_router.py` implement `JobRunner`, định tuyến, fallback, audit (L0–L2); gate ghi engine. **Đạt khi:** leak check luôn dùng sandbox; fp32 không bao giờ fallback sang fp64; lệch thì ngắt breaker cho phiên bản kernel đó.

@@ -1,0 +1,210 @@
+"""The kernel backtest engine: features → signals → replay, and the results gates read
+(P3-41, ADR-0038).
+
+:class:`KernelBackend` runs one job — one genome, one instrument, one or many configurations — on
+``cpu`` (njit) or ``cuda``. For gate ③ it returns the :class:`BacktestResult` the Python replay
+would have produced: fills, exits, stops and turnover are rebuilt from the kernel's trade log with
+the engine's own helpers, in the replay's append order, so every derived number matches. For
+gate ④ it returns the return rows, trade counts and mean holding per configuration.
+
+:func:`self_test` is the start-up check (audit L0): the CUDA build must reproduce the CPU build on
+a fixture genome bit for bit before a process trusts the device. Nothing here loads source: the
+CPU kernels are proved against the Python oracle by the test suite, not at runtime.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+import numpy.typing as npt
+
+from quantcrucible.core.strategy.base import Bars
+from quantcrucible.core.strategy.genome import (
+    Combine,
+    Cross,
+    Genome,
+    Indicator,
+    Param,
+    Slope,
+    Threshold,
+    named_params,
+)
+from quantcrucible.execution.engine import (
+    BacktestResult,
+    ExitRecord,
+    _bracket_turnover,
+    _periods_per_year,
+    _ratio_returns,
+)
+from quantcrucible.execution.kernels._numba import Dtype, Target
+from quantcrucible.execution.kernels.features import run_features
+from quantcrucible.execution.kernels.program import Program, compile_program
+from quantcrucible.execution.kernels.replay import R_STOP, R_TIMEOUT, REASONS, run_spot_replay
+from quantcrucible.execution.kernels.signals import run_signals
+from quantcrucible.execution.nautilus_bridge import FillRecord, StopPlacement
+
+
+@dataclass(frozen=True, slots=True)
+class ReplaySpec:
+    """The locked account and exit settings of a spot bracket job."""
+
+    fee: float  # float(CostModel.taker_rate)
+    lot_step: float
+    max_risk_pct: float
+    initial_cash: float
+    max_holding_bars: int
+    tp_sl_ratio: float
+
+
+@dataclass(frozen=True, slots=True)
+class GridResult:
+    """Gate ④: one row per configuration, on the axis of ``bars.ts[1:]``."""
+
+    returns: npt.NDArray[np.float64]  # [configs, bars - 1]
+    n_trades: list[int]
+    avg_holding_bars: list[float]
+
+
+@dataclass(frozen=True, slots=True)
+class Signals:
+    entry: npt.NDArray[np.int8]  # [bars, configs]
+    stop: npt.NDArray[Any]  # [bars, configs], 0 where flat
+
+
+class KernelBackend:
+    def __init__(self, target: Target, dtype: Dtype = "float64") -> None:
+        self.target: Target = target
+        self.dtype: Dtype = dtype
+
+    def signals(self, prog: Program, bars: Bars) -> Signals:
+        now, prev = run_features(
+            prog.inst_op, prog.inst_period, bars.close, bars.high, bars.low, prog.lookback,
+            self.target, self.dtype,
+        )  # fmt: skip
+        entry, stop = run_signals(prog, now, prev, self.target, self.dtype)
+        return Signals(entry, stop)
+
+    def _replay(self, prog: Program, bars: Bars, sig: Signals, spec: ReplaySpec, log: bool) -> Any:
+        return run_spot_replay(
+            bars.open, bars.high, bars.low, bars.close, sig.entry, sig.stop,
+            direction=prog.direction, tp_sl_ratio=spec.tp_sl_ratio, fee=spec.fee,
+            lot_step=spec.lot_step, max_risk_pct=spec.max_risk_pct,
+            initial_cash=spec.initial_cash, max_holding_bars=spec.max_holding_bars,
+            trade_log=log, target=self.target,
+        )  # fmt: skip
+
+    def backtest(self, prog: Program, bars: Bars, spec: ReplaySpec) -> BacktestResult:
+        """Gate ③: the one configuration's full result."""
+        if prog.n_configs != 1:
+            raise ValueError("a single backtest takes exactly one configuration")
+        sig = self.signals(prog, bars)
+        out = self._replay(prog, bars, sig, spec, log=True)
+        return _result(bars, prog, sig, out, spec)
+
+    def grid(self, prog: Program, bars: Bars, spec: ReplaySpec) -> GridResult:
+        sig = self.signals(prog, bars)
+        out = self._replay(prog, bars, sig, spec, log=False)
+        returns = np.stack([_ratio_returns(row) for row in out.equity])
+        avg = [
+            float(h) / int(t) if t else 0.0 for h, t in zip(out.hold_sum, out.trades, strict=True)
+        ]
+        return GridResult(returns, [int(t) for t in out.trades], avg)
+
+
+def _ts(bars: Bars, i: int) -> int:
+    return int(bars.ts[i].astype("datetime64[ns]").astype("int64"))
+
+
+def _result(bars: Bars, prog: Program, sig: Signals, out: Any, spec: ReplaySpec) -> BacktestResult:
+    """Rebuild what ``_run_spot_bracket`` records, in the order it appends it."""
+    symbol, fee = bars.symbol, spec.fee
+    fills: list[FillRecord] = []
+    stops: list[StopPlacement] = []
+    exits: list[ExitRecord] = []
+    holding: list[int] = []
+    for k in range(int(out.logged[0])):
+        entry_bar, exit_bar, reason = (int(v) for v in out.ilog[0, k])
+        qty, entry_px, exit_px, stop = (float(v) for v in out.flog[0, k])
+        notional = qty * entry_px
+        fills.append(FillRecord(_ts(bars, entry_bar), symbol, "BUY", qty, entry_px, notional * fee))
+        stops.append(StopPlacement(_ts(bars, entry_bar), symbol, "long", stop, qty))
+        if exit_bar < 0:
+            continue  # still open at the last bar
+        proceeds = qty * exit_px
+        fills.append(
+            FillRecord(
+                _ts(bars, exit_bar), symbol, "SELL", qty, exit_px, proceeds * fee,
+                from_stop=reason == R_STOP,
+            )
+        )  # fmt: skip
+        exits.append(ExitRecord(exit_bar, symbol, "long", exit_px, REASONS[reason]))
+        holding.append(exit_bar - entry_bar + (0 if reason == R_TIMEOUT else 1))
+    equity = out.equity[0]
+    ppy = _periods_per_year(bars.timeframe)
+    entries = int((sig.entry[:, 0] == 1).sum())
+    side = "long" if prog.direction == 1 else "short"
+    counts = {"long": 0, "short": 0, "flat": len(bars) - entries}
+    counts[side] = entries
+    return BacktestResult(
+        ts=bars.ts,
+        equity=equity,
+        returns=_ratio_returns(equity),
+        fills=tuple(fills),
+        n_trades=len(exits),
+        avg_holding_bars=float(np.mean(holding)) if holding else 0.0,
+        turnover=_bracket_turnover(fills, equity, ppy),
+        signals=counts,
+        denied_orders=int(out.denied[0]),
+        periods_per_year=ppy,
+        stops_placed=tuple(stops),
+        exits=tuple(exits),
+        ambiguous_bars=int(out.ambiguous[0]),
+    )
+
+
+# ── start-up self-test (audit L0) ─────────────────────────────────────────────────────────────
+def _fixture() -> tuple[Genome, Bars]:
+    def n(v: int) -> Param:
+        return Param("period", 2, 300, v)
+
+    genome = Genome(
+        Combine(
+            "or",
+            (
+                Cross(Indicator("ema", n(12)), True, Indicator("sma", n(40))),
+                Threshold(
+                    Indicator("rsi", Param("period", 2, 100, 14)), ">", Param("level", 50, 90, 62.5)
+                ),
+                Slope(Indicator("zscore", Param("period", 5, 300, 30)), True),
+            ),
+        ),
+        Param("mult", 0.5, 5.0, 2.0),
+        stop_kind="bollinger",
+    )  # fmt: skip
+    rng = np.random.default_rng(20260930)
+    size = 2_000
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, size)))
+    open_ = np.r_[close[0], close[:-1]]
+    high = np.maximum(open_, close) * (1 + np.abs(rng.normal(0, 0.004, size)))
+    low = np.minimum(open_, close) * (1 - np.abs(rng.normal(0, 0.004, size)))
+    ts = np.datetime64("2020-01-01", "ns") + np.arange(1, size + 1) * np.timedelta64(1, "h")
+    return genome, Bars("BTC/USDT", "1h", ts, open_, high, low, close, np.ones(size))
+
+
+def self_test(dtype: Dtype = "float64") -> bool:
+    """True when the CUDA build reproduces the CPU build bit for bit on the fixture job."""
+    genome, bars = _fixture()
+    base = {name: p.value for name, p in named_params(genome)}
+    configs = [base, {**base, "n1": 20}, {**base, "k_stop": 3.0}]
+    prog = compile_program(genome, "long", 1.1, configs, 300)
+    spec = ReplaySpec(0.0015, 1e-5, 0.01, 100_000.0, 100, 1.1)
+    cpu = KernelBackend("cpu", dtype).grid(prog, bars, spec)
+    gpu = KernelBackend("cuda", dtype).grid(prog, bars, spec)
+    return (
+        np.array_equal(cpu.returns, gpu.returns)
+        and cpu.n_trades == gpu.n_trades
+        and cpu.avg_holding_bars == gpu.avg_holding_bars
+        and sum(cpu.n_trades) > 0
+    )

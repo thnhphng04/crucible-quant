@@ -525,8 +525,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-40 Spot replay kernel
 **Goal:** `bracket_timeout_v1` spot replay, fp64, chunked below the WDDM watchdog, with a trade log. **Accept when:** trade log and equity match `_run_spot_bracket` bit for bit; results do not depend on the chunk size. **Evidence:** `tests/execution/kernels/test_replay.py`: five adversarial cases (gaps, same-bar SL+TP, one-bar timeouts, cash-capped sizes, lot rounding to zero), 12 configurations in one call and a short spot scope match `_run_spot_bracket` bit for bit on CPU and on the RTX 3050 Ti. One launch per job: 67k bars take ≈ 0.1 s, far below the watchdog, so bar-chunking waits for a measured need (P3-43).
 
-### ☐ P3-41 Backends and self-test
-**Goal:** `CudaBackend` and `CpuKernelBackend` build `BacktestResult`s and gate-④ rows; a start-up self-test. **Accept when:** gate-③ reports equal the sandbox's.
+### ✅ P3-41 Backends and self-test
+**Goal:** `CudaBackend` and `CpuKernelBackend` build `BacktestResult`s and gate-④ rows; a start-up self-test. **Accept when:** gate-③ reports equal the sandbox's. **Evidence:** `tests/execution/kernels/test_backend.py`: 12 sampled genomes, gate-③ `BacktestResult` equal to `run_backtest` field by field (equity, returns, fills, stops, exits, turnover, public metrics) and gate-④ rows equal per configuration, on CPU and on the RTX 3050 Ti; the self-test passes on the device.
 
 ### ☐ P3-42 Engine router and audit
 **Goal:** `validation/engine_router.py` implements `JobRunner`, routes, falls back, audits (L0–L2); gates record the engine. **Accept when:** leak checks always use the sandbox; fp32 never falls back to fp64; a mismatch trips the breaker for that kernel version.
