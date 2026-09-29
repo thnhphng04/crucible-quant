@@ -34,6 +34,7 @@ TradingProject/
 │   │   ├── guardrail.py           cổng ①a tĩnh + ①b động (leak_check.py)               §3.2    P0-07/11
 │   │   ├── sandbox.py             bộ chạy Docker (host) + sandbox_runner.py (trong container) §3.3.3 P0-08
 │   │   ├── backtest_report.py     dựng report cổng ③/④, dùng chung cho sandbox và kernel §3.5    P3-34
+│   │   ├── numerics.py            precision backtest khóa theo campaign (Numerics.from_lock) §10.1 P3-35
 │   │   ├── statistical.py         MinBTL, PSR, DSR, portfolio_dsr                      §3.2    P0-12, P1-02
 │   │   ├── pbo.py, pbo_gate.py    CSCV/PBO + tập cấu hình cổng ④ chia batch              §3.2    P3-25
 │   │   ├── cpcv.py                CPCV (purge/embargo) + kiểm tra suy giảm IS→OOS       §3.2    P1-04

@@ -16,6 +16,7 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 import yaml
 
 from quantcrucible.config.schema import (
+    AUDIT_RATE_FLOOR,
     DEFERRED_ENGINES,
     DSR_MIN_FLOOR,
     MINBTL_TARGET_SHARPE_CEILING,
@@ -155,6 +156,14 @@ def _validate(cfg: UserConfig) -> None:
         problems.append("research.exit.tp_sl_ratio must be finite and > 0")
     if r.exit.max_holding_bars <= 0:
         problems.append("research.exit.max_holding_bars must be > 0")
+    compute = cfg.operational.compute
+    if not AUDIT_RATE_FLOOR <= compute.audit_rate <= 1:
+        problems.append(
+            f"operational.compute.audit_rate must be in [{AUDIT_RATE_FLOOR}, 1] (it may only rise)"
+        )
+    if compute.engine == "sandbox" and r.backtest.precision == "float32":
+        # The sandbox replays in float64: a float32 campaign never falls back to it (ADR-0039).
+        problems.append("operational.compute.engine sandbox cannot run a float32 campaign")
     if r.data.end is not None and r.data.start >= r.data.end:
         problems.append("research.data.start must be before research.data.end")
     if r.data.market == "usdt_m_perpetual":

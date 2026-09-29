@@ -322,6 +322,9 @@ export interface StudioDraftConfig {
       tp_sl_ratio: number
       max_holding_bars: number
     }
+    backtest?: {
+      precision: 'float64' | 'float32'
+    }
     calibration?: Record<string, unknown>
     gates?: Record<string, unknown>
     holdout_pass?: number | null

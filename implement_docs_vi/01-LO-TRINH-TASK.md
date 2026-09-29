@@ -507,8 +507,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-34 Report builder dùng chung
 **Mục tiêu:** sandbox và engine kernel dựng report gate ③/④ bằng cùng hàm thuần; `SandboxResult.engine`. **Đạt khi:** test sandbox không đổi. **Bằng chứng:** hash golden của report gate ③ và gate ④ từ sandbox không đổi sau khi tách.
 
-### ☐ P3-35 Precision trong config và lock
-**Mục tiêu:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, tương thích lock (lock cũ ⇒ float64), ô trong Studio. **Quyết định:** ADR-0039. **Đạt khi:** lock cũ với mặc định được nhận, với float32 bị từ chối; tag lạ bị từ chối.
+### ✅ P3-35 Precision trong config và lock
+**Mục tiêu:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, tương thích lock (lock cũ ⇒ float64), ô trong Studio. **Quyết định:** ADR-0039. **Đạt khi:** lock cũ với mặc định được nhận, với float32 bị từ chối; tag lạ bị từ chối. **Bằng chứng:** `tests/config/test_lock_precision.py`; ô precision trong Studio có test UI (29 test UI, 1.027 test Python).
 
 ### ☐ P3-36 Ledger: engine theo trial
 **Mục tiêu:** migration 009 `trials.backtest_engine`, event `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Đạt khi:** migration idempotent; trigger append-only còn nguyên; NULL đọc là sandbox.

@@ -458,6 +458,13 @@ export function Studio({
               <input type="number" min={1} value={r.exit.max_holding_bars} onChange={(event) =>
                 research({ exit: { ...r.exit, max_holding_bars: Number(event.target.value) } })} />
             </label>
+            <label className={s.field}>Precision backtest (D23)
+              <select value={r.backtest?.precision ?? 'float64'} onChange={(event) =>
+                research({ backtest: { precision: event.target.value as 'float64' | 'float32' } })}>
+                <option value="float64">float64 — khớp từng bit với replay chuẩn</option>
+                <option value="float32">float32 — nhanh hơn, chỉ nhận genome engine C</option>
+              </select>
+            </label>
             <label className={s.field}>Ngưỡng Sharpe holdout D4
               <input type="number" min={0.01} step={0.1} value={r.holdout_pass ?? ''} onChange={(event) =>
                 research({ holdout_pass: event.target.value ? Number(event.target.value) : null })} />
@@ -540,6 +547,7 @@ export function Studio({
             <p>Symbols: {d.symbols.join(', ')}</p>
             <p>Budget: {r.campaign.trial_budget ?? 'chưa đặt'} trial; GP {r.engines.gp}, Random {r.engines.random}</p>
             <p>SL/TP: {r.exit.tp_sl_ratio}; giữ tối đa {r.exit.max_holding_bars} bar</p>
+            <p>Precision: {r.backtest?.precision ?? 'float64'} (khóa theo campaign)</p>
             <p>Dataset: {draft?.dataset_id ?? 'chưa chuẩn bị'}</p>
             <p>Preview: {preview?.ok ? 'hợp lệ' : preview ? `${preview.problems.length} lỗi` : 'chưa chạy'}</p>
           </div> : null}

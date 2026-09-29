@@ -251,6 +251,20 @@ def open_campaign(
     )  # fmt: skip
 
 
+# Group B keys added after campaigns were already locked, with the value a lock written before
+# the key existed implies (ADR-0039). Such a lock matches only a config at that value; a new lock
+# always writes the key.
+LOCK_ADDITIONS: dict[str, Any] = {"backtest": {"precision": "float64"}}
+
+
+def _comparable(current: dict[str, Any], locked: Mapping[str, Any]) -> dict[str, Any]:
+    out = dict(current)
+    for key, implied in LOCK_ADDITIONS.items():
+        if key not in locked and out.get(key) == implied:
+            del out[key]
+    return out
+
+
 def assert_lock_matches(
     cfg: UserConfig, lock_path: Path, ledger: Ledger, campaign_id: str
 ) -> dict[str, Any]:
@@ -265,8 +279,8 @@ def assert_lock_matches(
     lock = read_lock(lock_path)
     if lock["campaign_id"] != campaign_id:
         raise LockMismatchError(f"{lock_path} belongs to campaign {lock['campaign_id']!r}")
-    current = research_to_dict(cfg.research)
     locked = lock["research"]
+    current = _comparable(research_to_dict(cfg.research), locked)
     if current != locked:
         changed = sorted(k for k in set(current) | set(locked) if current.get(k) != locked.get(k))
         raise LockMismatchError(

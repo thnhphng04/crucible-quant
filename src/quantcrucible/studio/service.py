@@ -33,6 +33,7 @@ from quantcrucible.validation.campaign_service import (
     preview_campaign,
 )
 from quantcrucible.validation.campaign_service import DatasetDescriptor as CampaignDataset
+from quantcrucible.validation.numerics import numerics_tag
 from quantcrucible.validation.run import _check_trial_budget, derived_settings
 
 
@@ -100,6 +101,7 @@ class StudioService:
     def _derived(self, cfg: UserConfig) -> dict[str, Any]:
         derived = derived_settings(cfg.research.evolve_scope)
         derived["exit_protocol"] = "bracket_timeout_v1"
+        derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
         return derived
 
     def assert_runnable(self, campaign_id: str, *, purpose: str | None = None) -> dict[str, Any]:
@@ -166,6 +168,7 @@ class StudioService:
                 protocol_hash() if cfg.research.campaign.purpose == "harness_test" else None
             ),
             "exit_protocol": "bracket_timeout_v1",
+            "backtest_numerics": numerics_tag(cfg.research.backtest.precision),
         }
 
     def preview(self, draft_id: str, revision: int) -> dict[str, Any]:
@@ -221,6 +224,7 @@ class StudioService:
             },
             "lock_summary": {
                 "exit": research_to_dict(cfg.research)["exit"],
+                "precision": cfg.research.backtest.precision,
                 "timeframe": cfg.research.data.timeframe,
                 "purpose": cfg.research.campaign.purpose,
                 "trial_budget": cfg.research.campaign.trial_budget,

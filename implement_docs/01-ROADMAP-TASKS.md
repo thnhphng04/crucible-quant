@@ -507,8 +507,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-34 Shared report builder
 **Goal:** the sandbox and the kernel engine build the gate-③/④ report with the same pure functions; `SandboxResult.engine`. **Accept when:** sandbox tests are unchanged. **Evidence:** golden digests of the sandbox's gate-③ and gate-④ reports are unchanged by the extraction.
 
-### ☐ P3-35 Precision in config and lock
-**Goal:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, lock compatibility (old lock ⇒ float64), Studio field. **Decision:** ADR-0039. **Accept when:** an old lock with the default is accepted, with float32 refused; an unknown tag is refused.
+### ✅ P3-35 Precision in config and lock
+**Goal:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, lock compatibility (old lock ⇒ float64), Studio field. **Decision:** ADR-0039. **Accept when:** an old lock with the default is accepted, with float32 refused; an unknown tag is refused. **Evidence:** `tests/config/test_lock_precision.py`; Studio precision field with a UI test (29 UI, 1,027 Python tests).
 
 ### ☐ P3-36 Ledger: engine per trial
 **Goal:** migration 009 `trials.backtest_engine`, events `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Accept when:** idempotent migration; append-only triggers intact; NULL reads as sandbox.

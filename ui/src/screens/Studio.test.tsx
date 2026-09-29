@@ -136,6 +136,28 @@ describe('Studio', () => {
     expect(calls.some((call) => call.url === '/api/studio/campaigns/c-new/runs')).toBe(true)
   })
 
+  it('locks the chosen backtest precision into the campaign summary', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/campaigns') return Response.json([])
+        if (url === '/api/studio/capabilities') return Response.json(capabilities)
+        return Response.json({ detail: `missing ${url}` }, { status: 404 })
+      }),
+    )
+
+    renderStudio()
+    await screen.findByRole('heading', { name: 'Campaign Studio' })
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp' }))
+    const precision = screen.getByLabelText('Precision backtest (D23)') as HTMLSelectElement
+    expect(precision.value).toBe('float64')
+    fireEvent.change(precision, { target: { value: 'float32' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp' }))
+    expect(await screen.findByText('Precision: float32 (khóa theo campaign)')).toBeTruthy()
+  })
+
   it('shows field-level preview errors from the server', async () => {
     vi.stubGlobal(
       'fetch',

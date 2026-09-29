@@ -15,12 +15,15 @@ EngineMode = Literal["isolated", "collaborative"]
 EvolveScope = Literal["entry", "exit", "regime", "joint"]
 CampaignPurpose = Literal["research", "harness_test"]
 Market = Literal["spot", "usdt_m_perpetual"]
+Precision = Literal["float64", "float32"]  # D23, ADR-0039
+ComputeEngine = Literal["auto", "gpu", "cpu_kernel", "sandbox"]  # D23, ADR-0038
 DEFERRED_ENGINES = ("quantevolve", "simple_loop")  # engines A/B, deferred by D19 (arch v0.6)
 
 # Hard floors (§10.1): may only be tightened.
 DSR_MIN_FLOOR = 0.95
 PBO_MAX_CEILING = 0.5
 MINBTL_TARGET_SHARPE_CEILING = 1.5  # a lower target means a longer MinBTL, i.e. stricter
+AUDIT_RATE_FLOOR = 0.02  # share of kernel-engine jobs re-run on the canonical path; may only rise
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,11 +34,21 @@ class Models:
 
 
 @dataclass(frozen=True, slots=True)
+class Compute:
+    """Which engine runs a backtest (D23). Not locked: in float64 every engine reproduces the
+    canonical replay bit for bit (ADR-0038), so the choice cannot change a result."""
+
+    engine: ComputeEngine = "auto"
+    audit_rate: float = AUDIT_RATE_FLOOR
+
+
+@dataclass(frozen=True, slots=True)
 class Operational:
     live_capital: float = 10_000.0
     base_currency: str = "USD"
     kill_switch_drawdown: float = 0.20
     models: Models = field(default_factory=Models)
+    compute: Compute = field(default_factory=Compute)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +126,11 @@ class Exit:
 
 
 @dataclass(frozen=True, slots=True)
+class Backtest:
+    precision: Precision = "float64"  # float32 = features and signals only (ADR-0039)
+
+
+@dataclass(frozen=True, slots=True)
 class Data:
     exchange: str = "binance"
     symbols: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT")
@@ -142,6 +160,7 @@ class Research:
     minbtl_target_sharpe: float = MINBTL_TARGET_SHARPE_CEILING
     data: Data = field(default_factory=Data)
     exit: Exit = field(default_factory=Exit)
+    backtest: Backtest = field(default_factory=Backtest)
     calibration: Calibration = field(default_factory=Calibration)
     gates: Gates = field(default_factory=Gates)
     holdout_pass: float | None = None  # D4 — required before the holdout can be opened
