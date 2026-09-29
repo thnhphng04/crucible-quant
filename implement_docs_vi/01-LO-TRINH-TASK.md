@@ -510,8 +510,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-35 Precision trong config và lock
 **Mục tiêu:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, tương thích lock (lock cũ ⇒ float64), ô trong Studio. **Quyết định:** ADR-0039. **Đạt khi:** lock cũ với mặc định được nhận, với float32 bị từ chối; tag lạ bị từ chối. **Bằng chứng:** `tests/config/test_lock_precision.py`; ô precision trong Studio có test UI (29 test UI, 1.027 test Python).
 
-### ☐ P3-36 Ledger: engine theo trial
-**Mục tiêu:** migration 009 `trials.backtest_engine`, event `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Đạt khi:** migration idempotent; trigger append-only còn nguyên; NULL đọc là sandbox.
+### ✅ P3-36 Ledger: engine theo trial
+**Mục tiêu:** migration 009 `trials.backtest_engine`, event `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Đạt khi:** migration idempotent; trigger append-only còn nguyên; NULL đọc là sandbox. **Bằng chứng:** `tests/ledger/test_backtest_engine.py`; bộ đọc review nhận cả v8 và v9.
 
 ### ☐ P3-37 Trình biên dịch program
 **Mục tiêu:** `execution/kernels/program.py` biến genome và danh sách tham số thành bảng số có giới hạn. **Đạt khi:** khử trùng lặp, ràng theo tên TUNABLE và fuzz tính total đều pass.

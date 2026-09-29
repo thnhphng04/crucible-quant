@@ -100,6 +100,7 @@ class TrialMeasurement:
 
     sharpe_is: float
     returns_path: str
+    engine: str | None = None  # the backtest engine that measured it (P3-36); None = sandbox
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +189,7 @@ class GatePipeline:
                         verdict="PASS" if result.passed else f"REJECT_{gate.id}",
                         evolve_scope=c.evolve_scope, hypothesis=c.hypothesis, cell_id=c.cell_id,
                         gate_failed=None if result.passed else gate.id, island=c.island,
+                        backtest_engine=result.measurement.engine,
                     )
                 )  # fmt: skip
             ledger.record_gate_result(

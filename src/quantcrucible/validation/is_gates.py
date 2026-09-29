@@ -253,7 +253,8 @@ class InSampleGate:
                 "indicator_corr": corr,
                 "denied_orders": out["denied_orders"],
                 "public": public,
+                "engine": res.engine,
             },
             report=EvaluationReport.build(public=public),
-            measurement=TrialMeasurement(sharpe, str(path)),
+            measurement=TrialMeasurement(sharpe, str(path), res.engine),
         )

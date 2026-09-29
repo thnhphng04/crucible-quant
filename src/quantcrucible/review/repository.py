@@ -19,13 +19,14 @@ import yaml
 
 from quantcrucible.ledger.records import LEGACY_DIRECTION, LEGACY_INSTRUMENT
 
-SUPPORTED_SCHEMA = 8  # migration 008 adds idempotent Studio campaign creation requests
+SUPPORTED_SCHEMA = 9  # migration 009 adds the backtest engine of each trial (P3-36)
 # v6 and v7 are read too. This module never migrates, so refusing everything below the newest schema
 # left it unable to open the only ledger that exists — every campaign run so far predates the
 # scope columns. The difference is two absent columns whose meaning is known exactly: a row
 # written before P3-11 belongs to the legacy scope, which is what a NULL already reads as on v7.
 # Anything older is refused, because there the reader has no account of what else is missing.
-READABLE_SCHEMAS = (6, 7, SUPPORTED_SCHEMA)
+# v8 lacks only `trials.backtest_engine`, whose NULL means the Docker sandbox.
+READABLE_SCHEMAS = (6, 7, 8, SUPPORTED_SCHEMA)
 
 
 def _has_scope_columns(db: sqlite3.Connection) -> bool:

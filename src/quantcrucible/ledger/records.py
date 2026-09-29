@@ -49,6 +49,11 @@ class Event(StrEnum):
     DEGRADATION_CHECKPOINT = "DEGRADATION_CHECKPOINT"  # IS record vs its CPCV-OOS (§3.2, P2-14)
     DEGRADATION_WARNING = "DEGRADATION_WARNING"  # divergence seen but not acted on (ADR-0028)
     PROTOCOL_LOCKED = "PROTOCOL_LOCKED"  # engine comparison protocol, before any trial (P2-15)
+    # Kernel engine (ADR-0038). Mismatch: an audit disagreed with the canonical path; detail names
+    # the job, gate, engine and kernel version, which is then refused for good. Fallback: a job
+    # left its engine for a canonical one; detail says why.
+    ENGINE_AUDIT_MISMATCH = "ENGINE_AUDIT_MISMATCH"
+    ENGINE_FALLBACK = "ENGINE_FALLBACK"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +123,8 @@ class TrialRecord:
     # pre-P3 trial, which reads back as the legacy spot basket.
     instrument: str | None = None
     direction: str | None = None
+    # The backtest engine that measured it (P3-36, ADR-0038); None = the Docker sandbox.
+    backtest_engine: str | None = None
     ts: datetime = field(default_factory=utc_now)
 
 
@@ -144,6 +151,12 @@ class TrialRow:
     timerange: str = ""
     _instrument: str | None = None
     _direction: str | None = None
+    _backtest_engine: str | None = None
+
+    @property
+    def backtest_engine(self) -> str:
+        """Recorded from P3-36; before that every trial was measured in the Docker sandbox."""
+        return self._backtest_engine if self._backtest_engine is not None else "sandbox"
 
     @property
     def is_legacy_scope(self) -> bool:

@@ -510,8 +510,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-35 Precision in config and lock
 **Goal:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, lock compatibility (old lock ⇒ float64), Studio field. **Decision:** ADR-0039. **Accept when:** an old lock with the default is accepted, with float32 refused; an unknown tag is refused. **Evidence:** `tests/config/test_lock_precision.py`; Studio precision field with a UI test (29 UI, 1,027 Python tests).
 
-### ☐ P3-36 Ledger: engine per trial
-**Goal:** migration 009 `trials.backtest_engine`, events `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Accept when:** idempotent migration; append-only triggers intact; NULL reads as sandbox.
+### ✅ P3-36 Ledger: engine per trial
+**Goal:** migration 009 `trials.backtest_engine`, events `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Accept when:** idempotent migration; append-only triggers intact; NULL reads as sandbox. **Evidence:** `tests/ledger/test_backtest_engine.py`; the review reader accepts v8 and v9.
 
 ### ☐ P3-37 Program compiler
 **Goal:** `execution/kernels/program.py` turns a genome and a parameter list into bounded numeric tables. **Accept when:** dedup, binding by TUNABLE name and a totality fuzz pass.

@@ -42,6 +42,7 @@ MIGRATIONS = (
     "migration_006_campaign_purposes.sql",
     "migration_007_scope.sql",
     "migration_008_campaign_creation_requests.sql",
+    "migration_009_backtest_engine.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 # Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
@@ -56,6 +57,7 @@ ADDED_COLUMNS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("trials", "instrument", "TEXT"),
         ("trials", "direction", "TEXT"),
     ),
+    "migration_009_backtest_engine.sql": (("trials", "backtest_engine", "TEXT"),),
 }
 RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
 
@@ -337,13 +339,15 @@ class Ledger:
         return self._insert(
             "INSERT INTO trials (ts, run_id, campaign_id, candidate_id, engine, seed, evolve_scope,"
             " strategy_hash, hypothesis, params, universe, timeframe, timerange, cell_id, source,"
-            " sharpe_is, returns_path, gate_failed, verdict, island, instrument, direction)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " sharpe_is, returns_path, gate_failed, verdict, island, instrument, direction,"
+            " backtest_engine)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _ts(t.ts), t.run_id, t.campaign_id, t.candidate_id, t.engine, t.seed,
                 t.evolve_scope, t.strategy_hash, t.hypothesis, _json(t.params), t.universe,
                 t.timeframe, t.timerange, t.cell_id, t.source, t.sharpe_is, t.returns_path,
                 t.gate_failed, t.verdict, t.island, t.instrument, _checked_direction(t.direction),
+                t.backtest_engine,
             ),
         )  # fmt: skip
 
@@ -520,13 +524,15 @@ class Ledger:
         rows = self._conn.execute(
             "SELECT id, campaign_id, candidate_id, engine, strategy_hash, params, universe,"
             " timeframe, source, sharpe_is, returns_path, verdict, hypothesis, cell_id, seed,"
-            f" island, timerange, instrument, direction FROM trials{where} ORDER BY id",
+            f" island, timerange, instrument, direction, backtest_engine FROM trials{where}"
+            " ORDER BY id",
             args,
         )
         return [
             TrialRow(
                 int(r[0]), r[1], r[2], r[3], r[4], json.loads(r[5]), r[6], r[7], r[8],
                 float(r[9]), r[10], r[11], r[12], r[13], int(r[14]), r[15], r[16], r[17], r[18],
+                r[19],
             )
             for r in rows
         ]  # fmt: skip

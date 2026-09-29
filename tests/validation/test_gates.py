@@ -73,6 +73,15 @@ def test_gates_must_follow_arch_order() -> None:
         GatePipeline([passing("g9_magic")])
 
 
+def test_the_trial_records_the_engine_that_measured_it(ctx: GateContext) -> None:
+    """P3-36, INV-108: the measurement names its backtest engine and the trial row keeps it."""
+    m = TrialMeasurement(0.7, "results/r.parquet", engine="cuda")
+    gate = FakeGate(G3_IS, lambda: GateResult(True, G3_IS, 1.0, "ok", measurement=m))
+    GatePipeline([passing(G1A_STATIC), gate]).run(candidate(), ctx)
+    [trial] = ctx.ledger.trials("c1")
+    assert trial.backtest_engine == "cuda"
+
+
 def test_passes_are_logged(ctx: GateContext) -> None:
     gates = [passing(G1A_STATIC), passing(G1B_DYNAMIC), passing(G3_IS, measure=True)]
     outcome = GatePipeline(gates).run(candidate(), ctx)
