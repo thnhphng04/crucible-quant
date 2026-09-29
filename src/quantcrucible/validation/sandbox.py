@@ -76,6 +76,7 @@ class SandboxResult:
     violation: str | None  # timeout | resource_limit | no_report | os_access
     elapsed_s: float
     container: str = ""  # docker name, unique per job
+    engine: str = "sandbox"  # what produced the report: sandbox | cuda | cpu_kernel (ADR-0038)
 
     @property
     def error(self) -> str:

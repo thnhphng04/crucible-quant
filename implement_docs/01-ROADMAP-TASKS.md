@@ -504,8 +504,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-33 Source → genome parser
 **Goal:** `core/strategy/genome_parse.py` recovers a genome from rendered source with `ast`, never `exec`, and accepts only a byte-exact re-render (E3). **Accept when:** round trip holds under Hypothesis; mutated, foreign or oversized sources are refused. **Evidence:** every sampled genome (2,000 renders) and 11,988 C-gp offspring parse back; any edited byte, zoo strategy or oversized source is refused.
 
-### ☐ P3-34 Shared report builder
-**Goal:** the sandbox and the kernel engine build the gate-③/④ report with the same pure functions; `SandboxResult.engine`. **Accept when:** sandbox tests are unchanged.
+### ✅ P3-34 Shared report builder
+**Goal:** the sandbox and the kernel engine build the gate-③/④ report with the same pure functions; `SandboxResult.engine`. **Accept when:** sandbox tests are unchanged. **Evidence:** golden digests of the sandbox's gate-③ and gate-④ reports are unchanged by the extraction.
 
 ### ☐ P3-35 Precision in config and lock
 **Goal:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, lock compatibility (old lock ⇒ float64), Studio field. **Decision:** ADR-0039. **Accept when:** an old lock with the default is accepted, with float32 refused; an unknown tag is refused.

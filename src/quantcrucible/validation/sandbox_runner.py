@@ -19,7 +19,15 @@ from quantcrucible.core.perp_inputs import PerpBundle, read_bundle
 from quantcrucible.core.strategy.base import Bars, Strategy, generate_signals
 from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.data.store import read_bars
-from quantcrucible.validation.feature_stats import max_abs_change_corr
+from quantcrucible.validation.backtest_report import (
+    GridRow,
+    backtest_report,
+    grid_report,
+    grid_row,
+    indicator_corr,
+    signals_stream,
+    timestamps,
+)
 from quantcrucible.validation.leak_check import leak_check
 
 ERROR_CHARS = 4_000
@@ -28,11 +36,12 @@ Job = Callable[[type[Strategy], dict[str, Bars], dict[str, Any]], dict[str, Any]
 
 def _signals(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -> dict[str, Any]:
     strategy = cls(job.get("params") or {})
-    out: dict[str, list[list[Any]]] = {}
-    for symbol, b in bars.items():
-        sigs = generate_signals(strategy, b, int(job["lookback"]))
-        out[symbol] = [[s.direction, s.strength, s.stop_distance, s.take_profit] for s in sigs]
-    return {"signals": out}
+    lookback = int(job["lookback"])
+    return {
+        "signals": signals_stream(
+            {s: generate_signals(strategy, b, lookback) for s, b in bars.items()}
+        )
+    }
 
 
 def _leak_check(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -> dict[str, Any]:
@@ -74,39 +83,11 @@ def _backtest(cls: type[Strategy], bars: dict[str, Bars], job: dict[str, Any]) -
         exit_policy=ExitPolicy(**job.get("exit_policy", {})),
     )
     strategy = cls(job.get("params") or {})
-    corr, pair = 0.0, None
-    for symbol_bars in bars.values():
-        rho, names = max_abs_change_corr(strategy.indicators(symbol_bars))
-        if rho > corr:
-            corr, pair = rho, names
-    return {
-        "public": res.public_metrics(),
-        "indicator_corr": corr,
-        "indicator_pair": list(pair) if pair else None,
-        "ts": [str(t) for t in res.ts],
-        "equity": res.equity.tolist(),
-        "returns": res.returns.tolist(),
-        "n_fills": len(res.fills),
-        "denied_orders": res.denied_orders,
-        "signal_counts": dict(res.signals),
-        "periods_per_year": res.periods_per_year,
-        # Perpetual reporting (P3-21). Zero and empty on the spot path, which models neither.
-        "funding_paid": res.funding_paid,
-        "liquidated": list(res.liquidated),
-        "terminated_at": str(res.terminated_at) if res.terminated_at is not None else None,
-        "stops_placed": [[s.ts, s.symbol, s.direction, s.trigger, s.qty] for s in res.stops_placed],
-        "exits": [[e.bar, e.symbol, e.side, e.price, e.reason] for e in res.exits],
-        "ambiguous_bars": res.ambiguous_bars,
-        # The stream a portfolio replay needs later: it sizes from signals, not from these fills
-        # (ADR-0035), so gate ③ is where it has to be captured.
-        "signals_stream": {
-            symbol: [
-                [sig.direction, sig.strength, sig.stop_distance, sig.take_profit]
-                for sig in generate_signals(strategy, series, int(job["lookback"]))
-            ]
-            for symbol, series in bars.items()
-        },
-    }
+    corr, pair = indicator_corr(strategy.indicators(b) for b in bars.values())
+    stream = signals_stream(
+        {s: generate_signals(strategy, b, int(job["lookback"])) for s, b in bars.items()}
+    )
+    return backtest_report(res, corr, pair, stream)
 
 
 def _grid_backtest(
@@ -121,11 +102,7 @@ def _grid_backtest(
 
     costs = CostModel(**job.get("costs", {}))
     perp = job.get("perp_inputs") or None
-    rows: list[list[float]] = []
-    trades: list[int] = []
-    holding: list[float] = []
-    funding: list[float] = []
-    terminated: list[str | None] = []
+    rows: list[GridRow] = []
     ts: list[str] = []
     for params in job["grid"]:
         res = run_backtest(
@@ -141,18 +118,9 @@ def _grid_backtest(
             leverage=int(job.get("leverage", 5)),
             exit_policy=ExitPolicy(**job.get("exit_policy", {})),
         )
-        rows.append(res.returns.tolist())
-        trades.append(res.n_trades)
-        holding.append(res.avg_holding_bars)
-        funding.append(res.funding_paid)
-        # A liquidation ends that configuration, it never raises: one grid cell must not take the
-        # other 199 with it (ADR-0032 decision ⑤).
-        terminated.append(str(res.terminated_at) if res.terminated_at is not None else None)
-        ts = [str(t) for t in res.ts[1:]]
-    return {
-        "ts": ts, "returns": rows, "n_trades": trades, "avg_holding_bars": holding,
-        "funding_paid": funding, "terminated_at": terminated,
-    }  # fmt: skip
+        rows.append(grid_row(res))
+        ts = timestamps(res.ts[1:])
+    return grid_report(ts, rows)
 
 
 JOBS: dict[str, Job] = {

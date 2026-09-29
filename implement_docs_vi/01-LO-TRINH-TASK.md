@@ -504,8 +504,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-33 Parser source → genome
 **Mục tiêu:** `core/strategy/genome_parse.py` dựng lại genome từ source đã render bằng `ast`, không bao giờ `exec`, chỉ nhận khi render lại khớp từng byte (E3). **Đạt khi:** round trip đúng dưới Hypothesis; source bị đột biến, lạ hoặc quá lớn bị từ chối. **Bằng chứng:** mọi genome lấy mẫu (2.000 lần render) và 11.988 con lai C-gp đều parse lại đúng; mọi byte bị sửa, chiến lược zoo hay source quá lớn đều bị từ chối.
 
-### ☐ P3-34 Report builder dùng chung
-**Mục tiêu:** sandbox và engine kernel dựng report gate ③/④ bằng cùng hàm thuần; `SandboxResult.engine`. **Đạt khi:** test sandbox không đổi.
+### ✅ P3-34 Report builder dùng chung
+**Mục tiêu:** sandbox và engine kernel dựng report gate ③/④ bằng cùng hàm thuần; `SandboxResult.engine`. **Đạt khi:** test sandbox không đổi. **Bằng chứng:** hash golden của report gate ③ và gate ④ từ sandbox không đổi sau khi tách.
 
 ### ☐ P3-35 Precision trong config và lock
 **Mục tiêu:** `research.backtest.precision`, `derived.backtest_numerics`, `operational.compute`, tương thích lock (lock cũ ⇒ float64), ô trong Studio. **Quyết định:** ADR-0039. **Đạt khi:** lock cũ với mặc định được nhận, với float32 bị từ chối; tag lạ bị từ chối.
