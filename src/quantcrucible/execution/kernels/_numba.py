@@ -26,6 +26,8 @@ from numba.cuda import libdevice as _libdevice
 numba: Any = _numba
 cuda: Any = _cuda
 libdevice: Any = _libdevice
+# A one-candidate job launches few blocks by design; the occupancy hint is noise here.
+numba.config.CUDA_LOW_OCCUPANCY_WARNINGS = 0
 
 Target = Literal["cpu", "cuda"]
 Dtype = Literal["float64", "float32"]

@@ -519,8 +519,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-38 Feature kernels
 **Goal:** every registry op on the window (`now`, `prev`), njit and CUDA from one source (E1 layout). **Accept when:** bit parity with `registry.py` on windows; `cudasim` and `gpu` tests. **Evidence:** all ten ops × eight periods × two lookbacks, `now` and `prev`, bit-identical to `registry.py` on CPU njit, on the RTX 3050 Ti and under the CUDA simulator; CI installs the `gpu` group and runs the simulator step.
 
-### ☐ P3-39 Signal kernel
-**Goal:** all seven clause types, and/or, the ATR/Bollinger stop, the TP ratio. **Accept when:** bit parity with `generate_signals` of the rendered source over sampled genomes, both directions.
+### ✅ P3-39 Signal kernel
+**Goal:** all seven clause types, and/or, the ATR/Bollinger stop, the TP ratio. **Accept when:** bit parity with `generate_signals` of the rendered source over sampled genomes, both directions. **Evidence:** `tests/execution/kernels/test_signals.py`: 25 sampled genomes × both directions × 3 grid configurations, entry vector and stop bits equal to `generate_signals` on CPU and on the RTX 3050 Ti.
 
 ### ☐ P3-40 Spot replay kernel
 **Goal:** `bracket_timeout_v1` spot replay, fp64, chunked below the WDDM watchdog, with a trade log. **Accept when:** trade log and equity match `_run_spot_bracket` bit for bit; results do not depend on the chunk size.
