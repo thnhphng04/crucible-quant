@@ -516,8 +516,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-37 Program compiler
 **Goal:** `execution/kernels/program.py` turns a genome and a parameter list into bounded numeric tables. **Accept when:** dedup, binding by TUNABLE name and a totality fuzz pass. **Evidence:** `tests/execution/kernels/test_program.py` (19 tests; 400 sampled genomes compile, junk only raises `ProgramError`).
 
-### ☐ P3-38 Feature kernels
-**Goal:** every registry op on the window (`now`, `prev`), njit and CUDA from one source (E1 layout). **Accept when:** bit parity with `registry.py` on windows; `cudasim` and `gpu` tests.
+### ✅ P3-38 Feature kernels
+**Goal:** every registry op on the window (`now`, `prev`), njit and CUDA from one source (E1 layout). **Accept when:** bit parity with `registry.py` on windows; `cudasim` and `gpu` tests. **Evidence:** all ten ops × eight periods × two lookbacks, `now` and `prev`, bit-identical to `registry.py` on CPU njit, on the RTX 3050 Ti and under the CUDA simulator; CI installs the `gpu` group and runs the simulator step.
 
 ### ☐ P3-39 Signal kernel
 **Goal:** all seven clause types, and/or, the ATR/Bollinger stop, the TP ratio. **Accept when:** bit parity with `generate_signals` of the rendered source over sampled genomes, both directions.

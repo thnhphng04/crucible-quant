@@ -57,6 +57,44 @@ def test_parameter_optimizer_only_in_calibration() -> None:
     assert not offenders, f"parameter optimizer imported outside calibration: {offenders}"
 
 
+JIT_PACKAGES = {"numba", "numba_cuda", "llvmlite"}
+
+
+def test_numba_only_in_the_kernel_engine() -> None:
+    """INV-111, ADR-0038: numba is imported only under execution/kernels, so nothing else needs
+    the gpu dependency group — and the sandbox image, which never installs it, never does."""
+    offenders = [
+        f"{path.relative_to(SRC).as_posix()}: {module}"
+        for path in SRC.rglob("*.py")
+        if path.relative_to(SRC).parts[:2] != ("execution", "kernels")
+        for module in _imported_modules(path)
+        if module.split(".")[0] in JIT_PACKAGES
+    ]
+    assert not offenders, f"numba imported outside execution/kernels (INV-111): {offenders}"
+
+
+RUNS_CODE = {"exec", "eval", "compile", "load_strategy_class", "__import__"}
+
+
+def test_the_kernel_engine_never_runs_candidate_source() -> None:
+    """INV-106, ADR-0038: the kernel engine interprets a genome; it has no call that could run a
+    candidate's source, whatever path the source took to get there."""
+    offenders = []
+    for path in (SRC / "execution" / "kernels").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            name = None
+            if isinstance(node, ast.Call):
+                fn = node.func
+                name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", None)
+            elif isinstance(node, ast.alias):
+                name = node.name.split(".")[-1]
+            if name in RUNS_CODE:
+                offenders.append(
+                    f"{path.relative_to(SRC).as_posix()}:{getattr(node, 'lineno', '?')} {name}"
+                )
+    assert not offenders, f"code-running call in the kernel engine (INV-106): {offenders}"
+
+
 def test_llm_sdks_only_in_agent_layer() -> None:
     offenders = [
         f"{path.relative_to(SRC)}: {module}"

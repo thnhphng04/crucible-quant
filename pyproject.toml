@@ -97,6 +97,8 @@ markers = [
     "slow: long-running (full backtests, CPCV over many paths)",
     "docker: needs a running Docker daemon (sandbox tests)",
     "network: hits the network (data downloads) — never in CI",
+    "gpu: needs a CUDA device (skipped without one) — kernel engine, ADR-0038",
+    "cudasim: CUDA kernels under numba's simulator; run with NUMBA_ENABLE_CUDASIM=1",
 ]
 
 # ─── import-linter: architectural boundaries (implement_docs/04-MODULE-MAP.md) ──

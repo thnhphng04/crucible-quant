@@ -516,8 +516,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-37 Trình biên dịch program
 **Mục tiêu:** `execution/kernels/program.py` biến genome và danh sách tham số thành bảng số có giới hạn. **Đạt khi:** khử trùng lặp, ràng theo tên TUNABLE và fuzz tính total đều pass. **Bằng chứng:** `tests/execution/kernels/test_program.py` (19 test; 400 genome lấy mẫu đều compile, dữ liệu rác chỉ raise `ProgramError`).
 
-### ☐ P3-38 Kernel feature
-**Mục tiêu:** mọi op của registry trên cửa sổ (`now`, `prev`), njit và CUDA từ một source (bố cục theo E1). **Đạt khi:** khớp bit với `registry.py` trên cửa sổ; test `cudasim` và `gpu`.
+### ✅ P3-38 Kernel feature
+**Mục tiêu:** mọi op của registry trên cửa sổ (`now`, `prev`), njit và CUDA từ một source (bố cục theo E1). **Đạt khi:** khớp bit với `registry.py` trên cửa sổ; test `cudasim` và `gpu`. **Bằng chứng:** cả mười op × tám period × hai lookback, `now` lẫn `prev`, giống từng bit `registry.py` trên CPU njit, trên RTX 3050 Ti và dưới CUDA simulator; CI cài group `gpu` và chạy bước simulator.
 
 ### ☐ P3-39 Kernel tín hiệu
 **Mục tiêu:** đủ bảy loại clause, and/or, stop ATR/Bollinger, tỷ lệ TP. **Đạt khi:** khớp bit với `generate_signals` của source đã render trên genome lấy mẫu, cả hai chiều.
