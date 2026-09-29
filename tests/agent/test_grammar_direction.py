@@ -20,7 +20,7 @@ from quantcrucible.validation.gates import strategy_hash
 
 def _bars(n: int = 300, seed: int = 0) -> Bars:
     rng = np.random.default_rng(seed)
-    close = 100 * np.cumprod(1 + rng.normal(0.0002, 0.02, n))
+    close = np.asarray(100 * np.cumprod(1 + rng.normal(0.0002, 0.02, n)), dtype=np.float64)
     ts = np.arange("2021-01-01", n, dtype="datetime64[D]").astype("datetime64[ns]")
     high = close * 1.01
     low = close * 0.99
