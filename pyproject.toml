@@ -82,6 +82,8 @@ python_version = "3.12"
 strict = true
 files = ["src", "tests", "scripts"]
 mypy_path = "src"
+# Throwaway numba prototypes (P3-28…P3-30): kept to reproduce ADR-0038's numbers, not typed.
+exclude = ["scripts/experiments/"]
 
 [[tool.mypy.overrides]]
 module = ["scipy.*", "ccxt.*", "nautilus_trader.*", "sklearn.*", "numba.*", "numba_cuda.*"]
