@@ -513,8 +513,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-36 Ledger: engine theo trial
 **Mục tiêu:** migration 009 `trials.backtest_engine`, event `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Đạt khi:** migration idempotent; trigger append-only còn nguyên; NULL đọc là sandbox. **Bằng chứng:** `tests/ledger/test_backtest_engine.py`; bộ đọc review nhận cả v8 và v9.
 
-### ☐ P3-37 Trình biên dịch program
-**Mục tiêu:** `execution/kernels/program.py` biến genome và danh sách tham số thành bảng số có giới hạn. **Đạt khi:** khử trùng lặp, ràng theo tên TUNABLE và fuzz tính total đều pass.
+### ✅ P3-37 Trình biên dịch program
+**Mục tiêu:** `execution/kernels/program.py` biến genome và danh sách tham số thành bảng số có giới hạn. **Đạt khi:** khử trùng lặp, ràng theo tên TUNABLE và fuzz tính total đều pass. **Bằng chứng:** `tests/execution/kernels/test_program.py` (19 test; 400 genome lấy mẫu đều compile, dữ liệu rác chỉ raise `ProgramError`).
 
 ### ☐ P3-38 Kernel feature
 **Mục tiêu:** mọi op của registry trên cửa sổ (`now`, `prev`), njit và CUDA từ một source (bố cục theo E1). **Đạt khi:** khớp bit với `registry.py` trên cửa sổ; test `cudasim` và `gpu`.

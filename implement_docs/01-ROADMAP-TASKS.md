@@ -513,8 +513,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-36 Ledger: engine per trial
 **Goal:** migration 009 `trials.backtest_engine`, events `ENGINE_AUDIT_MISMATCH` / `ENGINE_FALLBACK`. **Accept when:** idempotent migration; append-only triggers intact; NULL reads as sandbox. **Evidence:** `tests/ledger/test_backtest_engine.py`; the review reader accepts v8 and v9.
 
-### ☐ P3-37 Program compiler
-**Goal:** `execution/kernels/program.py` turns a genome and a parameter list into bounded numeric tables. **Accept when:** dedup, binding by TUNABLE name and a totality fuzz pass.
+### ✅ P3-37 Program compiler
+**Goal:** `execution/kernels/program.py` turns a genome and a parameter list into bounded numeric tables. **Accept when:** dedup, binding by TUNABLE name and a totality fuzz pass. **Evidence:** `tests/execution/kernels/test_program.py` (19 tests; 400 sampled genomes compile, junk only raises `ProgramError`).
 
 ### ☐ P3-38 Feature kernels
 **Goal:** every registry op on the window (`now`, `prev`), njit and CUDA from one source (E1 layout). **Accept when:** bit parity with `registry.py` on windows; `cudasim` and `gpu` tests.

@@ -60,6 +60,8 @@ TradingProject/
 │   ├── review/                    read-only read model + FastAPI app (`cli review`) ADR-0029  tooling
 │   └── execution/                 engine.py (legacy Nautilus + bracket spot replay),    §3.5    P3-25
 │                                  nautilus_bridge.py, exit_policy.py, joint_account.py, perp_account.py, risk.py
+│       ├── kernels/               GPU/njit engine: program (genome → tables), the only  §3.5    P3-37
+│       │                          numba importer (ADR-0038)
 │       └── adapters/ssi/          VN30F1M adapter                                      §3.5    phase 6
 ├── ui/                            React + Vite front end: src/, e2e/ (Playwright)    ADR-0029  tooling
 └── tests/                         mirrors src/quantcrucible/; e2e/ for phase gates

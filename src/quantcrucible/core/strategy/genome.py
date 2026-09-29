@@ -281,6 +281,13 @@ class _Renderer:
         return {self.names[id(p)]: p.value for p in self.unique}
 
 
+def named_params(genome: Genome) -> list[tuple[str, Param]]:
+    """Each distinct parameter with the TUNABLE name its render gives it, in declaration order.
+    A parameter object shared by two nodes is one name (the renderer's rule)."""
+    r = _Renderer(genome)
+    return [(r.names[id(p)], p) for p in r.unique]
+
+
 def render_genome(
     genome: Genome, direction: ScopeDirection = "long", tp_sl_ratio: float | None = None
 ) -> tuple[str, dict[str, float | int]]:
