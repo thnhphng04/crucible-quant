@@ -501,8 +501,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-32 Kiểu genome trong `core`
 **Mục tiêu:** chuyển dataclass genome, phần render và (giải) tuần tự hóa sang `core/strategy/genome.py`; `agent/grammar.py` re-export. **Đạt khi:** 1.000 lần `render_genome` có seed cho cùng hash trước và sau; `lint-imports` pass.
 
-### ☐ P3-33 Parser source → genome
-**Mục tiêu:** `core/strategy/genome_parse.py` dựng lại genome từ source đã render bằng `ast`, không bao giờ `exec`, chỉ nhận khi render lại khớp từng byte (E3). **Đạt khi:** round trip đúng dưới Hypothesis; source bị đột biến, lạ hoặc quá lớn bị từ chối.
+### ✅ P3-33 Parser source → genome
+**Mục tiêu:** `core/strategy/genome_parse.py` dựng lại genome từ source đã render bằng `ast`, không bao giờ `exec`, chỉ nhận khi render lại khớp từng byte (E3). **Đạt khi:** round trip đúng dưới Hypothesis; source bị đột biến, lạ hoặc quá lớn bị từ chối. **Bằng chứng:** mọi genome lấy mẫu (2.000 lần render) và 11.988 con lai C-gp đều parse lại đúng; mọi byte bị sửa, chiến lược zoo hay source quá lớn đều bị từ chối.
 
 ### ☐ P3-34 Report builder dùng chung
 **Mục tiêu:** sandbox và engine kernel dựng report gate ③/④ bằng cùng hàm thuần; `SandboxResult.engine`. **Đạt khi:** test sandbox không đổi.

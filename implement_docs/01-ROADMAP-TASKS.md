@@ -501,8 +501,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-32 Genome types in `core`
 **Goal:** move the genome dataclasses, rendering and (de)serialization to `core/strategy/genome.py`; `agent/grammar.py` re-exports. **Accept when:** 1,000 seeded `render_genome` outputs hash the same before and after; `lint-imports` passes.
 
-### ☐ P3-33 Source → genome parser
-**Goal:** `core/strategy/genome_parse.py` recovers a genome from rendered source with `ast`, never `exec`, and accepts only a byte-exact re-render (E3). **Accept when:** round trip holds under Hypothesis; mutated, foreign or oversized sources are refused.
+### ✅ P3-33 Source → genome parser
+**Goal:** `core/strategy/genome_parse.py` recovers a genome from rendered source with `ast`, never `exec`, and accepts only a byte-exact re-render (E3). **Accept when:** round trip holds under Hypothesis; mutated, foreign or oversized sources are refused. **Evidence:** every sampled genome (2,000 renders) and 11,988 C-gp offspring parse back; any edited byte, zoo strategy or oversized source is refused.
 
 ### ☐ P3-34 Shared report builder
 **Goal:** the sandbox and the kernel engine build the gate-③/④ report with the same pure functions; `SandboxResult.engine`. **Accept when:** sandbox tests are unchanged.

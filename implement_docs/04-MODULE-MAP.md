@@ -21,7 +21,8 @@ TradingProject/
 │   ├── config/                    loader, schema, campaign lock                        §10.1   P0-03
 │   ├── core/                      ── bottom layer ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
-│   │   │                          tunable, genome (types, render, JSON)         §3.3.3  P3-32
+│   │   │                          tunable, genome (types, render, JSON),        §3.3.3  P3-32/33
+│   │   │                          genome_parse (source → genome, never exec)
 │   │   ├── sizing/                position_sizer (Q = R/d; vol_target retired)          §3.4    P3-02
 │   │   └── zoo/                   hand-written (ema, sma, rsi v1+v2); AST            §3.1.6  P1-12
 │   │                              similarity set                                               phase 2
