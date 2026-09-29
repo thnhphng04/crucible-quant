@@ -21,7 +21,7 @@ TradingProject/
 │   ├── config/                    loader, schema, khóa campaign                        §10.1   P0-03
 │   ├── core/                      ── tầng đáy ──
 │   │   ├── strategy/              base (Signal, Strategy), registry (ind), template,    §3.3    P0-04/05
-│   │   │                          tunable
+│   │   │                          tunable, genome (kiểu, render, JSON)          §3.3.3  P3-32
 │   │   ├── sizing/                position_sizer (Q = R/d; đã bỏ vol_target)            §3.4    P3-02
 │   │   └── zoo/                   viết tay (ema, sma, rsi v1+v2); tập so độ           §3.1.6  P1-12
 │   │                              giống AST                                                    GĐ 2

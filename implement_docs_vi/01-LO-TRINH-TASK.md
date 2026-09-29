@@ -498,7 +498,7 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-31 Cổng tài liệu
 **Mục tiêu:** kiến trúc §3.3.3, §3.5, §6, §10 D23, khóa §10.1; ADR-0038/0039; lộ trình, bất biến, quy ước, vấn đề mở. **Đạt khi:** `scripts/check_doc_mirror.py` pass.
 
-### ☐ P3-32 Kiểu genome trong `core`
+### ✅ P3-32 Kiểu genome trong `core`
 **Mục tiêu:** chuyển dataclass genome, phần render và (giải) tuần tự hóa sang `core/strategy/genome.py`; `agent/grammar.py` re-export. **Đạt khi:** 1.000 lần `render_genome` có seed cho cùng hash trước và sau; `lint-imports` pass.
 
 ### ☐ P3-33 Parser source → genome

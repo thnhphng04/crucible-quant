@@ -498,7 +498,7 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-31 Documentation gate
 **Goal:** arch §3.3.3, §3.5, §6, §10 D23, §10.1 keys; ADR-0038/0039; roadmap, invariants, conventions, open items. **Accept when:** `scripts/check_doc_mirror.py` passes.
 
-### ☐ P3-32 Genome types in `core`
+### ✅ P3-32 Genome types in `core`
 **Goal:** move the genome dataclasses, rendering and (de)serialization to `core/strategy/genome.py`; `agent/grammar.py` re-exports. **Accept when:** 1,000 seeded `render_genome` outputs hash the same before and after; `lint-imports` passes.
 
 ### ☐ P3-33 Source → genome parser
