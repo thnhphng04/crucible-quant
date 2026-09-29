@@ -528,8 +528,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-41 Backends and self-test
 **Goal:** `CudaBackend` and `CpuKernelBackend` build `BacktestResult`s and gate-④ rows; a start-up self-test. **Accept when:** gate-③ reports equal the sandbox's. **Evidence:** `tests/execution/kernels/test_backend.py`: 12 sampled genomes, gate-③ `BacktestResult` equal to `run_backtest` field by field (equity, returns, fills, stops, exits, turnover, public metrics) and gate-④ rows equal per configuration, on CPU and on the RTX 3050 Ti; the self-test passes on the device.
 
-### ☐ P3-42 Engine router and audit
-**Goal:** `validation/engine_router.py` implements `JobRunner`, routes, falls back, audits (L0–L2); gates record the engine. **Accept when:** leak checks always use the sandbox; fp32 never falls back to fp64; a mismatch trips the breaker for that kernel version.
+### ✅ P3-42 Engine router and audit
+**Goal:** `validation/engine_router.py` implements `JobRunner`, routes, falls back, audits (L0–L2); gates record the engine. **Accept when:** leak checks always use the sandbox; fp32 never falls back to fp64; a mismatch trips the breaker for that kernel version. **Evidence:** `tests/validation/test_engine_router.py` (10 tests): gate-③ and gate-④ reports byte-identical to the sandbox's; `cli._session` hands every gate the router.
 
 ### ☐ P3-43 GPU executor
 **Goal:** one CUDA-context owner with a queue, VRAM budget and cancellation (E5). **Accept when:** 8 pipeline workers share the GPU without errors.

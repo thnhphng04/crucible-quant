@@ -34,6 +34,7 @@ TradingProject/
 │   │   ├── guardrail.py           gate ①a static + ①b dynamic (leak_check.py)          §3.2    P0-07/11
 │   │   ├── sandbox.py             Docker runner (host) + sandbox_runner.py (in-container) §3.3.3 P0-08
 │   │   ├── backtest_report.py     gate-③/④ report builder shared by sandbox and kernels  §3.5    P3-34
+│   │   ├── engine_router.py       JobRunner: kernel engine or sandbox, audits L0–L2      §3.5    P3-42
 │   │   ├── numerics.py            campaign-locked backtest precision (Numerics.from_lock) §10.1  P3-35
 │   │   ├── statistical.py         MinBTL, PSR, DSR, portfolio_dsr                      §3.2    P0-12, P1-02
 │   │   ├── pbo.py, pbo_gate.py    CSCV/PBO + batched gate-④ configuration set           §3.2    P3-25

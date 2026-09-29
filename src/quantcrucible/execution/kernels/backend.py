@@ -95,11 +95,13 @@ class KernelBackend:
             trade_log=log, target=self.target,
         )  # fmt: skip
 
-    def backtest(self, prog: Program, bars: Bars, spec: ReplaySpec) -> BacktestResult:
-        """Gate ③: the one configuration's full result."""
+    def backtest(
+        self, prog: Program, bars: Bars, spec: ReplaySpec, sig: Signals | None = None
+    ) -> BacktestResult:
+        """Gate ③: the one configuration's full result (``sig``: signals already computed)."""
         if prog.n_configs != 1:
             raise ValueError("a single backtest takes exactly one configuration")
-        sig = self.signals(prog, bars)
+        sig = sig if sig is not None else self.signals(prog, bars)
         out = self._replay(prog, bars, sig, spec, log=True)
         return _result(bars, prog, sig, out, spec)
 

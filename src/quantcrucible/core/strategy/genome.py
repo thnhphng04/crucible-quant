@@ -281,6 +281,16 @@ class _Renderer:
         return {self.names[id(p)]: p.value for p in self.unique}
 
 
+def feature_specs(
+    genome: Genome, direction: ScopeDirection = "long", tp_sl_ratio: float | None = None
+) -> list[tuple[str, str]]:
+    """``(name, expression)`` of every feature the render's ``indicators()`` returns, in order,
+    ``"atr"`` last — e.g. ``("f1", "ind.ema(bars.close, self.p.n1)")``."""
+    r = _Renderer(genome, direction, tp_sl_ratio)
+    r.body()
+    return [*r.features, ("atr", "ind.atr(bars, 14)")]
+
+
 def named_params(genome: Genome) -> list[tuple[str, Param]]:
     """Each distinct parameter with the TUNABLE name its render gives it, in declaration order.
     A parameter object shared by two nodes is one name (the renderer's rule)."""

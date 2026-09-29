@@ -528,8 +528,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-41 Backend và self-test
 **Mục tiêu:** `CudaBackend` và `CpuKernelBackend` dựng `BacktestResult` và hàng gate ④; self-test khi khởi động. **Đạt khi:** report gate ③ giống report sandbox. **Bằng chứng:** `tests/execution/kernels/test_backend.py`: 12 genome lấy mẫu, `BacktestResult` gate ③ bằng `run_backtest` từng trường (equity, returns, fills, stops, exits, turnover, public metrics) và hàng gate ④ bằng nhau theo từng cấu hình, trên CPU và trên RTX 3050 Ti; self-test pass trên thiết bị.
 
-### ☐ P3-42 Engine router và audit
-**Mục tiêu:** `validation/engine_router.py` implement `JobRunner`, định tuyến, fallback, audit (L0–L2); gate ghi engine. **Đạt khi:** leak check luôn dùng sandbox; fp32 không bao giờ fallback sang fp64; lệch thì ngắt breaker cho phiên bản kernel đó.
+### ✅ P3-42 Engine router và audit
+**Mục tiêu:** `validation/engine_router.py` implement `JobRunner`, định tuyến, fallback, audit (L0–L2); gate ghi engine. **Đạt khi:** leak check luôn dùng sandbox; fp32 không bao giờ fallback sang fp64; lệch thì ngắt breaker cho phiên bản kernel đó. **Bằng chứng:** `tests/validation/test_engine_router.py` (10 test): report gate ③ và gate ④ giống từng byte report của sandbox; `cli._session` giao router cho mọi gate.
 
 ### ☐ P3-43 Executor GPU
 **Mục tiêu:** một chủ sở hữu CUDA context, có hàng đợi, ngân sách VRAM và hủy việc (E5). **Đạt khi:** 8 worker pipeline dùng chung GPU không lỗi.

@@ -238,6 +238,7 @@ def _session(
     from quantcrucible.data.registry import DatasetRegistry, resolve_dataset
     from quantcrucible.data.store import ResearchStore, parse_range
     from quantcrucible.ledger.db import Ledger
+    from quantcrucible.validation.engine_router import make_job_runner
     from quantcrucible.validation.research_run import ResearchSession
     from quantcrucible.validation.run import current_campaign
     from quantcrucible.validation.sandbox import SandboxRunner, ensure_image
@@ -323,10 +324,16 @@ def _session(
                     bundle = read_bundle(second_dir, symbol, data.timeframe, names)
                     bundle.aligned_with(trade)
                     second_perps[symbol] = bundle
+    # Every gate job goes through the engine router: genome renders run on the kernel engine,
+    # everything else in the Docker sandbox (ADR-0038); precision comes from the lock (ADR-0039).
+    runner = make_job_runner(
+        SandboxRunner(ensure_image(root), label=label), lock, cfg.operational.compute,
+        root / "ledger" / "crucible.db", label,
+    )  # fmt: skip
     return ResearchSession(
         ledger=ledger, lock=lock, campaign_id=campaign_id,
         is_data=bars,
-        sandbox=SandboxRunner(ensure_image(root), label=label), results_dir=root / "results",
+        sandbox=runner, results_dir=root / "results",
         second_is_data=second, perp_data=perps, second_perp_data=second_perps,
     )  # fmt: skip
 

@@ -254,6 +254,8 @@ class InSampleGate:
                 "denied_orders": out["denied_orders"],
                 "public": public,
                 "engine": res.engine,
+                "kernel_version": (res.report or {}).get("kernel_version"),
+                "audit": (res.report or {}).get("audit"),
             },
             report=EvaluationReport.build(public=public),
             measurement=TrialMeasurement(sharpe, str(path), res.engine),

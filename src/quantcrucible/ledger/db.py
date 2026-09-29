@@ -21,6 +21,7 @@ from quantcrucible.ledger.records import (
     Campaign,
     CampaignPurpose,
     CampaignStatus,
+    Event,
     GateResultRecord,
     GenerationEvent,
     HoldoutAccess,
@@ -554,6 +555,14 @@ class Ledger:
             f"SELECT event, island, detail FROM generation_log{where} ORDER BY id", args
         )
         return [(r[0], r[1], json.loads(r[2]) if r[2] else None) for r in rows]
+
+    def events_named(self, event: Event) -> list[dict[str, Any]]:
+        """The detail of every ``event`` in the audit log, all campaigns, oldest first — e.g. the
+        kernel versions an audit has refused for good (ADR-0038)."""
+        rows = self._conn.execute(
+            "SELECT detail FROM generation_log WHERE event = ? ORDER BY id", (str(event),)
+        )
+        return [json.loads(r[0]) if r[0] else {} for r in rows]
 
     def portfolio_variants(self, campaign_id: str | None = None) -> list[PortfolioVariant]:
         sql = (

@@ -80,7 +80,11 @@ def test_the_kernel_engine_never_runs_candidate_source() -> None:
     """INV-106, ADR-0038: the kernel engine interprets a genome; it has no call that could run a
     candidate's source, whatever path the source took to get there."""
     offenders = []
-    for path in (SRC / "execution" / "kernels").rglob("*.py"):
+    engine = [
+        *(SRC / "execution" / "kernels").rglob("*.py"),
+        SRC / "validation" / "engine_router.py",
+    ]
+    for path in engine:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             name = None
             if isinstance(node, ast.Call):
