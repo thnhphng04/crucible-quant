@@ -540,8 +540,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-45 float32 mode and E6
 **Goal:** fp32 features and signals; fp32 audit against njit; E6 divergence on synthetic data in ADR-0039. **Evidence:** `tests/execution/kernels/test_float32.py`: CUDA fp32 equals the CPU fp32 build bit for bit (features, signals, grid rows; device and simulator), and both stay within 1e-3 of fp64; an fp32 genome job runs on the kernels and never reaches the sandbox (`test_engine_router.py`). E6 in ADR-0039: no gate-③/④ verdict flipped over 90 genomes; `auto` keeps CUDA.
 
-### ☐ P3-46 Gate ⑥′ and calibration on the engine
-**Goal:** cost ×2, second-source reruns and Optuna attempts go through the router.
+### ✅ P3-46 Gate ⑥′ and calibration on the engine
+**Goal:** cost ×2, second-source reruns and Optuna attempts go through the router. **Evidence:** both already submit through `ctx.services["sandbox"]`, which `cli._session` (and so Studio) fills with the router. `tests/validation/test_engine_reruns.py`: a calibration run through the router gives the same attempts, best parameters and trial Sharpes, to the bit, as the canonical job functions, with no sandbox job; ⑥′ reruns (costs ×2, a second source) match too, and in float32 stay on the kernels.
 
 ### ☐ P3-47 Holdout on the engine
 **Goal:** the holdout evaluator uses the engine at the lock's precision; a self-test before `claim()`, CPU-kernel fallback mid-run. **Accept when:** a refused preflight leaves the holdout unclaimed.

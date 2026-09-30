@@ -540,8 +540,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-45 Chế độ float32 và E6
 **Mục tiêu:** feature và tín hiệu fp32; audit fp32 so với njit; độ lệch E6 trên dữ liệu tổng hợp ghi vào ADR-0039. **Bằng chứng:** `tests/execution/kernels/test_float32.py`: CUDA fp32 bằng bản CPU fp32 từng bit (feature, tín hiệu, hàng lưới; trên thiết bị và simulator), và cả hai cách fp64 không quá 1e-3; một job genome fp32 chạy trên kernel và không bao giờ tới sandbox (`test_engine_router.py`). E6 trong ADR-0039: không verdict gate ③/④ nào bị lật trên 90 genome; `auto` giữ CUDA.
 
-### ☐ P3-46 Gate ⑥′ và calibration trên engine
-**Mục tiêu:** chi phí ×2, chạy lại trên nguồn thứ hai và các lần thử Optuna đều đi qua router.
+### ✅ P3-46 Gate ⑥′ và calibration trên engine
+**Mục tiêu:** chi phí ×2, chạy lại trên nguồn thứ hai và các lần thử Optuna đều đi qua router. **Bằng chứng:** cả hai vốn đã gửi job qua `ctx.services["sandbox"]`, mà `cli._session` (và do đó Studio) điền bằng router. `tests/validation/test_engine_reruns.py`: một lần calibration qua router cho cùng các lần thử, cùng tham số tốt nhất và cùng Sharpe của trial, khớp từng bit, so với các hàm job chuẩn, và không có job sandbox nào; các lần chạy lại của ⑥′ (chi phí ×2, nguồn thứ hai) cũng khớp, và ở float32 vẫn ở trên kernel.
 
 ### ☐ P3-47 Holdout trên engine
 **Mục tiêu:** holdout evaluator dùng engine theo precision của lock; self-test trước `claim()`, fallback CPU kernel giữa chừng. **Đạt khi:** preflight bị từ chối thì holdout chưa bị claim.
