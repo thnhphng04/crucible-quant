@@ -558,6 +558,9 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-51 Định tuyến perpetual
 **Mục tiêu:** job perpetual ③/④ và job `signals` cho replay danh mục đi qua router; INV-94 vẫn giữ. **Bằng chứng:** router chỉ lên kế hoạch cho job perpetual khi có bundle (đã căn chỉnh, có đường giá giao dịch theo phút), đóng gói mỗi bundle một lần và replay bằng K4; job `signals`, vốn không định giá gì, lấy từ kernel tín hiệu, nên danh mục perpetual float32 qua được preflight của holdout. `tests/validation/test_engine_router_perp.py`: report gate ③, gate ④ và `signals` bằng report của các hàm job trong container cho genome long và short, audit L2 so cả funding và ngày thanh lý, và một job thiếu bundle đi sandbox ở float64 và bị từ chối ở float32.
 
+### ✅ P3-52 Danh mục spot trên một tài khoản tiền mặt chung
+**Mục tiêu:** danh mục spot bracket là một lần replay tài khoản của các slot, như danh mục perpetual ([ADR-0040](adr/0040-danh-muc-spot-la-mot-tai-khoan-tien-mat-chung.md)). **Chấp nhận khi:** một member tái tạo backtest gate ③ của nó khớp từng bit; bước dựng, gate ⑥′ và holdout replay cùng một tài khoản; lock không có tag giữ tổng có trọng số. **Bằng chứng:** `execution/spot_account.py`; `tests/execution/test_spot_account.py` (khớp bit trên 3 seed, trục hợp, tiền mặt chung theo thứ tự chuẩn, trần 10%, một snapshot mỗi bar); `tests/validation/test_spot_portfolio.py` (tag lock, bước dựng, ⑥′, holdout, luật cũ được giữ); `tests/validation/test_run.py::test_opens_once_then_resumes` (lock mới mang tag).
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

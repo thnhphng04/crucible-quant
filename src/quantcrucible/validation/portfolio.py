@@ -35,6 +35,7 @@ from quantcrucible.execution.exit_policy import ExitPolicy
 from quantcrucible.execution.joint_account import SignalReplay, SlotPlan, replay_signals
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.execution.risk import RiskSettings
+from quantcrucible.execution.spot_account import replay_spot_signals
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import (
     LEGACY_INSTRUMENT,
@@ -51,6 +52,32 @@ from quantcrucible.validation.statistical import (
 
 MIN_COMMON_OBS = 30
 WEIGHT_DIGITS = 10  # weights are rounded before hashing so the hash is stable across platforms
+
+# ``derived.portfolio_protocol`` (ADR-0040). A lock without it keeps the §3.2.1 rule it was
+# registered under: cell representatives, a correlation filter, w ∝ 1/σ, and a weighted sum.
+SHARED_ACCOUNT = "shared_account_v1"
+ACCOUNT_WEIGHTING = "risk_per_slot"  # a rule whose returns are one account's, not a weighted sum
+
+
+def portfolio_protocol(lock: Mapping[str, Any]) -> str | None:
+    tag = lock.get("derived", {}).get("portfolio_protocol")
+    if tag is not None and tag != SHARED_ACCOUNT:
+        raise ValueError(f"unknown locked portfolio protocol {tag!r}")
+    return None if tag is None else str(tag)
+
+
+def is_perpetual_lock(lock: Mapping[str, Any]) -> bool:
+    market = str(lock.get("research", {}).get("data", {}).get("market", "")).lower()
+    return market in {"perp", "usdt_m_perpetual"}
+
+
+def shares_spot_account(lock: Mapping[str, Any]) -> bool:
+    """A spot campaign whose portfolio is one shared cash account (ADR-0040)."""
+    if is_perpetual_lock(lock) or portfolio_protocol(lock) is None:
+        return False
+    if ExitPolicy.from_lock(lock).mode != "bracket_timeout_v1":
+        raise ValueError("a shared spot account replays bracket_timeout_v1 campaigns only")
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +485,49 @@ def write_account_curve(
     return path
 
 
+def member_plans(
+    members: Sequence[Member],
+    streams: Mapping[int, Path],
+    bars: Mapping[str, Bars],
+    market: str,
+) -> list[SlotPlan]:
+    """Every member's slot plans, each matched to its member by **instrument**, not by list
+    position: a silent mismatch would replay one strategy's signals against another strategy's
+    market. ``market`` only names the account in the errors."""
+    plans: list[SlotPlan] = []
+    seen: set[tuple[str, str]] = set()
+    for member in members:
+        if member.direction not in ("long", "short"):
+            raise ValueError(f"{member.candidate_id}: {market} member has no locked direction")
+        path = streams.get(member.trial_id)
+        if path is None:
+            raise ValueError(
+                f"{member.candidate_id}: no signal stream for trial {member.trial_id}; a "
+                f"{market} portfolio is replayed from signals, not returns (ADR-0035)"
+            )
+        for plan in load_signal_stream(path):
+            if plan.direction != member.direction:
+                raise ValueError(
+                    f"{member.candidate_id}: signal direction {plan.direction} differs from "
+                    f"locked {member.direction} direction"
+                )
+            if plan.instrument not in member.universe:
+                raise ValueError(
+                    f"{member.candidate_id}: its signal stream names {plan.instrument}, which is "
+                    f"not in its universe {list(member.universe)}"
+                )
+            if plan.instrument not in bars or len(plan.signals) != len(bars[plan.instrument]):
+                raise ValueError(
+                    f"{member.candidate_id}: signal stream length does not match "
+                    f"{plan.instrument} bars"
+                )
+            if plan.slot in seen:
+                raise ValueError(f"duplicate {market} slot {plan.slot}: one strategy per side")
+            seen.add(plan.slot)
+            plans.append(plan)
+    return plans
+
+
 def consolidate_on_account(
     members: Sequence[Member],
     streams: Mapping[int, Path],
@@ -477,43 +547,9 @@ def consolidate_on_account(
     nothing for naive risk parity to weight — and a weighted blend of standalone streams would
     describe positions that never competed for the same margin, the same cap or the same ten
     slots. The account replay *is* the portfolio.
-
-    A member's stream is matched to it by **instrument**, not by list position: a silent mismatch
-    would replay one strategy's signals against another strategy's market.
     """
-    plans: list[SlotPlan] = []
-    seen: set[tuple[str, str]] = set()
-    for member in members:
-        if member.direction not in ("long", "short"):
-            raise ValueError(f"{member.candidate_id}: perpetual member has no locked direction")
-        path = streams.get(member.trial_id)
-        if path is None:
-            raise ValueError(
-                f"{member.candidate_id}: no signal stream for trial {member.trial_id}; a "
-                "perpetual portfolio is replayed from signals, not returns (ADR-0035)"
-            )
-        for plan in load_signal_stream(path):
-            if plan.direction != member.direction:
-                raise ValueError(
-                    f"{member.candidate_id}: signal direction {plan.direction} differs from "
-                    f"locked {member.direction} direction"
-                )
-            if plan.instrument not in member.universe:
-                raise ValueError(
-                    f"{member.candidate_id}: its signal stream names {plan.instrument}, which is "
-                    f"not in its universe {list(member.universe)}"
-                )
-            if plan.instrument not in bars or len(plan.signals) != len(bars[plan.instrument]):
-                raise ValueError(
-                    f"{member.candidate_id}: signal stream length does not match "
-                    f"{plan.instrument} bars"
-                )
-            if plan.slot in seen:
-                raise ValueError(f"duplicate perpetual slot {plan.slot}: one strategy per side")
-            seen.add(plan.slot)
-            plans.append(plan)
     return replay_signals(
-        plans,
+        member_plans(members, streams, bars, "perpetual"),
         bars,
         inputs,
         initial_cash=initial_cash,
@@ -522,4 +558,29 @@ def consolidate_on_account(
         leverage=leverage,
         max_portfolio_risk_pct=max_portfolio_risk_pct,
         exit_policy=exit_policy,
+    )
+
+
+def consolidate_on_spot_account(
+    members: Sequence[Member],
+    streams: Mapping[int, Path],
+    bars: Mapping[str, Bars],
+    *,
+    settings: RiskSettings,
+    costs: CostModel,
+    initial_cash: float,
+    exit_policy: ExitPolicy,
+    max_portfolio_risk_pct: float = 0.10,
+) -> SignalReplay:
+    """The same replacement on the spot path (ADR-0040): one shared cash account, long slots,
+    the same 10% cap — on the union of the members' timestamps, so a younger listing never cuts
+    an older member's history."""
+    return replay_spot_signals(
+        member_plans(members, streams, bars, "spot"),
+        {s: b for s, b in bars.items() if any(s in m.universe for m in members)},
+        initial_cash,
+        settings,
+        costs,
+        exit_policy,
+        max_portfolio_risk_pct=max_portfolio_risk_pct,
     )

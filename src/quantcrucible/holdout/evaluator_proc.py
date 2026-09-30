@@ -49,7 +49,13 @@ from quantcrucible.ledger.records import utc_now
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.is_gates import backtest_options
 from quantcrucible.validation.pbo_gate import periods_per_year
-from quantcrucible.validation.portfolio import Member, combine, consolidate_on_account
+from quantcrucible.validation.portfolio import (
+    ACCOUNT_WEIGHTING,
+    Member,
+    combine,
+    consolidate_on_account,
+    consolidate_on_spot_account,
+)
 from quantcrucible.validation.robustness import (
     account_options,
     annual_sharpe,
@@ -316,6 +322,44 @@ def _evaluate_perp_portfolio(
     return out[out.index >= start]
 
 
+def _evaluate_spot_account(
+    members: Sequence[Member],
+    sources: Mapping[str, str],
+    bars: Mapping[str, Bars],
+    options: Mapping[str, Any],
+    runner: Runner,
+    start: pd.Timestamp,
+) -> pd.Series:
+    """A spot portfolio frozen as one cash account (ADR-0040): signals from the sandbox, the
+    account replayed on the host — the same path its in-sample returns took."""
+    with tempfile.TemporaryDirectory(prefix="qc-holdout-signals-") as tmp:
+        from quantcrucible.execution.exit_policy import ExitPolicy
+
+        root = Path(tmp)
+        streams = {
+            m.trial_id: _member_signal_stream(
+                m, sources[m.strategy_hash], bars, options, runner, root
+            )
+            for m in members
+        }
+        replay = consolidate_on_spot_account(
+            members,
+            streams,
+            bars,
+            settings=RiskSettings(**options["risk"]),
+            costs=CostModel(**options["costs"]),
+            initial_cash=float(options.get("initial_cash", 100_000.0)),
+            exit_policy=ExitPolicy(**options.get("exit_policy", {})),
+            max_portfolio_risk_pct=float(options.get("max_portfolio_risk_pct", 0.10)),
+        )
+    out = pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:]))
+    return out[out.index >= start]
+
+
+def _on_one_account(rule_config: Mapping[str, Any]) -> bool:
+    return str(rule_config.get("weighting", "")) == ACCOUNT_WEIGHTING
+
+
 def engine_runner(
     ledger_path: Path,
     lock: Mapping[str, Any],
@@ -324,6 +368,7 @@ def engine_runner(
     options: Mapping[str, Any],
     compute: Compute,
     sandbox: Runner,
+    on_account: bool = False,
 ) -> Runner:
     """The engine router at the lock's precision, checked before the claim (P3-47, INV-110):
     every member must have an engine that will answer it — in float32 the kernels, with a CPU
@@ -332,7 +377,7 @@ def engine_runner(
     and a device fault mid-run continues on the CPU build at the same precision."""
     from quantcrucible.validation.engine_router import EngineRefused, EngineRouter, MemberJob
 
-    kind = "signals" if _is_perpetual_portfolio(members, lock) else "backtest"
+    kind = "signals" if on_account or _is_perpetual_portfolio(members, lock) else "backtest"
     jobs = [MemberJob(kind, sources[m.strategy_hash], m.params, tuple(m.universe)) for m in members]
     router = EngineRouter(sandbox, lock, compute, ledger_path, "holdout", l1_rate=1.0)
     try:
@@ -387,6 +432,7 @@ def evaluate(
             runner = engine_runner(
                 paths.ledger, lock, members, sources, options,
                 compute or Compute("auto", AUDIT_RATE_FLOOR), sandbox or LazySandbox(root),
+                _on_one_account(variant.rule_config),
             )  # fmt: skip
         claim(ledger, campaign, freeze, now)  # from here on the holdout is consumed
         try:
@@ -405,6 +451,8 @@ def evaluate(
             )
             if _is_perpetual_portfolio(members, lock):
                 oos = _evaluate_perp_portfolio(members, sources, bars, perp, options, runner, start)
+            elif _on_one_account(variant.rule_config):
+                oos = _evaluate_spot_account(members, sources, bars, options, runner, start)
             else:
                 oos = _evaluate_spot_portfolio(
                     members, sources, bars, options, runner, start, rebalance

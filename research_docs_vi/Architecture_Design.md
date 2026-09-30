@@ -3,7 +3,7 @@
 > *Crucible Quant — phòng nghiên cứu định lượng dùng AI để tiến hóa chiến lược giao dịch hệ thống, và bắt mọi chiến lược qua lửa thử trước khi được giao dịch thật.*
 >
 > Thiết kế hệ thống AI sinh & kiểm định chiến lược trading deterministic, đa thị trường.
-> Phiên bản: 0.8 (draft) · Ngày: 2026-09-27
+> Phiên bản: 0.10 (draft) · Ngày: 2026-10-01
 > Nền tảng nghiên cứu: [[00-TONG-HOP-NGHIEN-CUU]] · [[04-TRUONG-PHAI-B-HIEU-QUA]] · [[06-PLATFORM-DA-THI-TRUONG]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Thay đổi 0.1 → 0.2** (nguồn: khảo sát 22 hệ trong [[08-LLM-QUANT-RESEARCHER]]): kiến trúc QuantEvolve được xác nhận độc lập bởi MadEvolve (§3.1) · thêm thay đổi bắt buộc **#5 DSL đóng** và **#6 reviewer ngữ cảnh mới tinh** (§3.1.6) · **DSR tính trên danh mục hợp nhất, không phải từng cell** (§3.1.6 — điểm dễ sai nhất) · thêm **gate ⓪ chống trôi spec** (§3.1.7) · thay khuyến nghị "dùng model nhỏ" bằng **bảng định tuyến dị thể + cảnh báo tránh reasoning model** (§3.1.9) · ledger thêm `model_used`/`gen_attempts`/`gen_failures`/`drift_delta` + view `starved_cells` (§4.1) · **P6 nâng lên cấp OS, evaluator chạy process riêng** (§4.2) · loại bỏ meta-evolution và RFT khỏi phạm vi (§9) · cảnh báo không lấy con số paper làm mốc (§11)
@@ -21,6 +21,8 @@
 > **Thay đổi 0.7 → 0.8** (ADR-0036, 27/9/2026): campaign mới khóa SL/TP và thời gian giữ tối đa, hỗ trợ 15m/1h; campaign cũ giữ exit legacy; ghi rõ replay hiện tại, chi phí và giới hạn P5 (§3.2, §3.3, §3.5, D18, D21).
 >
 > **Thay đổi 0.8 → 0.9** (ADR-0037, đã triển khai): thêm Studio UI local để cấu hình, chuẩn bị dữ liệu, preview, tạo và chạy campaign; giữ `cli review` chỉ đọc theo ADR-0029; tách dataset bất biến, job supervisor và ranh giới bảo mật localhost cho mọi mutation (§4.1, §4.2, §5, D22).
+>
+> **Thay đổi 0.9 → 0.10** (ADR-0038–0040, 30/9–1/10/2026): genome engine C chạy trên kernel numba của host, khớp bit với replay Python, precision khóa theo campaign (D23) · campaign mới khóa `derived.portfolio_protocol: shared_account_v1`: danh mục spot, như perpetual, là một tài khoản chung với mỗi slot `(instrument, direction)` một member, trần 10%, trên hợp các trục thời gian; lock cũ giữ luật ô + 1/σ (§3.2.1, D9)
 
 ---
 
@@ -553,6 +555,7 @@ Bản 0.2 bắt DSR tính trên danh mục nhưng không nói danh mục đượ
 
 - **Mỗi lần đổi bất kỳ bước nào** (ngưỡng ρ, K, cách chọn đại diện, lịch tái cân bằng) rồi đánh giá lại = **một phương án danh mục mới**, ghi bảng `portfolio_variants` (§4.1) và **cộng vào `N`** ở gate ⑤.
 - Các tham số 0.5 / 20 / hàng tháng là **mặc định tạm** — nhưng phải chốt *trước* lần đánh giá danh mục đầu tiên, không chỉnh sau khi đã thấy DSR.
+- 🆕 **v0.10 — lock có `derived.portfolio_protocol: shared_account_v1` (ADR-0040) thay bước 1–5 bằng một tài khoản chung.** Bước 1 thành mỗi slot `(instrument, direction)` một member (PSR tốt nhất so với SR₀(N_eff, V[SR]), Sharpe IS > 0); không lọc tương quan (ρ và lịch tái cân bằng không được đọc); K vẫn là trần. Không có trọng số: tín hiệu của các member được replay trên một tài khoản — tiền mặt spot hoặc margin USDT perpetual — mỗi entry rủi ro `R` từ một snapshot equity, trong trần danh mục §3.4, trên hợp các trục thời gian của member (spot). Đường equity của tài khoản chính là lợi nhuận danh mục, ở ⑤, ⑥′ và holdout. Lock không có tag giữ quy tắc trên — không dựng lại danh mục theo luật chưa đăng ký.
 
 ### 3.3. Strategy Runtime — hợp đồng cốt lõi
 
@@ -1147,7 +1150,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D6 | Đồng tiền base                              | 🟡 Mặc định tạm    | USD                                                                           | Tầng FX conversion                                                                          |
 | D7 | ~~Mục tiêu vol danh mục~~ → Trần rủi ro danh mục | ✅ Đã chốt (25/9/2026) | `max_portfolio_risk_pct` = 10% vốn, tổng cam kết tại stop; ≤ 10 vị thế | Thay vol targeting. ADR-0031, §3.4. Vol danh mục nay là **kết quả**, không phải mục tiêu |
 | D8 | Drawdown tối đa chịu được                  | 🟡 Mặc định tạm    | 20%                                                                           | Kill-switch; là một phần của D4                                                            |
-| D9 | Tham số dựng danh mục (ρ, K, tái cân bằng) | 🟡 Mặc định tạm    | 0.5 / 20 / hàng tháng (§3.2.1)                                              | ⚠️ Phải đóng băng **trước lần đánh giá danh mục đầu tiên** — sau đó mỗi lần đổi là một `portfolio_variant` |
+| D9 | Tham số dựng danh mục (ρ, K, tái cân bằng) | 🟡 Mặc định tạm    | 0.5 / 20 / hàng tháng (§3.2.1)                                              | ⚠️ Phải đóng băng **trước lần đánh giá danh mục đầu tiên** — sau đó mỗi lần đổi là một `portfolio_variant`. Dưới `shared_account_v1` (ADR-0040) chỉ K được đọc |
 | D10 | Ngưỡng drift Δ                            | 🟡 Mặc định tạm    | 0.05 / 0.15, Δ chuẩn hóa (§3.1.7)                                          | Hiệu chỉnh ở GĐ 2 trước khi dùng để tự động hủy                                        |
 | D11 | Model Research Agent                      | 🟡 Mặc định tạm    | Non-reasoning, `gpt-oss-120b` (§3.1.9)                                      | A/B nội bộ khi engine A được xây lại (hoãn, D19)                                          |
 | D12 | Lỗ mỗi lệnh khi chạm stop (`max_risk_pct`) | ✅ Đã chốt (25/9/2026) | 1% vốn — nay là **chính** quy tắc sizing, không còn là trần | `Q = R/d`, ADR-0031, §3.4. Lỗ thực có thể khác vì phí, funding, gap và slippage — báo cáo riêng |

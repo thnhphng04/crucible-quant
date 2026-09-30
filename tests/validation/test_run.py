@@ -34,6 +34,7 @@ def test_opens_once_then_resumes(tmp_path: Path) -> None:
     assert lock["holdout_range"] == "2030-01-01/2031-01-01"
     assert lock["derived"]["template_hash"] == template_hash("joint")
     assert set(lock["derived"]["costs"]) == {"fee_rate", "slippage_bps"}
+    assert lock["derived"]["portfolio_protocol"] == "shared_account_v1"  # ADR-0040
     assert current_campaign(cfg, ledger, lock_path, tmp_path) == first
     changed = replace(cfg, research=replace(cfg.research, seeds=5))
     with pytest.raises(LockMismatchError):

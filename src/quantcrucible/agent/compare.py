@@ -62,9 +62,10 @@ from quantcrucible.validation.portfolio import (
     build_portfolio,
     eligible_trials,
     load_returns,
+    portfolio_protocol,
     record_variant,
 )
-from quantcrucible.validation.research_run import ResearchSession
+from quantcrucible.validation.research_run import ResearchSession, account_portfolio
 from quantcrucible.validation.statistical import portfolio_dsr
 
 MEANINGFUL_EFFICIENCY = 1.0  # passing ④ per 100 trials; below it for both arms ⇒ investigate
@@ -459,6 +460,11 @@ def _engine_portfolio(session: ResearchSession, engine: str, fmap: FeatureMap) -
     trials = [t for t in eligible_trials(ledger, cid) if t.engine == engine]
     if not trials:
         return None
+    if portfolio_protocol(session.lock) is not None:  # ADR-0040: one account, a member per slot
+        portfolio = account_portfolio(session, trials)
+        if portfolio is not None:
+            record_variant(ledger, portfolio, session.results_dir)
+        return portfolio
     cells: dict[str, str] = {}
     for key in {Key(t.instrument, t.direction, engine, t.seed) for t in trials}:  # type: ignore[arg-type]
         cells.update({k: cell_id(v) for k, v in trial_cells(ledger, cid, key, fmap).items()})

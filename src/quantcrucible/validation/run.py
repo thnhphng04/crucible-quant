@@ -41,6 +41,7 @@ from quantcrucible.validation.is_gates import DAYS_PER_YEAR, InSampleGate, MinBt
 from quantcrucible.validation.numerics import numerics_tag
 from quantcrucible.validation.pbo import DEFAULT_SPLITS
 from quantcrucible.validation.pbo_gate import PboGate
+from quantcrucible.validation.portfolio import SHARED_ACCOUNT
 from quantcrucible.validation.robustness import COST_MULTIPLIER, MAX_SHARPE_DROP
 from quantcrucible.validation.sandbox import JobRunner
 from quantcrucible.validation.statistical import max_trials_within
@@ -115,6 +116,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     derived = derived_settings(cfg.research.evolve_scope)
     derived["exit_protocol"] = "bracket_timeout_v1"
     derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
+    derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
     # The manifest records the exact fetched window even when user.yaml requested latest (null).
     fetched_end = date.fromisoformat(str(manifest["range"]).split("/")[1]) - timedelta(days=1)
     if cfg.research.data.end is not None and fetched_end != cfg.research.data.end:

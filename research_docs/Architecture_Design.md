@@ -3,7 +3,7 @@
 > *Crucible Quant — an AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 >
 > Design for an AI system that generates and validates deterministic, multi-market trading strategies.
-> Version: 0.8 (draft) · Date: 2026-09-27
+> Version: 0.10 (draft) · Date: 2026-10-01
 > Research foundation: [[00-RESEARCH-SYNTHESIS]] · [[04-SCHOOL-B-EFFICACY]] · [[06-MULTI-MARKET-PLATFORM]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Changes 0.1 → 0.2** (source: the 22-system survey in [[08-LLM-QUANT-RESEARCHER]]): the QuantEvolve architecture was independently confirmed by MadEvolve (§3.1) · added mandatory deviations **#5 closed DSL** and **#6 fresh-context reviewer** (§3.1.6) · **DSR computed on the consolidated portfolio, not per cell** (§3.1.6 — the easiest thing to get wrong) · added **gate ⓪ spec-drift** (§3.1.7) · replaced the "use small models" recommendation with a **heterogeneous routing table + a warning against reasoning models** (§3.1.9) · ledger gained `model_used` / `gen_attempts` / `gen_failures` / `drift_delta` plus the `starved_cells` view (§4.1) · **P6 raised to OS level, evaluator runs in its own process** (§4.2) · meta-evolution and RFT removed from scope (§9) · warning against using paper numbers as benchmarks (§11)
@@ -21,6 +21,8 @@
 > **Changes 0.7 → 0.8** (ADR-0036, 27 Sep 2026): new campaigns lock SL/TP and maximum holding time and support 15m/1h; old campaigns retain legacy exits; current replay, costs and P5 limits are explicit (§3.2, §3.3, §3.5, D18, D21).
 >
 > **Changes 0.8 → 0.9** (ADR-0037, implemented): adds the local Studio UI for configuring, preparing data, previewing, creating and running campaigns; keeps `cli review` read-only under ADR-0029; separates immutable datasets, the job supervisor and the localhost security boundary for every mutation (§4.1, §4.2, §5, D22).
+>
+> **Changes 0.9 → 0.10** (ADR-0038–0040, 30 Sep–1 Oct 2026): engine-C genomes run on host numba kernels, bit-exact with the Python replay, precision locked per campaign (D23) · new campaigns lock `derived.portfolio_protocol: shared_account_v1`: a spot portfolio, like a perpetual one, is one shared account with a member per `(instrument, direction)` slot, the 10% cap, on the union of the time axes; old locks keep the cell + 1/σ rule (§3.2.1, D9)
 
 ---
 
@@ -553,6 +555,7 @@ Input: every candidate that passed ④ (PBO < 0.5) as of the freeze point
 
 - **Changing any step** (ρ threshold, K, representative choice, rebalancing schedule) and re-evaluating = **a new portfolio variant**, recorded in the `portfolio_variants` table (§4.1) and **added to `N`** at gate ⑤.
 - The 0.5 / 20 / monthly parameters are **provisional defaults** — but they must be locked *before* the first portfolio evaluation, not tuned after seeing DSR.
+- 🆕 **v0.10 — a lock with `derived.portfolio_protocol: shared_account_v1` (ADR-0040) replaces steps 1–5 with one shared account.** Step 1 becomes one member per `(instrument, direction)` slot (the best PSR against SR₀(N_eff, V[SR]), IS Sharpe > 0); there is no correlation filter (ρ and the rebalancing schedule are not read); K stays the cap. There are no weights: the members' signals are replayed through one account — spot cash or the perpetual USDT margin — each entry risking `R` from one equity snapshot, inside the §3.4 portfolio cap, on the union of the members' time axes (spot). The account's equity curve is the portfolio's return, at ⑤, ⑥′ and the holdout. A lock without the tag keeps the rule above — a portfolio is never rebuilt under a rule it did not register.
 
 ### 3.3. Strategy Runtime — the core contract
 
@@ -1147,7 +1150,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D6 | Base currency | 🟡 Provisional default | USD | FX conversion layer |
 | D7 | ~~Portfolio vol target~~ → Portfolio risk cap | ✅ Decided (25 Sep 2026) | `max_portfolio_risk_pct` = 10% of equity, summed commitment at the stop; ≤ 10 positions | Replaces vol targeting. ADR-0031, §3.4. Portfolio vol is now an **outcome**, not a target |
 | D8 | Maximum tolerable drawdown | 🟡 Provisional default | 20% | Kill-switch; part of D4 |
-| D9 | Portfolio-construction parameters (ρ, K, rebalancing) | 🟡 Provisional default | 0.5 / 20 / monthly (§3.2.1) | ⚠️ Must be frozen **before the first portfolio evaluation** — after that, every change is a `portfolio_variant` |
+| D9 | Portfolio-construction parameters (ρ, K, rebalancing) | 🟡 Provisional default | 0.5 / 20 / monthly (§3.2.1) | ⚠️ Must be frozen **before the first portfolio evaluation** — after that, every change is a `portfolio_variant`. Under `shared_account_v1` (ADR-0040) only K is read |
 | D10 | Drift thresholds Δ | 🟡 Provisional default | 0.05 / 0.15, normalized Δ (§3.1.7) | Calibrate in phase 2 before using them to abort automatically |
 | D11 | Research Agent model | 🟡 Provisional default | Non-reasoning, `gpt-oss-120b` (§3.1.9) | Internal A/B once engine A is built (deferred, D19) |
 | D12 | Loss per trade at the stop (`max_risk_pct`) | ✅ Decided (25 Sep 2026) | 1% of equity — now **the** sizing rule, no longer a cap | `Q = R/d`, ADR-0031, §3.4. Realized loss may differ through fees, funding, gaps and slippage — reported separately |
