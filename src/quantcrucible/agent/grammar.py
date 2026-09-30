@@ -21,6 +21,7 @@ import numpy as np
 
 # The genome types, their rendering and serialization live in core (P3-32, ADR-0038) so the
 # layers below the agent can read a genome; they are re-exported here for the engines.
+from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.core.strategy.genome import CLAUSE_TYPES as CLAUSE_TYPES
 from quantcrucible.core.strategy.genome import Breakout as Breakout
 from quantcrucible.core.strategy.genome import Clause as Clause
@@ -74,6 +75,8 @@ class GrammarConfig:
     take_profit_probability: float = 0.0
     boll_stop_probability: float = 0.0
     tp_sl_ratio: float | None = None
+    # the scope's side (P3-04): rendered sources emit it or flat, never the other side (INV-91)
+    direction: ScopeDirection = "long"
     max_params: int = MAX_TUNABLES
     clause_types: tuple[type, ...] = field(default=CLAUSE_TYPES)
 
