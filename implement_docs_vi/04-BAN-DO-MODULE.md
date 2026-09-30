@@ -24,6 +24,7 @@ TradingProject/
 │   │   │                          tunable, genome (kiểu, render, JSON),         §3.3.3  P3-32/33
 │   │   │                          genome_parse (source → genome, không exec)
 │   │   ├── sizing/                position_sizer (Q = R/d; đã bỏ vol_target)            §3.4    P3-02
+│   │   ├── perp_arrays.py         PerpBundle → mảng CSR cho replay perp của kernel      §3.5    P3-49
 │   │   └── zoo/                   viết tay (ema, sma, rsi v1+v2); tập so độ           §3.1.6  P1-12
 │   │                              giống AST                                                    GĐ 2
 │   ├── data/                      protocol DataSource, nguồn ccxt/Stooq, store,        §6.1    P0-09

@@ -24,6 +24,7 @@ TradingProject/
 │   │   │                          tunable, genome (types, render, JSON),        §3.3.3  P3-32/33
 │   │   │                          genome_parse (source → genome, never exec)
 │   │   ├── sizing/                position_sizer (Q = R/d; vol_target retired)          §3.4    P3-02
+│   │   ├── perp_arrays.py         PerpBundle → CSR arrays for the kernel perp replay    §3.5    P3-49
 │   │   └── zoo/                   hand-written (ema, sma, rsi v1+v2); AST            §3.1.6  P1-12
 │   │                              similarity set                                               phase 2
 │   ├── data/                      DataSource protocol, ccxt/Stooq sources, store,      §6.1    P0-09

@@ -549,8 +549,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-48 Freeze precondition
 **Goal:** every portfolio member is re-produced canonically before freeze (audit L3). **Evidence:** `validation/reproduce.py` measures each kernel-measured member again — the sandbox in float64, the CPU build in float32 — and records `MEMBERS_REPRODUCED`; `freeze_campaign` refuses until every such member matched its recorded returns bit for bit, and `cli freeze` runs the re-production first. `tests/validation/test_reproduce.py`: freeze blocked before re-production and after a one-ulp mismatch; float32 re-produces on the CPU build without touching the sandbox.
 
-### ☐ P3-49 Perpetual input arrays
-**Goal:** `core/perp_arrays.py` packs `PerpBundle` into flat arrays. **Accept when:** first-touch equals `SegmentedPath`.
+### ✅ P3-49 Perpetual input arrays
+**Goal:** `core/perp_arrays.py` packs `PerpBundle` into flat arrays. **Accept when:** first-touch equals `SegmentedPath`. **Evidence:** `tests/core/test_perp_arrays.py` on synthetic 4h bundles (`tests/perp_fixtures.py`: minute trade and mark paths, mid-bar settlements, tiered brackets): first-touch on the arrays equals `PathSummary.first_touch` over ~7k segment/level/direction cases, breakpoints included; funding packs in the replay's order with its minute offsets; bars the replay would refuse are flagged, not refused.
 
 ### ☐ P3-50 Perpetual replay kernel
 **Goal:** single-slot perpetual bracket replay (funding, liquidation, leverage, clearance, timeout). **Accept when:** bit parity with `replay_signals` for one slot.

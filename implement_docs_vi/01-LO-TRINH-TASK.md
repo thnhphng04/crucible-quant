@@ -549,8 +549,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-48 Điều kiện freeze
 **Mục tiêu:** mọi thành viên danh mục được tái tạo theo đường chuẩn trước freeze (audit L3). **Bằng chứng:** `validation/reproduce.py` đo lại mọi member do kernel đo — sandbox ở float64, bản CPU ở float32 — và ghi `MEMBERS_REPRODUCED`; `freeze_campaign` từ chối cho tới khi mọi member như vậy khớp returns đã ghi từng bit, và `cli freeze` chạy bước tái tạo trước. `tests/validation/test_reproduce.py`: freeze bị chặn khi chưa tái tạo và khi lệch một ulp; float32 tái tạo trên bản CPU mà không đụng tới sandbox.
 
-### ☐ P3-49 Mảng đầu vào perpetual
-**Mục tiêu:** `core/perp_arrays.py` đóng gói `PerpBundle` thành mảng phẳng. **Đạt khi:** first-touch bằng `SegmentedPath`.
+### ✅ P3-49 Mảng đầu vào perpetual
+**Mục tiêu:** `core/perp_arrays.py` đóng gói `PerpBundle` thành mảng phẳng. **Đạt khi:** first-touch bằng `SegmentedPath`. **Bằng chứng:** `tests/core/test_perp_arrays.py` trên bundle 4h tổng hợp (`tests/perp_fixtures.py`: đường giá giao dịch và mark theo phút, settlement giữa bar, bảng margin nhiều bậc): first-touch trên mảng bằng `PathSummary.first_touch` qua ~7k trường hợp segment/mức giá/chiều, kể cả đúng breakpoint; funding được đóng gói theo đúng thứ tự replay đọc, kèm offset phút; bar mà replay sẽ từ chối được đánh dấu chứ không bị từ chối.
 
 ### ☐ P3-50 Kernel replay perpetual
 **Mục tiêu:** replay bracket perpetual một slot (funding, thanh lý, leverage, clearance, timeout). **Đạt khi:** khớp bit với `replay_signals` cho một slot.
