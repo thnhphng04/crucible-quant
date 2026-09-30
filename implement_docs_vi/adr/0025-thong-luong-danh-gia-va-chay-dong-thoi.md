@@ -20,6 +20,7 @@ Cổng ④ backtest mọi cấu hình trong lưới PBO (`M` ≤ 200). Engine C 
 - O14 được thu hẹp: thông lượng đã biết và tốt hơn ~40%; đòn bẩy còn lại là `pbo_grid.max_configs` (D13, do người dùng quyết) — không dùng backtester vector hóa (P5).
 - O9 vẫn mở: không có lỗi khóa với 6 luồng ghi đồng thời trong test; xem lại nếu lần chạy thật cho thấy tranh chấp.
 - Indicator vẫn được tính lại trên cả cửa sổ ở mỗi bar (≈ 20% một backtest). Đó là đường live (P5); cache chúng cần một ADR riêng.
+- **Cập nhật (P3-44, 2026-09-30):** lý do từ chối bên dưới không còn đúng với genome engine C. [ADR-0038](0038-engine-backtest-gpu-genome-la-du-lieu.md) thêm một engine kernel được chứng minh khớp oracle Python chứ không phải được tin: `tests/e2e/test_engine_parity.py` chạy một campaign tổng hợp qua sandbox và qua router, và thấy trial, verdict gate và file kết quả giống hệt nhau. Chiến lược viết tay và chiến lược LLM vẫn đi đường sandbox.
 
 ## Các phương án đã cân nhắc
 

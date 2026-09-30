@@ -19,6 +19,7 @@ output is seconds and counts, never Sharpe or returns.
 
     uv run python scripts/bench_backtest.py
     uv run python scripts/bench_backtest.py --bars 20000 --profile --sandbox
+    uv run python scripts/bench_backtest.py --kernels cpu_kernel,gpu   # P3-44, needs --group gpu
 """
 
 from __future__ import annotations
@@ -230,6 +231,58 @@ def bench_sandbox(bars: Bars, genome: Genome, lookback: int) -> dict[str, Any]:
     }
 
 
+def bench_kernels(
+    bars: Bars, genomes: dict[str, Genome], lookback: int, configs: int, engines: list[str]
+) -> dict[str, Any]:
+    """Warm seconds of one gate-③ job and one gate-④ grid through the engine router (P3-44), at
+    the full bar count — measured, not projected. No sandbox audit: this times the kernels."""
+    from quantcrucible.config.schema import Compute
+    from quantcrucible.core.strategy.template import parse
+    from quantcrucible.core.strategy.tunable import pbo_grid
+    from quantcrucible.validation.engine_router import EngineRouter
+    from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
+
+    class NoSandbox:
+        def run(self, job: SandboxJob) -> SandboxResult:
+            raise RuntimeError(f"a {job.kind} job reached the sandbox")
+
+    options = {
+        "costs": {"fee_rate": 0.001, "slippage_bps": 5.0},
+        "lookback": lookback,
+        "risk": {"max_risk_pct": 0.01},
+        "seed": 0,
+        "exit_policy": {
+            "mode": "bracket_timeout_v1",
+            "tp_sl_ratio": TP_SL_RATIO,
+            "max_holding_bars": MAX_HOLDING_BARS,
+        },
+    }
+    out: dict[str, Any] = {}
+    for engine in engines:
+        router = EngineRouter(NoSandbox(), {"campaign_id": "bench"}, Compute(engine, 0.0))  # type: ignore[arg-type]
+        per: dict[str, Any] = {}
+        for name, genome in genomes.items():
+            source, params = render_genome(genome, "long", tp_sl_ratio=TP_SL_RATIO)
+            grid = pbo_grid(list(parse(source).tunables), 5, 0.3, configs, 0, center=params)
+            jobs = {
+                "gate3_job_s": SandboxJob("backtest", source, {SYMBOL: bars}, params, options),
+                "gate4_grid_s": SandboxJob(
+                    "grid_backtest", source, {SYMBOL: bars}, params, {**options, "grid": grid}
+                ),
+            }
+            row: dict[str, Any] = {"grid_configs": len(grid)}
+            for key, job in jobs.items():
+                router.run(job)  # compile and warm
+                start = time.perf_counter()
+                res = router.run(job)
+                row[key] = time.perf_counter() - start
+                row["engine"] = res.engine
+                row[key.replace("_s", "_audit")] = (res.report or {}).get("audit")
+            per[name] = row
+        out[engine] = per
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--bars", type=int, default=8_000, help="bars actually measured")
@@ -240,6 +293,9 @@ def main() -> None:
     parser.add_argument("--profile", action="store_true", help="cProfile the signals stage")
     parser.add_argument("--sandbox", action="store_true", help="also time Docker jobs")
     parser.add_argument("--sandbox-bars", type=int, default=2_000)
+    parser.add_argument(
+        "--kernels", help="also time the kernel engine at --project-bars, e.g. cpu_kernel,gpu"
+    )
     parser.add_argument("--output", type=Path, help="write the JSON here as well")
     args = parser.parse_args()
 
@@ -261,6 +317,14 @@ def main() -> None:
     if args.sandbox:
         results["sandbox"] = bench_sandbox(
             hourly_bars(args.sandbox_bars), genomes["G1"], args.lookback
+        )
+    if args.kernels:
+        results["kernels"] = bench_kernels(
+            hourly_bars(args.project_bars),
+            {n: genomes[n] for n in args.genomes.split(",")},
+            args.lookback,
+            args.configs,
+            args.kernels.split(","),
         )
     text = json.dumps(results, indent=2)
     print(text)

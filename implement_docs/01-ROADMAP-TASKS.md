@@ -534,8 +534,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-43 GPU executor
 **Goal:** one CUDA-context owner with a queue, VRAM budget and cancellation (E5). **Accept when:** 8 pipeline workers share the GPU without errors. **Evidence (E5, `scripts/experiments/e5_gpu_sharing.py`, 8 workers, 200-config grids, 67k bars):** dropping the report's JSON round trip took the router from 0.17 to ≈ 1.5 grids/s; CPU njit reaches ≈ 4.2 grids/s unlocked (2.0 locked), CUDA ≈ 0.8–1.5 whether device work is locked per stage or per job — the laptop GPU's fp64 rate caps it. Then: the replay moved to the CPU (6× faster there), only a job's GPU stages hold the device, and the audits compare by bytes instead of JSON — CUDA ≈ 8.4 grids/s against CPU ≈ 3.9, so `auto` keeps CUDA (ADR-0038).
 
-### ☐ P3-44 End-to-end parity and throughput
-**Goal:** one synthetic campaign through the sandbox and through the router. **Accept when:** identical `trials.sharpe_is`, returns parquet bytes and gate-④ matrices; O14 updated.
+### ✅ P3-44 End-to-end parity and throughput
+**Goal:** one synthetic campaign through the sandbox and through the router. **Accept when:** identical `trials.sharpe_is`, returns parquet bytes and gate-④ matrices; O14 updated. **Evidence:** `tests/e2e/test_engine_parity.py` (docker): five genome candidates through ①a…④ in three campaigns (sandbox, `cpu_kernel`, `auto` = CUDA): same trials to the bit, same gate verdicts, byte-identical result files, no fallback or audit mismatch. `scripts/bench_backtest.py --kernels`: 0.27–0.29 s per 200-config grid at 67k bars on CUDA; ADR-0025 and O14/O22 updated.
 
 ### ☐ P3-45 float32 mode and E6
 **Goal:** fp32 features and signals; fp32 audit against njit; E6 divergence on synthetic data in ADR-0039.

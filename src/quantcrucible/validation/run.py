@@ -42,7 +42,7 @@ from quantcrucible.validation.numerics import numerics_tag
 from quantcrucible.validation.pbo import DEFAULT_SPLITS
 from quantcrucible.validation.pbo_gate import PboGate
 from quantcrucible.validation.robustness import COST_MULTIPLIER, MAX_SHARPE_DROP
-from quantcrucible.validation.sandbox import SandboxRunner
+from quantcrucible.validation.sandbox import JobRunner
 from quantcrucible.validation.statistical import max_trials_within
 
 DEFAULT_LOOKBACK = 400
@@ -262,7 +262,7 @@ def run_candidate(
     ledger: Ledger,
     lock: Mapping[str, Any],
     is_data: Mapping[str, Bars],
-    sandbox: SandboxRunner,
+    sandbox: JobRunner,
     results_dir: Path,
     pipeline: GatePipeline | None = None,
 ) -> PipelineOutcome:

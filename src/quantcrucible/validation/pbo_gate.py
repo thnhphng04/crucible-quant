@@ -30,7 +30,7 @@ from quantcrucible.validation.gates import G4_PBO, GateContext, GateResult, Stra
 from quantcrucible.validation.is_gates import backtest_options, perp_inputs, universe_bars
 from quantcrucible.validation.pbo import DEFAULT_SPLITS, pbo
 from quantcrucible.validation.report import EvaluationReport
-from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
+from quantcrucible.validation.sandbox import JobRunner, SandboxJob, sandbox_failure
 
 SECONDS_PER_CONFIG = 30.0  # sandbox budget for the grid job, per configuration (O14)
 GRID_REPORT_TARGET_BYTES = 16 * 2**20  # well below the sandbox's 64 MiB report ceiling
@@ -128,7 +128,7 @@ class PboGate:
                 False, self.id, None,
                 "PBO needs >= 2 configurations: declare the free parameters as TUNABLE",
             )  # fmt: skip
-        runner: SandboxRunner = ctx.services["sandbox"]
+        runner: JobRunner = ctx.services["sandbox"]
         try:
             perp = perp_inputs(candidate, ctx)
         except ValueError as exc:

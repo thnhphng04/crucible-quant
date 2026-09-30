@@ -27,7 +27,7 @@ from quantcrucible.validation.gates import (
     TrialMeasurement,
 )
 from quantcrucible.validation.report import EvaluationReport
-from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
+from quantcrucible.validation.sandbox import JobRunner, SandboxJob, sandbox_failure
 from quantcrucible.validation.statistical import min_btl_years, sharpe_moments
 
 DAYS_PER_YEAR = 365.25
@@ -194,7 +194,7 @@ class InSampleGate:
     cost = 3
 
     def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
-        runner: SandboxRunner = ctx.services["sandbox"]
+        runner: JobRunner = ctx.services["sandbox"]
         results_dir = Path(ctx.services["results_dir"])
         limits: Mapping[str, Any] = ctx.lock["research"]["constraints"]
         options = backtest_options(ctx.lock, candidate.seed)

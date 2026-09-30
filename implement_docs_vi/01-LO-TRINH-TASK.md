@@ -534,8 +534,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-43 Executor GPU
 **Mục tiêu:** một chủ sở hữu CUDA context, có hàng đợi, ngân sách VRAM và hủy việc (E5). **Đạt khi:** 8 worker pipeline dùng chung GPU không lỗi. **Bằng chứng (E5, `scripts/experiments/e5_gpu_sharing.py`, 8 worker, lưới 200 cấu hình, 67k bar):** bỏ vòng JSON của report đưa router từ 0,17 lên ≈ 1,5 lưới/s; CPU njit đạt ≈ 4,2 lưới/s khi không khóa (2,0 khi khóa), CUDA ≈ 0,8–1,5 dù khóa phần thiết bị theo từng bước hay theo job — sức tính fp64 của GPU laptop là giới hạn. Sau đó: replay chuyển sang CPU (ở đó nhanh hơn 6×), chỉ các bước GPU của một job giữ thiết bị, và audit so theo byte thay vì JSON — CUDA ≈ 8,4 lưới/s so với CPU ≈ 3,9, nên `auto` giữ CUDA (ADR-0038).
 
-### ☐ P3-44 Parity đầu cuối và thông lượng
-**Mục tiêu:** một campaign tổng hợp chạy qua sandbox và qua router. **Đạt khi:** `trials.sharpe_is`, byte parquet returns và ma trận gate ④ giống hệt; cập nhật O14.
+### ✅ P3-44 Parity đầu cuối và thông lượng
+**Mục tiêu:** một campaign tổng hợp chạy qua sandbox và qua router. **Đạt khi:** `trials.sharpe_is`, byte parquet returns và ma trận gate ④ giống hệt; cập nhật O14. **Bằng chứng:** `tests/e2e/test_engine_parity.py` (docker): năm candidate genome đi qua ①a…④ trong ba campaign (sandbox, `cpu_kernel`, `auto` = CUDA): trial giống từng bit, verdict gate giống nhau, file kết quả giống từng byte, không có fallback hay lệch audit. `scripts/bench_backtest.py --kernels`: 0,27–0,29 s mỗi lưới 200 cấu hình trên 67k bar với CUDA; đã cập nhật ADR-0025 và O14/O22.
 
 ### ☐ P3-45 Chế độ float32 và E6
 **Mục tiêu:** feature và tín hiệu fp32; audit fp32 so với njit; độ lệch E6 trên dữ liệu tổng hợp ghi vào ADR-0039.

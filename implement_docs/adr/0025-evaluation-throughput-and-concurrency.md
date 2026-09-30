@@ -20,6 +20,7 @@ Gate ④ backtests every configuration of the PBO grid (`M` ≤ 200). Engine C s
 - O14 narrowed: throughput is known and ~40% better; the remaining lever is `pbo_grid.max_configs` (D13, the user's call) — no vectorized backtester (P5).
 - O9 stays open: no lock errors with 6 concurrent writers in tests; revisit if a real run shows contention.
 - Indicators are still recomputed on the whole window every bar (≈ 20% of a backtest). That is the live path (P5); caching them would need its own ADR.
+- **Update (P3-44, 2026-09-30):** the rejection below no longer holds for engine-C genomes. [ADR-0038](0038-gpu-backtest-engine-genome-as-data.md) adds a kernel engine that is proved against the Python oracle, not trusted: `tests/e2e/test_engine_parity.py` runs one synthetic campaign through the sandbox and through the router and finds identical trials, gate verdicts and result files. Hand-written and LLM strategies keep the sandbox path.
 
 ## Alternatives considered
 

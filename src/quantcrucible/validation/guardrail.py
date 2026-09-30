@@ -38,7 +38,7 @@ from quantcrucible.validation.gates import (
     GateResult,
     StrategyCandidate,
 )
-from quantcrucible.validation.sandbox import SandboxJob, SandboxRunner, sandbox_failure
+from quantcrucible.validation.sandbox import JobRunner, SandboxJob, sandbox_failure
 
 BAR_FIELDS = frozenset({"open", "high", "low", "close", "volume"})
 BUILTIN_CALLS = frozenset({"Signal", "min", "max", "abs"})
@@ -409,7 +409,7 @@ class StaticGuardrail:
 
 
 class DynamicGuardrail:
-    """Gate ①b. Needs ``services['sandbox']`` (a SandboxRunner) and ``services['is_data']``
+    """Gate ①b. Needs ``services['sandbox']`` (a JobRunner) and ``services['is_data']``
     (IS bars by symbol); the candidate's universe selects from them."""
 
     id = G1B_DYNAMIC
@@ -420,7 +420,7 @@ class DynamicGuardrail:
         self.window = window
 
     def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
-        runner: SandboxRunner = ctx.services["sandbox"]
+        runner: JobRunner = ctx.services["sandbox"]
         data = ctx.services["is_data"]
         missing = [s for s in candidate.universe if s not in data]
         if missing or not candidate.universe:
