@@ -19,6 +19,7 @@ from quantcrucible.core.strategy.template import load_strategy_class, parse
 from quantcrucible.core.strategy.tunable import pbo_grid
 from quantcrucible.execution.engine import BacktestResult, run_backtest
 from quantcrucible.execution.exit_policy import ExitPolicy
+from quantcrucible.execution.kernels import backend
 from quantcrucible.execution.kernels.backend import (
     KernelBackend,
     ReplaySpec,
@@ -105,3 +106,25 @@ def test_cuda_backend_reproduces_run_backtest() -> None:
 @pytest.mark.gpu
 def test_the_start_up_self_test_passes_on_this_device() -> None:
     assert self_test("float64")
+
+
+def test_the_pinned_cpu_check_is_the_oracles_result() -> None:
+    """P3-47: the holdout's CPU check compares against a pinned digest; in float64 the pinned
+    matrix must be what run_backtest computes for the fixture job, row by row."""
+    from quantcrucible.core.strategy.genome import render_genome
+
+    prog, bars, spec = backend._fixture_job()
+    genome, _ = backend._fixture()
+    assert spec.lot_step == lot_step(bars.symbol) and spec.fee == float(CostModel().taker_rate)
+    src, _params = render_genome(genome, "long", spec.tp_sl_ratio)
+    grid = KernelBackend("cpu").grid(prog, bars, spec)
+    for m, cfg in enumerate(backend._fixture_configs(genome)):
+        cls = load_strategy_class(src, f"fixture_{m}")
+        want = run_backtest(
+            cls(cfg), {bars.symbol: bars}, costs=CostModel(),
+            initial_cash=spec.initial_cash, lookback=prog.lookback,
+            risk=RiskSettings(spec.max_risk_pct),
+            exit_policy=ExitPolicy("bracket_timeout_v1", spec.tp_sl_ratio, spec.max_holding_bars),
+        )  # fmt: skip
+        assert np.array_equal(grid.returns[m], want.returns), f"config {m}"
+    assert backend.cpu_check("float64") and backend.cpu_check("float32")

@@ -543,8 +543,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-46 Gate ⑥′ và calibration trên engine
 **Mục tiêu:** chi phí ×2, chạy lại trên nguồn thứ hai và các lần thử Optuna đều đi qua router. **Bằng chứng:** cả hai vốn đã gửi job qua `ctx.services["sandbox"]`, mà `cli._session` (và do đó Studio) điền bằng router. `tests/validation/test_engine_reruns.py`: một lần calibration qua router cho cùng các lần thử, cùng tham số tốt nhất và cùng Sharpe của trial, khớp từng bit, so với các hàm job chuẩn, và không có job sandbox nào; các lần chạy lại của ⑥′ (chi phí ×2, nguồn thứ hai) cũng khớp, và ở float32 vẫn ở trên kernel.
 
-### ☐ P3-47 Holdout trên engine
-**Mục tiêu:** holdout evaluator dùng engine theo precision của lock; self-test trước `claim()`, fallback CPU kernel giữa chừng. **Đạt khi:** preflight bị từ chối thì holdout chưa bị claim.
+### ✅ P3-47 Holdout trên engine
+**Mục tiêu:** holdout evaluator dùng engine theo precision của lock; self-test trước `claim()`, fallback CPU kernel giữa chừng. **Đạt khi:** preflight bị từ chối thì holdout chưa bị claim. **Bằng chứng:** `evaluator_proc.engine_runner` dựng router (`--engine`, mặc định `auto`; L1 cho mọi job CUDA) và gọi `EngineRouter.preflight` chỉ từ source và tham số, trước `claim()`: member float32 không có kernel, campaign float32 với lựa chọn sandbox, hay bản CPU không ra đúng digest fixture đã ghim (`backend.cpu_check`, được test buộc với `run_backtest`) đều bị từ chối. `tests/holdout/test_evaluator_engine.py`: portfolio genome được chấm trên kernel ở cả hai precision (float64 khớp engine chuẩn từng bit); mọi lần từ chối đều để campaign ở FROZEN và chưa claim; lỗi CUDA giữa chừng hoàn tất trên bản CPU với cùng Sharpe.
 
 ### ☐ P3-48 Điều kiện freeze
 **Mục tiêu:** mọi thành viên danh mục được tái tạo theo đường chuẩn trước freeze (audit L3).

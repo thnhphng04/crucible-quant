@@ -27,7 +27,7 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -62,6 +62,20 @@ class Unsupported(Exception):
     """The job is outside what the kernel engine computes."""
 
 
+class EngineRefused(Exception):
+    """No engine may answer a job the caller must run (the holdout's preflight, INV-110)."""
+
+
+@dataclass(frozen=True)
+class MemberJob:
+    """A job described without its bars: what the holdout knows before it claims."""
+
+    kind: str
+    source: str
+    params: Mapping[str, Any]
+    symbols: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class _Plan:
     parsed: ParsedGenome
@@ -92,10 +106,12 @@ class EngineRouter:
         compute: Compute,
         ledger_path: Path | None = None,
         run_label: str = "default",
+        l1_rate: float = L1_RATE,
     ) -> None:
         self.sandbox = sandbox
         self.lock = lock
         self.compute = compute
+        self.l1_rate = l1_rate  # the holdout checks every CUDA job (1.0)
         self.numerics = Numerics.from_lock(lock)
         self.ledger_path = ledger_path
         self.run_label = run_label
@@ -188,7 +204,7 @@ class EngineRouter:
                 return self.run(job)
             return self._refuse(reason) if self.fp32 else self.sandbox.run(job)
         audit = []
-        if engine == CUDA and _fraction("L1", self.version, self._key(job)) < L1_RATE:
+        if engine == CUDA and _fraction("L1", self.version, self._key(job)) < self.l1_rate:
             audit.append("L1")
             if not _same(result, self._compute(plan, job.kind, CPU)):
                 return self._mismatch(job, engine, "L1: CUDA differs from the CPU build")
@@ -243,36 +259,97 @@ class EngineRouter:
 
     # ── planning ─────────────────────────────────────────────────────────────────────────────
     def _plan(self, job: SandboxJob) -> _Plan:
-        options = job.options
+        if job.kind not in KERNEL_KINDS:
+            raise Unsupported(f"no kernel for {job.kind!r} jobs")
+        if len(job.bars) != 1:
+            raise Unsupported("only single-instrument spot jobs (perpetuals: P3-49..51)")
+        configs = (
+            [dict(c) for c in job.options["grid"]]
+            if job.kind == "grid_backtest"
+            else [dict(job.params)]
+        )
+        parsed = self._program(job.source, configs, job.options, tuple(job.bars), bool(job.perp))
+        ((_, bars),) = job.bars.items()
+        if not np.isfinite(np.stack([bars.open, bars.high, bars.low, bars.close])).all():
+            raise Unsupported("non-finite bars")
+        return _Plan(parsed, bars, configs, int(job.options["lookback"]), job.options)
+
+    def _program(
+        self,
+        source: str,
+        configs: list[dict[str, Any]],
+        options: Mapping[str, Any],
+        symbols: tuple[str, ...],
+        perp: bool,
+    ) -> ParsedGenome:
+        """Everything about a job the kernels need except its bars: the holdout checks this
+        before it claims, when it may not read the bars yet."""
         policy = options.get("exit_policy") or {}
         if policy.get("mode") != "bracket_timeout_v1":
             raise Unsupported("only bracket_timeout_v1 jobs")
-        if len(job.bars) != 1 or job.perp:
+        if len(symbols) != 1 or perp or ":" in symbols[0]:
             raise Unsupported("only single-instrument spot jobs (perpetuals: P3-49..51)")
-        ((symbol, bars),) = job.bars.items()
-        if ":" in symbol:
-            raise Unsupported("perpetual symbol")
         try:
-            parsed = parse_genome(job.source)
+            parsed = parse_genome(source)
         except GenomeParseError as exc:
             raise Unsupported(f"not a genome render: {exc}") from None
         if parsed.tp_sl_ratio is None or parsed.tp_sl_ratio != float(policy["tp_sl_ratio"]):
             raise Unsupported("the render's TP ratio differs from the locked one")
-        if job.kind == "grid_backtest":
-            configs = [dict(c) for c in options["grid"]]
-        else:
-            configs = [dict(job.params)]
-        lookback = int(options["lookback"])
-        _, program, _ = _kernels()
+        try:
+            _, program, _ = _kernels()
+        except ImportError:
+            raise Unsupported("the kernel engine is not installed (uv sync --group gpu)") from None
         try:
             program.compile_program(
-                parsed.genome, parsed.direction, parsed.tp_sl_ratio, configs, lookback
-            )
+                parsed.genome, parsed.direction, parsed.tp_sl_ratio, configs,
+                int(options["lookback"]),
+            )  # fmt: skip
         except program.ProgramError as exc:
             raise Unsupported(f"does not compile: {exc}") from None
-        if not np.isfinite(np.stack([bars.open, bars.high, bars.low, bars.close])).all():
-            raise Unsupported("non-finite bars")
-        return _Plan(parsed, bars, configs, lookback, options)
+        return parsed
+
+    # ── the holdout's preflight (P3-47, INV-110) ─────────────────────────────────────────────
+    def preflight(self, options: Mapping[str, Any], members: Sequence[MemberJob]) -> str:
+        """Check, before the holdout is claimed, that every member job has an engine that will
+        answer it, and return the engine its kernel jobs start on. Raises
+        :class:`EngineRefused` otherwise — nothing has been consumed yet.
+
+        A float32 campaign needs every member on the kernels and a working CPU build, since
+        nothing else may answer it. A float64 campaign may send a member to the sandbox."""
+        if self.fp32 and self.compute.engine == SANDBOX:
+            raise EngineRefused("a float32 campaign cannot run on the sandbox")
+        if self.compute.engine == SANDBOX:
+            return SANDBOX
+        kernel = False
+        for m in members:
+            try:
+                if m.kind not in KERNEL_KINDS:
+                    raise Unsupported(f"no kernel for {m.kind!r} jobs")
+                perp = any(":" in s for s in m.symbols)
+                self._program(m.source, [dict(m.params)], options, m.symbols, perp)
+                kernel = True
+            except Unsupported as exc:
+                if self.fp32:
+                    raise EngineRefused(f"a float32 member has no kernel: {exc}") from None
+        if not kernel:
+            return SANDBOX
+        if not self._cpu_ready():
+            if self.fp32:
+                raise EngineRefused("the CPU kernel build failed its check")
+            self._banned.add(CPU)
+        engine = self._choose()
+        if engine is None:
+            if self.fp32:
+                raise EngineRefused("every kernel build is refused")
+            return SANDBOX
+        return engine
+
+    def _cpu_ready(self) -> bool:
+        """The fallback compiles and runs: the self-test fixture on the CPU build."""
+        try:
+            return bool(_kernels()[0].cpu_check(self.numerics.precision))
+        except Exception:
+            return False
 
     # ── computing ────────────────────────────────────────────────────────────────────────────
     def _compute(self, plan: _Plan, kind: str, engine: str) -> dict[str, Any]:

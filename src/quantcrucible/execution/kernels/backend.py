@@ -8,12 +8,14 @@ the engine's own helpers, in the replay's append order, so every derived number 
 gate ④ it returns the return rows, trade counts and mean holding per configuration.
 
 :func:`self_test` is the start-up check (audit L0): the CUDA build must reproduce the CPU build on
-a fixture genome bit for bit before a process trusts the device. Nothing here loads source: the
-CPU kernels are proved against the Python oracle by the test suite, not at runtime.
+a fixture genome bit for bit before a process trusts the device. :func:`cpu_check` holds the CPU
+build to its pinned result on the same fixture (the holdout's preflight). Nothing here loads
+source: the CPU kernels are proved against the Python oracle by the test suite, not at runtime.
 """
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -220,13 +222,41 @@ def _fixture() -> tuple[Genome, Bars]:
     return genome, Bars("BTC/USDT", "1h", ts, open_, high, low, close, np.ones(size))
 
 
+def _fixture_configs(genome: Genome) -> list[dict[str, Any]]:
+    base: dict[str, Any] = {name: p.value for name, p in named_params(genome)}
+    return [base, {**base, "n1": 20}, {**base, "k_stop": 3.0}]
+
+
+def _fixture_job() -> tuple[Program, Bars, ReplaySpec]:
+    """The fixture as the campaign defaults would run it: fee + slippage 0.0015, BTC's lot."""
+    genome, bars = _fixture()
+    prog = compile_program(genome, "long", 1.1, _fixture_configs(genome), 300)
+    return prog, bars, ReplaySpec(0.0015, 1e-8, 0.01, 100_000.0, 100, 1.1)
+
+
+# sha256 of the fixture grid's return matrix, as the oracle-verified CPU build computes it: in
+# float64 it is also what run_backtest gives (tests/execution/kernels/test_backend.py).
+FIXTURE_DIGESTS = {
+    "float64": "2081b8f05f04a87132cabe81088f63a026111948dbcfdec8a5f31a2bdeee7ac8",
+    "float32": "fa6fd70f031cfbedc7a3d2957f802c4bccba5d53aad03d75c04437600221a9e4",
+}
+
+
+def fixture_digest(dtype: Dtype) -> str:
+    prog, bars, spec = _fixture_job()
+    grid = KernelBackend("cpu", dtype).grid(prog, bars, spec)
+    return hashlib.sha256(np.ascontiguousarray(grid.returns).tobytes()).hexdigest()
+
+
+def cpu_check(dtype: Dtype = "float64") -> bool:
+    """True when the CPU build — the fallback nothing else backs in float32 — compiles, runs
+    and reproduces its pinned result on the fixture job. The holdout asks before it claims."""
+    return fixture_digest(dtype) == FIXTURE_DIGESTS[dtype]
+
+
 def self_test(dtype: Dtype = "float64") -> bool:
     """True when the CUDA build reproduces the CPU build bit for bit on the fixture job."""
-    genome, bars = _fixture()
-    base = {name: p.value for name, p in named_params(genome)}
-    configs = [base, {**base, "n1": 20}, {**base, "k_stop": 3.0}]
-    prog = compile_program(genome, "long", 1.1, configs, 300)
-    spec = ReplaySpec(0.0015, 1e-5, 0.01, 100_000.0, 100, 1.1)
+    prog, bars, spec = _fixture_job()
     cpu = KernelBackend("cpu", dtype).grid(prog, bars, spec)
     gpu = KernelBackend("cuda", dtype).grid(prog, bars, spec)
     return (

@@ -543,8 +543,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-46 Gate ⑥′ and calibration on the engine
 **Goal:** cost ×2, second-source reruns and Optuna attempts go through the router. **Evidence:** both already submit through `ctx.services["sandbox"]`, which `cli._session` (and so Studio) fills with the router. `tests/validation/test_engine_reruns.py`: a calibration run through the router gives the same attempts, best parameters and trial Sharpes, to the bit, as the canonical job functions, with no sandbox job; ⑥′ reruns (costs ×2, a second source) match too, and in float32 stay on the kernels.
 
-### ☐ P3-47 Holdout on the engine
-**Goal:** the holdout evaluator uses the engine at the lock's precision; a self-test before `claim()`, CPU-kernel fallback mid-run. **Accept when:** a refused preflight leaves the holdout unclaimed.
+### ✅ P3-47 Holdout on the engine
+**Goal:** the holdout evaluator uses the engine at the lock's precision; a self-test before `claim()`, CPU-kernel fallback mid-run. **Accept when:** a refused preflight leaves the holdout unclaimed. **Evidence:** `evaluator_proc.engine_runner` builds the router (`--engine`, default `auto`; L1 on every CUDA job) and calls `EngineRouter.preflight` from sources and parameters alone, before `claim()`: a float32 member without a kernel, a float32 campaign on the sandbox setting, or a CPU build that misses its pinned fixture digest (`backend.cpu_check`, tied to `run_backtest` by a test) is refused. `tests/holdout/test_evaluator_engine.py`: genome portfolios judged on the kernels in both precisions (float64 equal to the canonical engine to the bit); every refusal leaves the campaign FROZEN and unclaimed; a CUDA fault mid-run finishes on the CPU build with the same Sharpe.
 
 ### ☐ P3-48 Freeze precondition
 **Goal:** every portfolio member is re-produced canonically before freeze (audit L3).

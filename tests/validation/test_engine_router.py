@@ -29,7 +29,13 @@ from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation import sandbox_runner
-from quantcrucible.validation.engine_router import EngineRouter, _fraction, _same
+from quantcrucible.validation.engine_router import (
+    EngineRefused,
+    EngineRouter,
+    MemberJob,
+    _fraction,
+    _same,
+)
 from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
 
 ZOO = Path(sandbox_runner.__file__).resolve().parents[1] / "core" / "zoo" / "ema_crossover.py"
@@ -214,6 +220,23 @@ def test_a_kernel_fault_falls_back_in_float64_and_refuses_in_float32(
     assert Ledger.open(ledger_path).events_named(Event.ENGINE_FALLBACK)
     box32 = FakeSandbox()
     assert not _router(box32, FP32, ledger_path).run(_genome_job()).ok and not box32.jobs
+
+
+def test_the_holdout_preflight_names_the_engine_or_refuses() -> None:
+    """P3-47: checked from sources and parameters alone, before any bar is read."""
+    job = _genome_job()
+    genome = MemberJob("backtest", job.source, job.params, ("BTC/USDT",))
+    zoo = MemberJob("backtest", ZOO.read_text("utf-8"), {}, ("BTC/USDT",))
+    perp = MemberJob("signals", job.source, job.params, ("BTC/USDT:USDT",))
+    assert _router(FakeSandbox(), FP64).preflight(OPTIONS, [genome, zoo]) == "cpu_kernel"
+    assert _router(FakeSandbox(), FP64).preflight(OPTIONS, [zoo]) == "sandbox"
+    assert _router(FakeSandbox(), FP64, engine="sandbox").preflight(OPTIONS, [genome]) == "sandbox"
+    assert _router(FakeSandbox(), FP32).preflight(OPTIONS, [genome]) == "cpu_kernel"
+    for members in ([genome, zoo], [perp]):
+        with pytest.raises(EngineRefused, match="float32 member"):
+            _router(FakeSandbox(), FP32).preflight(OPTIONS, members)
+    with pytest.raises(EngineRefused, match="sandbox"):
+        _router(FakeSandbox(), FP32, engine="sandbox").preflight(OPTIONS, [genome])
 
 
 def test_audits_compare_results_bit_for_bit() -> None:

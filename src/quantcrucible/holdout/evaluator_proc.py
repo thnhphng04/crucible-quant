@@ -3,9 +3,11 @@ ADR-0016)::
 
     uv run python -m quantcrucible.holdout.evaluator_proc --portfolio <portfolio_hash>
 
-Takes only a frozen ``portfolio_hash``. After every check in :func:`campaign.preflight`, it re-runs
-each member in the sandbox on a copy of the verified holdout slice (warmed up with the in-sample
-bars just before it), combines them with the frozen weights and rebalance rule, compares the
+Takes only a frozen ``portfolio_hash``. After every check in :func:`campaign.preflight` — and the
+backtest engine's own, at the lock's precision (:func:`engine_runner`, P3-47) — it re-runs each
+member on the engine (a genome on the kernels, anything else in the sandbox) on a copy of the
+verified holdout slice (warmed up with the in-sample bars just before it), combines them with the
+frozen weights and rebalance rule, compares the
 annualized OOS Sharpe with ``research.holdout_pass`` (D4), records the one opening, burns the
 campaign and prints exactly ``PASS`` or ``FAIL`` — never a number. ``sharpe_oos`` is stored in
 ``holdout_access`` for the human report only.
@@ -21,12 +23,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
 from quantcrucible.config.lock import read_lock
+from quantcrucible.config.schema import AUDIT_RATE_FLOOR, Compute, ComputeEngine
 from quantcrucible.core.perp_inputs import PerpBundle, read_bundle
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.holdout_split import verify_holdout
@@ -313,9 +316,42 @@ def _evaluate_perp_portfolio(
     return out[out.index >= start]
 
 
+def engine_runner(
+    ledger_path: Path,
+    lock: Mapping[str, Any],
+    members: Sequence[Member],
+    sources: Mapping[str, str],
+    options: Mapping[str, Any],
+    compute: Compute,
+    sandbox: Runner,
+) -> Runner:
+    """The engine router at the lock's precision, checked before the claim (P3-47, INV-110):
+    every member must have an engine that will answer it — in float32 the kernels, with a CPU
+    build that reproduces its pinned result — and CUDA passes its self-test or is not used. A
+    refusal here leaves the holdout unclaimed. Every CUDA job is cross-checked on the CPU build,
+    and a device fault mid-run continues on the CPU build at the same precision."""
+    from quantcrucible.validation.engine_router import EngineRefused, EngineRouter, MemberJob
+
+    kind = "signals" if _is_perpetual_portfolio(members, lock) else "backtest"
+    jobs = [MemberJob(kind, sources[m.strategy_hash], m.params, tuple(m.universe)) for m in members]
+    router = EngineRouter(sandbox, lock, compute, ledger_path, "holdout", l1_rate=1.0)
+    try:
+        router.preflight(options, jobs)
+    except EngineRefused as exc:
+        raise HoldoutRefused(f"backtest engine: {exc}") from None
+    return router
+
+
 def evaluate(
-    root: Path, portfolio_hash: str, runner: Runner, now: datetime | None = None
+    root: Path,
+    portfolio_hash: str,
+    runner: Runner | None = None,
+    now: datetime | None = None,
+    compute: Compute | None = None,
+    sandbox: Runner | None = None,
 ) -> Verdict:
+    """``runner`` answers every member job as given; without one, the engine router does
+    (``compute``, default ``auto``), backed by ``sandbox`` (default: the Docker sandbox)."""
     paths = Paths(root)
     ledger = Ledger.open(paths.ledger)
     try:
@@ -347,6 +383,11 @@ def evaluate(
         archive = StrategyArchive(paths.archive)
         sources = {m.strategy_hash: archive.get(m.strategy_hash) for m in members}
         threshold = float(lock["research"]["holdout_pass"])
+        if runner is None:
+            runner = engine_runner(
+                paths.ledger, lock, members, sources, options,
+                compute or Compute("auto", AUDIT_RATE_FLOOR), sandbox or LazySandbox(root),
+            )  # fmt: skip
         claim(ledger, campaign, freeze, now)  # from here on the holdout is consumed
         try:
             bars = evaluation_bars(
@@ -383,9 +424,14 @@ def main(argv: list[str] | None = None, runner: Runner | None = None) -> int:
     parser = argparse.ArgumentParser(prog="quantcrucible.holdout.evaluator_proc")
     parser.add_argument("--portfolio", required=True, help="the frozen portfolio_hash")
     parser.add_argument("--root", type=Path, default=Path("."))
+    parser.add_argument(
+        "--engine", choices=("auto", "gpu", "cpu_kernel", "sandbox"), default="auto",
+        help="backtest engine (ADR-0038); the precision always comes from the campaign lock",
+    )  # fmt: skip
     args = parser.parse_args(argv)
     try:
-        result = evaluate(args.root, args.portfolio, runner or LazySandbox(args.root))
+        compute = Compute(cast("ComputeEngine", args.engine), AUDIT_RATE_FLOOR)
+        result = evaluate(args.root, args.portfolio, runner, compute=compute)
     except HoldoutRefused as e:
         sys.stderr.write(f"refused: {e}\n")
         return 2
