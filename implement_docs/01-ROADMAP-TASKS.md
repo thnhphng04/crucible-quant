@@ -349,25 +349,25 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Deviation: `OmsType.NETTING`, not `HEDGING`.** One backtest runs one strategy on one side, so this engine never holds both legs of a contract — the two-sided book is a property of the joint-account replay (P3-08), which is host-side. `HEDGING` also mints a fresh `PositionId` per entry order, which left `reduce_only` stops with nothing to reduce and silently stopped them filling.
 **Two tests replaced, not deleted:** `test_short_signal_means_flat_on_spot` asserted the behaviour this task removes → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` drove the guard by exhausting a cash account, which a margin venue does not do → the guard is now `assert_complete` and is tested directly.
 
-### ◐ P3-07 Funding, mark price, liquidation, intrabar path
+### ✅ P3-07 Funding, mark price, liquidation, intrabar path
 **Goal:** the three things Nautilus does not model. **Arch:** §3.5, ADR-0032. **Needs:** P3-05, P3-06
 **Files:** new `execution/perp_account.py`, new `core/path_summary.py` (P3-16), `validation/sandbox.py` and `sandbox_runner.py` (the container's data channel widens).
-**Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox.
+**Accept when:** INV-93, INV-94; first touch matches a brute-force minute scan; a simultaneous touch is flagged ambiguous and resolved to the worse outcome; minute bars never enter the sandbox. **Evidence (phase check 2026-09-30):** `tests/core/test_path_summary.py::test_first_touch_matches_a_brute_force_minute_scan`, `::test_a_simultaneous_touch_is_reported_as_ambiguous`; INV-93 and INV-99 ✅; INV-94 holds on fixtures, its real-source half is P3-24.
 
-### ◐ P3-08 Joint-account backtest and the admission rule
+### ✅ P3-08 Joint-account backtest and the admission rule
 **Goal:** one account replay instead of N self-financed streams. **Arch:** §3.4, §3.2.1, ADR-0032. **Needs:** P3-07
 **Files:** `execution/engine.py`, new `execution/admission.py`, `validation/sandbox_runner.py`.
-**Accept when:** INV-92; account equity reconciles with the sum of slot contributions; the same seed reproduces the same account curve.
+**Accept when:** INV-92; account equity reconciles with the sum of slot contributions; the same seed reproduces the same account curve. **Evidence (phase check 2026-09-30):** INV-92 ✅; `tests/execution/test_joint_account.py::test_account_equity_reconciles_with_the_sum_of_slot_contributions`, `::test_the_same_input_reproduces_the_same_curve`.
 
 ### ✅ P3-09 Perpetual data source and manifests
 **Goal:** perpetual data with the integrity record the spot parquet never had. **Arch:** §6.1, D18. **Needs:** P3-01, P3-05
 **Files:** new `data/perp_source.py`, `data/store.py`, new `data/manifest.py`.
 **Accept when:** INV-94; a manifest records checksum, coverage and source; v4 spot bars cannot satisfy a perpetual request; `data` still imports no `execution` (import-linter).
 
-### ◐ P3-10 Perpetual holdout carve — separate, write-once
+### ✅ P3-10 Perpetual holdout carve — separate, write-once
 **Goal:** a second holdout that never touches the first. **Arch:** §4.2, P6. **Needs:** P3-09
 **Files:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
-**Accept when:** its own lock and manifest; the existing lock is never opened or overwritten; a second carve is refused; INV-08 holds for the new lock.
+**Accept when:** its own lock and manifest; the existing lock is never opened or overwritten; a second carve is refused; INV-08 holds for the new lock. **Evidence (phase check 2026-09-30):** completed by P3-22 — `tests/data/test_perp_holdout.py::test_an_existing_lock_is_never_overwritten`, `::test_the_second_carve_does_not_read_the_first`, `tests/data/test_holdout_split.py::test_second_carve_refused`.
 
 ### ✅ P3-11 Migration 007 — scope columns
 **Goal:** the ledger carries a scope, and 1,325 legacy rows keep their meaning untouched. **Arch:** §4.1, ADR-0033. **Needs:** —
@@ -389,10 +389,10 @@ Decisions: ADR-0031 (P4 retired, `Q = R/d`), ADR-0032 (host-side perpetual accou
 **Files:** `validation/portfolio.py` (`Member.from_dict` must refuse a missing timeframe rather than default it), `validation/run.py` (`DEFAULT_LOOKBACK` counts bars), `config/schema.py`, `validation/is_gates.py`.
 **Accept when:** the whole path runs at 4h on the same fixtures with correct annualisation; funding lands correctly at 1d, 4h and 8h bars.
 
-### ◐ P3-15 Review API, UI, legacy regression, quality gate
+### ✅ P3-15 Review API, UI, legacy regression, quality gate
 **Goal:** the new results are readable and the v4 ones still are. **Arch:** ADR-0029, ADR-0033. **Needs:** P3-14, P3-10
 **Files:** `review/repository.py` (`READABLE_SCHEMAS` = v6 and v7, an account-equity endpoint), `review/app.py`, `ui/src/`.
-**Accept when:** starting equity plus the summed contributions equals account equity within rounding tolerance; a v4 campaign still renders; INV-79 and INV-80 unchanged; the full quality gate green.
+**Accept when:** starting equity plus the summed contributions equals account equity within rounding tolerance; a v4 campaign still renders; INV-79 and INV-80 unchanged; the full quality gate green. **Evidence (phase check 2026-09-30):** completed by P3-23 — `tests/review/test_account_endpoint.py::test_the_reconciliation_is_served_as_a_measured_residual`; the reader accepts schemas v6–v9 (`tests/review/test_review_api.py`).
 
 ## Phase 3 (continued) — wiring the perpetual layer in
 
@@ -449,7 +449,7 @@ trade bars alone. These tasks wire them in, fetch real data, and take the phase 
 
 **Current status.** P3-16 through P3-23 are implemented and tested: the sandbox now receives
 mark, funding, paths and brackets; gates ③/④/⑥′, holdout replay and the account chart use them.
-P3-24 still requires a real-source coverage check before a perpetual campaign opens. P3-25 adds
+P3-24 still requires a real-source coverage check before a perpetual campaign opens: its code and fixture tests exist, but no real perpetual data has been fetched (it needs a read-only Binance key for the bracket snapshot) — the phase check of 2026-09-30 found this the only open condition of the gate. P3-25 adds
 the versioned bracket exit without reinterpreting any earlier campaign or result.
 
 The old sandbox-payload blocker is resolved. The phase gate remains open until the real-data

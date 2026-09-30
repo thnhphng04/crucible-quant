@@ -349,25 +349,25 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **Chệch hướng: `OmsType.NETTING`, không phải `HEDGING`.** Một backtest chạy một strategy trên một hướng, nên engine này không bao giờ giữ cả hai chân của một contract — sổ hai chiều là tính chất của joint-account replay (P3-08), vốn nằm ở host. `HEDGING` còn sinh `PositionId` mới cho mỗi lệnh vào, khiến stop `reduce_only` không còn gì để giảm và âm thầm không khớp.
 **Hai test bị thay, không bị xóa:** `test_short_signal_means_flat_on_spot` khẳng định đúng hành vi mà task này gỡ bỏ → `test_a_short_signal_is_traded_not_dropped`. `test_engine_stop_is_not_a_silent_truncation` kích hoạt guard bằng cách làm cạn tài khoản cash, thiếu thứ mà venue margin không làm → guard nay là `assert_complete` và được test trực tiếp.
 
-### ◐ P3-07 Funding, mark price, thanh lý, đường giá trong nến
+### ✅ P3-07 Funding, mark price, thanh lý, đường giá trong nến
 **Mục tiêu:** ba thứ Nautilus không mô hình. **Kiến trúc:** §3.5, ADR-0032. **Cần:** P3-05, P3-06
 **File:** thêm mới `execution/perp_account.py`, thêm mới `core/path_summary.py` (P3-16), `validation/sandbox.py` và `sandbox_runner.py` (kênh dữ liệu vào container mở rộng).
-**Đạt khi:** INV-93, INV-94; first touch khớp với quét vét cạn theo phút; chạm đồng thời bị gắn cờ mơ hồ và giải theo kết quả bất lợi hơn; nến phút không bao giờ vào sandbox.
+**Đạt khi:** INV-93, INV-94; first touch khớp với quét vét cạn theo phút; chạm đồng thời bị gắn cờ mơ hồ và giải theo kết quả bất lợi hơn; nến phút không bao giờ vào sandbox. **Bằng chứng (kiểm tra phase 2026-09-30):** `tests/core/test_path_summary.py::test_first_touch_matches_a_brute_force_minute_scan`, `::test_a_simultaneous_touch_is_reported_as_ambiguous`; INV-93 và INV-99 ✅; INV-94 đúng trên fixture, nửa nguồn thật của nó thuộc P3-24.
 
-### ◐ P3-08 Backtest tài khoản chung và luật kết nạp
+### ✅ P3-08 Backtest tài khoản chung và luật kết nạp
 **Mục tiêu:** một lần replay tài khoản thay cho N luồng tự tài trợ. **Kiến trúc:** §3.4, §3.2.1, ADR-0032. **Cần:** P3-07
 **File:** `execution/engine.py`, thêm mới `execution/admission.py`, `validation/sandbox_runner.py`.
-**Đạt khi:** INV-92; equity tài khoản đối soát khớp tổng đóng góp của các slot; cùng seed tái hiện cùng đường equity.
+**Đạt khi:** INV-92; equity tài khoản đối soát khớp tổng đóng góp của các slot; cùng seed tái hiện cùng đường equity. **Bằng chứng (kiểm tra phase 2026-09-30):** INV-92 ✅; `tests/execution/test_joint_account.py::test_account_equity_reconciles_with_the_sum_of_slot_contributions`, `::test_the_same_input_reproduces_the_same_curve`.
 
 ### ✅ P3-09 Nguồn dữ liệu perpetual và manifest
 **Mục tiêu:** dữ liệu perpetual có hồ sơ toàn vẹn mà parquet spot chưa bao giờ có. **Kiến trúc:** §6.1, D18. **Cần:** P3-01, P3-05
 **File:** thêm mới `data/perp_source.py`, `data/store.py`, thêm mới `data/manifest.py`.
 **Đạt khi:** INV-94; manifest ghi checksum, coverage và nguồn; nến spot v4 không thoả được một yêu cầu perpetual; `data` vẫn không import `execution` (import-linter).
 
-### ◐ P3-10 Cắt holdout perpetual — tách biệt, ghi một lần
+### ✅ P3-10 Cắt holdout perpetual — tách biệt, ghi một lần
 **Mục tiêu:** một holdout thứ hai không bao giờ chạm cái thứ nhất. **Kiến trúc:** §4.2, P6. **Cần:** P3-09
 **File:** `data/holdout_split.py`, `cli.py`, `holdout/evaluator_proc.py`.
-**Đạt khi:** có khoá và manifest riêng; khoá cũ không bao giờ bị mở hay ghi đè; lần cắt thứ hai bị từ chối; INV-08 đúng với khoá mới.
+**Đạt khi:** có khoá và manifest riêng; khoá cũ không bao giờ bị mở hay ghi đè; lần cắt thứ hai bị từ chối; INV-08 đúng với khoá mới. **Bằng chứng (kiểm tra phase 2026-09-30):** hoàn tất qua P3-22 — `tests/data/test_perp_holdout.py::test_an_existing_lock_is_never_overwritten`, `::test_the_second_carve_does_not_read_the_first`, `tests/data/test_holdout_split.py::test_second_carve_refused`.
 
 ### ✅ P3-11 Migration 007 — cột scope
 **Mục tiêu:** ledger mang được scope, và 1.325 hàng cũ giữ nguyên ý nghĩa mà không bị đụng. **Kiến trúc:** §4.1, ADR-0033. **Cần:** —
@@ -389,10 +389,10 @@ Quyết định: ADR-0031 (rút P4, `Q = R/d`), ADR-0032 (tài khoản perpetual
 **File:** `validation/portfolio.py` (`Member.from_dict` phải từ chối timeframe thiếu chứ không mặc định nó), `validation/run.py` (`DEFAULT_LOOKBACK` đếm theo nến), `config/schema.py`, `validation/is_gates.py`.
 **Đạt khi:** cả đường ống chạy ở 4h trên cùng fixture với niên hoá đúng; funding rơi đúng ở nến 1d, 4h và 8h.
 
-### ◐ P3-15 Review API, UI, hồi quy legacy, cổng chất lượng
+### ✅ P3-15 Review API, UI, hồi quy legacy, cổng chất lượng
 **Mục tiêu:** kết quả mới đọc được và kết quả v4 vẫn đọc được. **Kiến trúc:** ADR-0029, ADR-0033. **Cần:** P3-14, P3-10
 **File:** `review/repository.py` (`READABLE_SCHEMAS` = v6 và v7, endpoint equity tài khoản), `review/app.py`, `ui/src/`.
-**Đạt khi:** equity ban đầu cộng tổng đóng góp bằng equity tài khoản trong sai số làm tròn; campaign v4 vẫn hiển thị được; INV-79 và INV-80 giữ nguyên; toàn bộ cổng chất lượng xanh.
+**Đạt khi:** equity ban đầu cộng tổng đóng góp bằng equity tài khoản trong sai số làm tròn; campaign v4 vẫn hiển thị được; INV-79 và INV-80 giữ nguyên; toàn bộ cổng chất lượng xanh. **Bằng chứng (kiểm tra phase 2026-09-30):** hoàn tất qua P3-23 — `tests/review/test_account_endpoint.py::test_the_reconciliation_is_served_as_a_measured_residual`; reader nhận schema v6–v9 (`tests/review/test_review_api.py`).
 
 ## Giai đoạn 3 (tiếp) — nối tầng perpetual vào
 
@@ -449,7 +449,7 @@ nến giao dịch. Các task này nối dây, tải dữ liệu thật, và đư
 
 **Trạng thái hiện tại.** P3-16 đến P3-23 đã triển khai và kiểm thử: sandbox hiện nhận mark,
 funding, path và bracket; gate ③/④/⑥′, replay holdout và chart tài khoản đều dùng dữ liệu đó.
-P3-24 vẫn cần kiểm tra coverage nguồn thật trước khi mở campaign perpetual. P3-25 bổ sung
+P3-24 vẫn cần kiểm tra coverage nguồn thật trước khi mở campaign perpetual: code và test fixture đã có, nhưng chưa tải dữ liệu perpetual thật nào (cần key Binance chỉ-đọc cho snapshot bracket) — lần kiểm tra phase ngày 2026-09-30 thấy đây là điều kiện duy nhất còn mở của cổng. P3-25 bổ sung
 thoát theo bracket có phiên bản mà không diễn giải lại campaign hay kết quả cũ.
 
 Điểm chặn payload sandbox cũ đã được giải quyết. Cổng giai đoạn còn mở cho đến khi xác minh
