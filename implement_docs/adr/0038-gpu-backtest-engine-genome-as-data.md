@@ -24,6 +24,7 @@ On 1h data (≈ 67k bars, L = 400), `step()` recomputes every indicator on each 
 - **E7 (CPU):** zero bit mismatches against `registry.py` for sma, ema, rsi, atr, zscore, boll, rolling_max, over 3 seeds and 4 series.
 - **G1 prototype, 6 configurations × 4 variants:** equity bit-identical to `_run_spot_bracket`, as are trades, denials, ambiguous bars, signals and stop bits.
 - **E0, G1 at 67k bars, M = 200:** CUDA fused 0.18 s, njit fused 0.38 s, Python ≈ 1,440 s. At M = 1: hybrid 0.018 s. CUDA beats njit by only ≈ 2.1×, below the 3× rule, and the user kept CUDA primary. Expect more on genomes with heavier indicators.
+- **E2/E5 (P3-43), 8 pipeline workers, sampled genomes, 200-config grids, 67k bars:** CUDA runs features 5× and signals 2–3× faster than the CPU but the sequential replay 6× slower, so a CUDA job computes features and signals on the device and replays on the CPU; one job's GPU stages hold the device at a time. After removing two host costs (a JSON round trip of each report, a JSON comparison in the audits), the engine does ≈ 8.4 grids/s on CUDA against ≈ 3.9 on CPU njit alone — about 0.12 s per grid, against 0.4–3.3 h before.
 - ADR-0025's rejection no longer holds for engine-C genomes: the second engine is proved against the oracle rather than trusted. Parity tests and the oracle fingerprint become mandatory whenever `registry.py`, `genome` rendering or `engine.py` change.
 - **Arch edits needed (P3-31, VI first, then EN, then `/sync-docs`):**
   - §3.3.3: host interpreter, never the source.

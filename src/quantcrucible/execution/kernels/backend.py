@@ -74,9 +74,18 @@ class Signals:
 
 
 class KernelBackend:
-    def __init__(self, target: Target, dtype: Dtype = "float64") -> None:
+    """``target`` places the features and signals; the replay runs on the CPU either way.
+
+    Stage timings on the development laptop (180-config grid, 67k bars): features 0.017 s on
+    CUDA vs 0.092 s on CPU, signals 0.035 vs 0.077 s, but the replay — one sequential walk per
+    configuration, which a GPU does poorly — 0.132 s on CUDA vs 0.023 s on CPU. The CUDA replay
+    kernel stays available and tested; the engine does not route to it (E2).
+    """
+
+    def __init__(self, target: Target, dtype: Dtype = "float64", replay: Target = "cpu") -> None:
         self.target: Target = target
         self.dtype: Dtype = dtype
+        self.replay_target: Target = replay
 
     def signals(self, prog: Program, bars: Bars) -> Signals:
         now, prev = run_features(
@@ -92,7 +101,7 @@ class KernelBackend:
             direction=prog.direction, tp_sl_ratio=spec.tp_sl_ratio, fee=spec.fee,
             lot_step=spec.lot_step, max_risk_pct=spec.max_risk_pct,
             initial_cash=spec.initial_cash, max_holding_bars=spec.max_holding_bars,
-            trade_log=log, target=self.target,
+            trade_log=log, target=self.replay_target,
         )  # fmt: skip
 
     def backtest(
@@ -105,14 +114,30 @@ class KernelBackend:
         out = self._replay(prog, bars, sig, spec, log=True)
         return _result(bars, prog, sig, out, spec)
 
-    def grid(self, prog: Program, bars: Bars, spec: ReplaySpec) -> GridResult:
-        sig = self.signals(prog, bars)
+    def grid(
+        self, prog: Program, bars: Bars, spec: ReplaySpec, sig: Signals | None = None
+    ) -> GridResult:
+        sig = sig if sig is not None else self.signals(prog, bars)
         out = self._replay(prog, bars, sig, spec, log=False)
-        returns = np.stack([_ratio_returns(row) for row in out.equity])
+        returns = _ratio_returns_rows(out.equity)
         avg = [
             float(h) / int(t) if t else 0.0 for h, t in zip(out.hold_sum, out.trades, strict=True)
         ]
         return GridResult(returns, [int(t) for t in out.trades], avg)
+
+
+def _ratio_returns_rows(equity: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """``engine._ratio_returns`` for every row at once: the same element-wise division and
+    subtraction, so each row is bit-identical to calling it per configuration."""
+    if equity.shape[1] < 2:
+        return np.zeros((equity.shape[0], 0))
+    previous = equity[:, :-1]
+    out = np.zeros_like(previous)
+    alive = previous > 0
+    # in place with where=: no gather/scatter of the masked elements (was 0.16 s per 180 rows)
+    np.divide(equity[:, 1:], previous, out=out, where=alive)
+    np.subtract(out, 1.0, out=out, where=alive)
+    return out
 
 
 def _ts(bars: Bars, i: int) -> int:

@@ -531,8 +531,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-42 Engine router and audit
 **Goal:** `validation/engine_router.py` implements `JobRunner`, routes, falls back, audits (L0–L2); gates record the engine. **Accept when:** leak checks always use the sandbox; fp32 never falls back to fp64; a mismatch trips the breaker for that kernel version. **Evidence:** `tests/validation/test_engine_router.py` (10 tests): gate-③ and gate-④ reports byte-identical to the sandbox's; `cli._session` hands every gate the router.
 
-### ◐ P3-43 GPU executor
-**Goal:** one CUDA-context owner with a queue, VRAM budget and cancellation (E5). **Accept when:** 8 pipeline workers share the GPU without errors. **Evidence (E5, `scripts/experiments/e5_gpu_sharing.py`, 8 workers, 200-config grids, 67k bars):** dropping the report's JSON round trip took the router from 0.17 to ≈ 1.5 grids/s; CPU njit reaches ≈ 4.2 grids/s unlocked (2.0 locked), CUDA ≈ 0.8–1.5 whether device work is locked per stage or per job — the laptop GPU's fp64 rate caps it. Which engine `auto` picks is open to the user.
+### ✅ P3-43 GPU executor
+**Goal:** one CUDA-context owner with a queue, VRAM budget and cancellation (E5). **Accept when:** 8 pipeline workers share the GPU without errors. **Evidence (E5, `scripts/experiments/e5_gpu_sharing.py`, 8 workers, 200-config grids, 67k bars):** dropping the report's JSON round trip took the router from 0.17 to ≈ 1.5 grids/s; CPU njit reaches ≈ 4.2 grids/s unlocked (2.0 locked), CUDA ≈ 0.8–1.5 whether device work is locked per stage or per job — the laptop GPU's fp64 rate caps it. Then: the replay moved to the CPU (6× faster there), only a job's GPU stages hold the device, and the audits compare by bytes instead of JSON — CUDA ≈ 8.4 grids/s against CPU ≈ 3.9, so `auto` keeps CUDA (ADR-0038).
 
 ### ☐ P3-44 End-to-end parity and throughput
 **Goal:** one synthetic campaign through the sandbox and through the router. **Accept when:** identical `trials.sharpe_is`, returns parquet bytes and gate-④ matrices; O14 updated.

@@ -70,7 +70,10 @@ def run(engine: str, lock_cpu: bool, work: list[SandboxJob], threads: int) -> fl
             return original(plan, kind, target)
 
         router._compute_on = locked  # type: ignore[method-assign]
-    router.run(work[0])  # compile once, off the clock
+    # Compile both builds off the clock: a CUDA job's L1 audit re-runs it on the CPU build, and
+    # that build's first call is a JIT compile of 10-20 s (an earlier run timed it by mistake).
+    router.run(work[0])
+    router._compute(router._plan(work[0]), work[0].kind, engine_router.CPU)
     queue = list(work)
     guard = threading.Lock()
 

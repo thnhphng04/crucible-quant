@@ -24,6 +24,7 @@ Trên dữ liệu 1h (≈ 67k bar, L = 400), `step()` tính lại mọi indicato
 - **E7 (CPU):** 0 lệch bit so với `registry.py` cho sma, ema, rsi, atr, zscore, boll, rolling_max, trên 3 seed và 4 chuỗi.
 - **Prototype G1, 6 cấu hình × 4 biến thể:** equity giống từng bit `_run_spot_bracket`; số lệnh, từ chối, bar mơ hồ, tín hiệu và bit stop cũng khớp.
 - **E0, G1 trên 67k bar, M = 200:** CUDA fused 0,18 s, njit fused 0,38 s, Python ≈ 1.440 s. Với M = 1: hybrid 0,018 s. CUDA chỉ hơn njit ≈ 2,1×, dưới luật 3×, và user giữ CUDA làm chính. Dự kiến chênh lệch lớn hơn với genome có indicator nặng.
+- **E2/E5 (P3-43), 8 worker pipeline, genome lấy mẫu, lưới 200 cấu hình, 67k bar:** CUDA tính feature nhanh hơn CPU 5× và tín hiệu 2–3×, nhưng replay tuần tự chậm hơn 6×, nên một job CUDA tính feature và tín hiệu trên thiết bị rồi replay trên CPU; mỗi lúc chỉ các bước GPU của một job giữ thiết bị. Sau khi bỏ hai chi phí phía host (vòng JSON của mỗi report, phép so JSON trong audit), engine đạt ≈ 8,4 lưới/s trên CUDA so với ≈ 3,9 khi chỉ dùng CPU njit — khoảng 0,12 s mỗi lưới, so với 0,4–3,3 giờ trước đây.
 - Lý do từ chối của ADR-0025 không còn đúng với genome engine C: engine thứ hai được chứng minh khớp oracle chứ không phải được tin. Test parity và fingerprint oracle trở thành bắt buộc mỗi khi `registry.py`, phần render `genome` hay `engine.py` thay đổi.
 - **Kiến trúc cần sửa (P3-31, VI trước, rồi EN, rồi `/sync-docs`):**
   - §3.3.3: host thông dịch, không chạy source.

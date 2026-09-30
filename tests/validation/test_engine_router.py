@@ -29,7 +29,7 @@ from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation import sandbox_runner
-from quantcrucible.validation.engine_router import EngineRouter, _fraction
+from quantcrucible.validation.engine_router import EngineRouter, _fraction, _same
 from quantcrucible.validation.sandbox import SandboxJob, SandboxResult
 
 ZOO = Path(sandbox_runner.__file__).resolve().parents[1] / "core" / "zoo" / "ema_crossover.py"
@@ -195,6 +195,15 @@ def test_a_kernel_fault_falls_back_in_float64_and_refuses_in_float32(
     assert Ledger.open(ledger_path).events_named(Event.ENGINE_FALLBACK)
     box32 = FakeSandbox()
     assert not _router(box32, FP32, ledger_path).run(_genome_job()).ok and not box32.jobs
+
+
+def test_audits_compare_results_bit_for_bit() -> None:
+    m = np.array([[0.1, np.nan], [-0.0, 2.0]])
+    assert _same({"r": m, "n": [3, 4]}, {"r": [[0.1, float("nan")], [-0.0, 2.0]], "n": [3, 4]})
+    assert not _same(m, [[0.1, float("nan")], [0.0, 2.0]])  # -0.0 is not 0.0
+    assert not _same({"n": 3}, {"n": 3.0})  # an int is not a float
+    assert not _same([1.0, 2.0], [1.0, 2.0, 3.0])
+    assert _same(["flat", 0.0, 0.0, None], ["flat", 0.0, 0.0, None])
 
 
 def test_audit_sampling_is_deterministic() -> None:

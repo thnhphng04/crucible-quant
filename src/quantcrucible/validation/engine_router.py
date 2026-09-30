@@ -102,6 +102,7 @@ class EngineRouter:
         self._local = threading.local()  # a SQLite connection is bound to its thread
         self._health_lock = threading.Lock()
         self._job_lock = threading.Lock()  # CUDA jobs run one at a time (E5)
+        self._axes: dict[int, tuple[Any, list[str]]] = {}  # bars.ts -> its gate-④ axis strings
         self._cuda_ok: bool | None = None  # None: not self-tested yet
         self._banned = self._read_bans()
 
@@ -189,7 +190,7 @@ class EngineRouter:
         audit = []
         if engine == CUDA and _fraction("L1", self.version, self._key(job)) < L1_RATE:
             audit.append("L1")
-            if _canon(result) != _canon(self._compute(plan, job.kind, CPU)):
+            if not _same(result, self._compute(plan, job.kind, CPU)):
                 return self._mismatch(job, engine, "L1: CUDA differs from the CPU build")
         if (
             not self.fp32
@@ -275,12 +276,16 @@ class EngineRouter:
 
     # ── computing ────────────────────────────────────────────────────────────────────────────
     def _compute(self, plan: _Plan, kind: str, engine: str) -> dict[str, Any]:
-        if engine == CUDA:
-            # One CUDA job at a time, all three stages back to back (E5: letting workers
-            # interleave their stages made them fight over transfers — 0.89 vs 1.50 grids/s).
+        return self._compute_on(plan, kind, "cuda" if engine == CUDA else "cpu")
+
+    def _signals_on(self, kb: Any, prog: Any, bars: Bars) -> Any:
+        """Features and signals — the only GPU stages. One job's GPU stages run back to back
+        (E5: interleaving workers' stages made them fight over transfers); the CPU replay and
+        the report run outside the lock, so the device never waits on host work."""
+        if kb.target == "cuda":
             with self._job_lock:
-                return self._compute_on(plan, kind, "cuda")
-        return self._compute_on(plan, kind, "cpu")  # numba's threading layer shares the cores
+                return kb.signals(prog, bars)
+        return kb.signals(prog, bars)  # numba's threading layer shares the cores
 
     def _compute_on(self, plan: _Plan, kind: str, target: str) -> dict[str, Any]:
         backend, program, _ = _kernels()
@@ -304,20 +309,29 @@ class EngineRouter:
         # float/int/str (a float's repr round-trips exactly), and the return matrix stays one
         # numpy array — the gate stacks its rows anyway. A JSON pass cost ~5 s per 200-config
         # grid (E5); the report-identity tests hold the two paths to the same values.
+        sig = self._signals_on(kb, prog, plan.bars)
         if kind == "grid_backtest":
-            grid = kb.grid(prog, plan.bars, spec)
+            grid = kb.grid(prog, plan.bars, spec, sig)
             m = prog.n_configs
             rows = [
                 GridRow([], grid.n_trades[i], grid.avg_holding_bars[i], 0.0, None) for i in range(m)
             ]
-            report = grid_report(timestamps(plan.bars.ts[1:]), rows)
+            report = grid_report(self._axis(plan.bars), rows)
             report["returns"] = grid.returns  # [configs, bars - 1]
             return report
-        sig = kb.signals(prog, plan.bars)
         res = kb.backtest(prog, plan.bars, spec, sig)
         stream = signals_stream({plan.bars.symbol: _signals(sig, p)})
         corr, pair = indicator_corr([_features(p, plan.configs[0], plan.bars)])
         return backtest_report(res, corr, pair, stream)
+
+    def _axis(self, bars: Bars) -> list[str]:
+        """``[str(t) for t in bars.ts[1:]]``, built once per series: every candidate of a campaign
+        shares the IS bars, and 67k ``str()`` calls cost more than the kernels do."""
+        cached = self._axes.get(id(bars.ts))
+        if cached is None or cached[0] is not bars.ts:  # the id may have been reused
+            cached = (bars.ts, timestamps(bars.ts[1:]))
+            self._axes[id(bars.ts)] = cached
+        return cached[1]
 
     # ── audits ───────────────────────────────────────────────────────────────────────────────
     def _sandbox_audit(
@@ -342,7 +356,7 @@ class EngineRouter:
                 for k in GRID_AUDIT_KEYS
             }
             want = {k: want[k] for k in GRID_AUDIT_KEYS}
-        if _canon(got) == _canon(want):
+        if _same(got, want):
             return None
         return self._mismatch(job, engine, "L2: differs from the sandbox")
 
@@ -354,16 +368,33 @@ class EngineRouter:
         return self._refuse(why) if self.fp32 else self.sandbox.run(job)  # the canonical answer
 
 
-def _canon(result: Mapping[str, Any]) -> str:
-    """One text for a result, whichever engine built it: NaN serializes (so NaN == NaN here) and
-    a numpy matrix reads as the lists the sandbox's JSON report holds."""
-    return json.dumps(result, sort_keys=True, default=_plain)
+def _same(a: Any, b: Any) -> bool:
+    """Whether two results agree bit for bit, whichever engine built them: a numpy matrix and the
+    lists of the sandbox's JSON report compare by their float64 bytes (NaN, -0.0 included).
+    Serializing both to JSON did the same in 4-6 s per 90-config grid (E5)."""
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray) or (_floats(a) and _floats(b)):
+        try:
+            x, y = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
+        except (TypeError, ValueError):
+            return False
+        return x.shape == y.shape and x.tobytes() == y.tobytes()
+    if isinstance(a, Mapping) and isinstance(b, Mapping):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list | tuple) and isinstance(b, list | tuple):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, float) and isinstance(b, float):
+        return np.float64(a).tobytes() == np.float64(b).tobytes()
+    return bool(a == b) and type(a) is type(b)
 
 
-def _plain(obj: Any) -> Any:
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    raise TypeError(f"not JSON serializable: {type(obj).__name__}")
+def _floats(v: Any) -> bool:
+    """A non-empty list of floats, or of such lists (a return matrix in list form)."""
+    if not isinstance(v, list) or not v:
+        return False
+    head = v[0]
+    if isinstance(head, list):
+        return all(isinstance(r, list) and all(type(x) is float for x in r) for r in v)
+    return all(type(x) is float for x in v)
 
 
 def _signals(sig: Any, parsed: ParsedGenome) -> list[Signal]:
