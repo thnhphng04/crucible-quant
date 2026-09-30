@@ -552,8 +552,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-49 Mảng đầu vào perpetual
 **Mục tiêu:** `core/perp_arrays.py` đóng gói `PerpBundle` thành mảng phẳng. **Đạt khi:** first-touch bằng `SegmentedPath`. **Bằng chứng:** `tests/core/test_perp_arrays.py` trên bundle 4h tổng hợp (`tests/perp_fixtures.py`: đường giá giao dịch và mark theo phút, settlement giữa bar, bảng margin nhiều bậc): first-touch trên mảng bằng `PathSummary.first_touch` qua ~7k trường hợp segment/mức giá/chiều, kể cả đúng breakpoint; funding được đóng gói theo đúng thứ tự replay đọc, kèm offset phút; bar mà replay sẽ từ chối được đánh dấu chứ không bị từ chối.
 
-### ☐ P3-50 Kernel replay perpetual
-**Mục tiêu:** replay bracket perpetual một slot (funding, thanh lý, leverage, clearance, timeout). **Đạt khi:** khớp bit với `replay_signals` cho một slot.
+### ✅ P3-50 Kernel replay perpetual
+**Mục tiêu:** replay bracket perpetual một slot (funding, thanh lý, leverage, clearance, timeout). **Đạt khi:** khớp bit với `replay_signals` cho một slot. **Bằng chứng:** `execution/kernels/perp_replay.py` (K4, njit trên CPU, mỗi cấu hình một luồng; engine replay trên host). `tests/execution/kernels/test_perp_replay.py`: 11 ca × 4 cấu hình, cả hai chiều, trên bundle 4h tổng hợp — equity khớp từng bit, mọi lần mở (bar, khối lượng, giá, stop, leverage) và đóng (bar, giá, lý do), funding đã trả, thanh lý, từ chối, bar mơ hồ; có đủ stop, take-profit, timeout và thanh lý; bar mâu thuẫn khi đang có vị thế thì lỗi giống replay. E4 (ADR-0038): giữ tìm nhị phân; 200 cấu hình × 3k bar mất 5 ms so với ≈ 14 s của replay Python.
 
 ### ☐ P3-51 Định tuyến perpetual
 **Mục tiêu:** job perpetual ③/④ và job `signals` cho replay danh mục đi qua router; INV-94 vẫn giữ.

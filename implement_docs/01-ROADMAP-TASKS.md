@@ -552,8 +552,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-49 Perpetual input arrays
 **Goal:** `core/perp_arrays.py` packs `PerpBundle` into flat arrays. **Accept when:** first-touch equals `SegmentedPath`. **Evidence:** `tests/core/test_perp_arrays.py` on synthetic 4h bundles (`tests/perp_fixtures.py`: minute trade and mark paths, mid-bar settlements, tiered brackets): first-touch on the arrays equals `PathSummary.first_touch` over ~7k segment/level/direction cases, breakpoints included; funding packs in the replay's order with its minute offsets; bars the replay would refuse are flagged, not refused.
 
-### ☐ P3-50 Perpetual replay kernel
-**Goal:** single-slot perpetual bracket replay (funding, liquidation, leverage, clearance, timeout). **Accept when:** bit parity with `replay_signals` for one slot.
+### ✅ P3-50 Perpetual replay kernel
+**Goal:** single-slot perpetual bracket replay (funding, liquidation, leverage, clearance, timeout). **Accept when:** bit parity with `replay_signals` for one slot. **Evidence:** `execution/kernels/perp_replay.py` (K4, CPU njit, one thread per configuration; the engine replays on the host). `tests/execution/kernels/test_perp_replay.py`: 11 cases × 4 configurations, both sides, on synthetic 4h bundles — equity bit for bit, every open (bar, quantity, price, stop, leverage) and close (bar, price, reason), funding paid, liquidations, denials, ambiguous bars; stop, take-profit, timeout and liquidation all occur; an inconsistent bar with a position open fails like the replay. E4 (ADR-0038): bisection kept; 200 configurations × 3k bars in 5 ms against ≈ 14 s for the Python replay.
 
 ### ☐ P3-51 Perpetual routing
 **Goal:** ③/④ perpetual jobs and `signals` jobs for the portfolio replay go through the router; INV-94 holds.
