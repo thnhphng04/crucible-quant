@@ -537,8 +537,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-44 End-to-end parity and throughput
 **Goal:** one synthetic campaign through the sandbox and through the router. **Accept when:** identical `trials.sharpe_is`, returns parquet bytes and gate-④ matrices; O14 updated. **Evidence:** `tests/e2e/test_engine_parity.py` (docker): five genome candidates through ①a…④ in three campaigns (sandbox, `cpu_kernel`, `auto` = CUDA): same trials to the bit, same gate verdicts, byte-identical result files, no fallback or audit mismatch. `scripts/bench_backtest.py --kernels`: 0.27–0.29 s per 200-config grid at 67k bars on CUDA; ADR-0025 and O14/O22 updated.
 
-### ☐ P3-45 float32 mode and E6
-**Goal:** fp32 features and signals; fp32 audit against njit; E6 divergence on synthetic data in ADR-0039.
+### ✅ P3-45 float32 mode and E6
+**Goal:** fp32 features and signals; fp32 audit against njit; E6 divergence on synthetic data in ADR-0039. **Evidence:** `tests/execution/kernels/test_float32.py`: CUDA fp32 equals the CPU fp32 build bit for bit (features, signals, grid rows; device and simulator), and both stay within 1e-3 of fp64; an fp32 genome job runs on the kernels and never reaches the sandbox (`test_engine_router.py`). E6 in ADR-0039: no gate-③/④ verdict flipped over 90 genomes; `auto` keeps CUDA.
 
 ### ☐ P3-46 Gate ⑥′ and calibration on the engine
 **Goal:** cost ×2, second-source reruns and Optuna attempts go through the router.

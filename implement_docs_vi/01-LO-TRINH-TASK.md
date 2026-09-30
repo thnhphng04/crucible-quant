@@ -537,8 +537,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-44 Parity đầu cuối và thông lượng
 **Mục tiêu:** một campaign tổng hợp chạy qua sandbox và qua router. **Đạt khi:** `trials.sharpe_is`, byte parquet returns và ma trận gate ④ giống hệt; cập nhật O14. **Bằng chứng:** `tests/e2e/test_engine_parity.py` (docker): năm candidate genome đi qua ①a…④ trong ba campaign (sandbox, `cpu_kernel`, `auto` = CUDA): trial giống từng bit, verdict gate giống nhau, file kết quả giống từng byte, không có fallback hay lệch audit. `scripts/bench_backtest.py --kernels`: 0,27–0,29 s mỗi lưới 200 cấu hình trên 67k bar với CUDA; đã cập nhật ADR-0025 và O14/O22.
 
-### ☐ P3-45 Chế độ float32 và E6
-**Mục tiêu:** feature và tín hiệu fp32; audit fp32 so với njit; độ lệch E6 trên dữ liệu tổng hợp ghi vào ADR-0039.
+### ✅ P3-45 Chế độ float32 và E6
+**Mục tiêu:** feature và tín hiệu fp32; audit fp32 so với njit; độ lệch E6 trên dữ liệu tổng hợp ghi vào ADR-0039. **Bằng chứng:** `tests/execution/kernels/test_float32.py`: CUDA fp32 bằng bản CPU fp32 từng bit (feature, tín hiệu, hàng lưới; trên thiết bị và simulator), và cả hai cách fp64 không quá 1e-3; một job genome fp32 chạy trên kernel và không bao giờ tới sandbox (`test_engine_router.py`). E6 trong ADR-0039: không verdict gate ③/④ nào bị lật trên 90 genome; `auto` giữ CUDA.
 
 ### ☐ P3-46 Gate ⑥′ và calibration trên engine
 **Mục tiêu:** chi phí ×2, chạy lại trên nguồn thứ hai và các lần thử Optuna đều đi qua router.

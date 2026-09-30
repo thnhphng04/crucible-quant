@@ -26,6 +26,13 @@ Engine kernel (ADR-0038) có thể tính feature và tín hiệu bằng float32.
 - Các campaign OPEN hiện có vẫn chạy float64 mà không cần lock mới.
 - Campaign fp32 không nhận chiến lược viết tay hay do LLM viết. Nó cần host chạy được numba, ít nhất là CPU kernel.
 - Test: `tests/config/test_lock_precision.py` (INV-108) và test router/holdout (INV-110). Studio có thêm ô precision (P3-35).
+- **E6 (P3-45, `scripts/experiments/e6_fp32_drift.py`; 90 genome lấy mẫu trên ba chuỗi 1h tổng hợp, 67k bar, lưới 200 cấu hình):**
+  - Cờ vào lệnh khác nhau ở trung bình 0,001% ô (bar, cấu hình) (genome tệ nhất 0,03%). Khoảng stop khác ở các bit thấp gần như ở mọi lệnh.
+  - Một lệnh bị lật làm đổi mọi lệnh sau đó trên đường đi ấy, nên 12% cấu hình kết thúc với số lệnh khác (genome tệ nhất 94%).
+  - |ΔSharpe| của cấu hình gate ③: trung vị 1e-7, trung bình 0,003, tệ nhất 0,26. Các hàng lưới: tệ nhất 1,09.
+  - Không verdict gate ③ hay gate ④ nào bị lật; chênh PBO lớn nhất là 0,016.
+  - Feature + tín hiệu trên CUDA: 0,065 s ở fp32 so với 0,111 s ở fp64 (1,7×); trên CPU hai precision bằng nhau (0,52 s). Vì vậy `auto` giữ CUDA cho cả hai precision. Replay, luôn fp64, không đổi.
+  - Tóm lại fp32 mua được mức tăng tốc vừa phải, đổi lại là candidate có con số không phải con số float64. Đó là đánh đổi user đã chấp nhận, và lock ghi lại nó.
 
 ## Các phương án đã cân nhắc
 

@@ -139,6 +139,25 @@ def test_a_genome_job_runs_on_the_kernel_and_reports_like_the_sandbox(kind: str)
         assert np.array_equal(np.asarray(rows, dtype=np.float64), want)
 
 
+@pytest.mark.parametrize("kind", ["backtest", "grid_backtest"])
+def test_a_float32_genome_job_runs_on_the_kernel_and_never_touches_the_sandbox(kind: str) -> None:
+    """P3-45: float32 features and signals, a float64 replay; no float64 audit (INV-110)."""
+    job = _genome_job(kind)
+    box = FakeSandbox()
+    res = _router(box, FP32, audit=1.0).run(job)
+    assert res.ok and res.engine == "cpu_kernel" and not box.jobs
+    assert res.report is not None and res.report["numerics"] == "fp32_signals_v1"
+    assert res.report["audit"] == "none"
+    fp64 = _router(FakeSandbox(), FP64).run(job).report
+    assert fp64 is not None
+    got, want = res.report["result"], fp64["result"]
+    if kind == "grid_backtest":
+        assert np.asarray(got["returns"]).dtype == np.float64
+        assert np.allclose(got["returns"], want["returns"], atol=1e-6)
+    else:
+        assert got["public"]["n_trades"] == want["public"]["n_trades"]
+
+
 def test_leak_checks_always_use_the_sandbox() -> None:
     job = _genome_job()
     for lock in (FP64, FP32):
