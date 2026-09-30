@@ -4,7 +4,8 @@ ADR-0016).
 Research-side half of the campaign state machine. It refuses unless the portfolio is a recorded
 variant of this campaign whose latest gate-⑤ and gate-⑥′ results are passes **computed on the
 ledger as it is now**: every trial or portfolio variant added since raises ``N`` and so lowers
-DSR, which makes those results stale (re-run ⑤ → ⑥′ first). The frozen
+DSR, which makes those results stale (re-run ⑤ → ⑥′ first). A member the kernel engine measured
+must also have been re-produced on the canonical path (audit L3, :mod:`.reproduce`). The frozen
 ``portfolio_hash`` and the freeze time go to the audit log (``CAMPAIGN_FROZEN``); from then on
 the candidate pipeline and the portfolio builder refuse to add anything to the campaign. Opening
 the holdout (FROZEN → BURNED) belongs to the separate evaluator process only.
@@ -18,6 +19,7 @@ from datetime import datetime
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent, utc_now
 from quantcrucible.validation.portfolio_dsr import G5_DSR, G6P_ROBUSTNESS, SNAPSHOT_KEY
+from quantcrucible.validation.reproduce import reproduction_problem
 
 
 class FreezeError(RuntimeError):
@@ -58,6 +60,9 @@ def freeze_campaign(ledger: Ledger, campaign_id: str, portfolio_hash: str) -> Fr
             f"{', '.join(stale)} ran on an older ledger (trials or variants were added since, "
             f"now {ledger.snapshot()}): re-run ⑤ → ⑥′ on this portfolio before freezing"
         )
+    problem = reproduction_problem(ledger, campaign_id, portfolio_hash)
+    if problem is not None:
+        raise FreezeError(problem)
     frozen_at = utc_now()
     ledger.transition(campaign_id, "FROZEN")
     ledger.log_event(

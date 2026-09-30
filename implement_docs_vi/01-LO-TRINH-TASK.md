@@ -546,8 +546,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-47 Holdout trên engine
 **Mục tiêu:** holdout evaluator dùng engine theo precision của lock; self-test trước `claim()`, fallback CPU kernel giữa chừng. **Đạt khi:** preflight bị từ chối thì holdout chưa bị claim. **Bằng chứng:** `evaluator_proc.engine_runner` dựng router (`--engine`, mặc định `auto`; L1 cho mọi job CUDA) và gọi `EngineRouter.preflight` chỉ từ source và tham số, trước `claim()`: member float32 không có kernel, campaign float32 với lựa chọn sandbox, hay bản CPU không ra đúng digest fixture đã ghim (`backend.cpu_check`, được test buộc với `run_backtest`) đều bị từ chối. `tests/holdout/test_evaluator_engine.py`: portfolio genome được chấm trên kernel ở cả hai precision (float64 khớp engine chuẩn từng bit); mọi lần từ chối đều để campaign ở FROZEN và chưa claim; lỗi CUDA giữa chừng hoàn tất trên bản CPU với cùng Sharpe.
 
-### ☐ P3-48 Điều kiện freeze
-**Mục tiêu:** mọi thành viên danh mục được tái tạo theo đường chuẩn trước freeze (audit L3).
+### ✅ P3-48 Điều kiện freeze
+**Mục tiêu:** mọi thành viên danh mục được tái tạo theo đường chuẩn trước freeze (audit L3). **Bằng chứng:** `validation/reproduce.py` đo lại mọi member do kernel đo — sandbox ở float64, bản CPU ở float32 — và ghi `MEMBERS_REPRODUCED`; `freeze_campaign` từ chối cho tới khi mọi member như vậy khớp returns đã ghi từng bit, và `cli freeze` chạy bước tái tạo trước. `tests/validation/test_reproduce.py`: freeze bị chặn khi chưa tái tạo và khi lệch một ulp; float32 tái tạo trên bản CPU mà không đụng tới sandbox.
 
 ### ☐ P3-49 Mảng đầu vào perpetual
 **Mục tiêu:** `core/perp_arrays.py` đóng gói `PerpBundle` thành mảng phẳng. **Đạt khi:** first-touch bằng `SegmentedPath`.

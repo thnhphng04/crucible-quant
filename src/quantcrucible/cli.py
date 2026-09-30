@@ -407,17 +407,37 @@ def portfolio(config: Path, root: Path, calibrate: bool) -> int:
     return 0 if outcome.passed else 1
 
 
-def freeze(portfolio_hash: str, root: Path) -> int:
-    """OPEN → FROZEN on one portfolio that passed ⑤ and ⑥′. The holdout is opened by the
-    separate evaluator process, never from here."""
+def freeze(portfolio_hash: str, config: Path, root: Path) -> int:
+    """OPEN → FROZEN on one portfolio that passed ⑤ and ⑥′. Members the kernel engine measured
+    are first measured again on the canonical path (audit L3, P3-48). The holdout is opened by
+    the separate evaluator process, never from here."""
     from quantcrucible.config.lock import read_lock
     from quantcrucible.ledger.db import Ledger
+    from quantcrucible.validation.engine_router import EngineRouter
     from quantcrucible.validation.freeze import FreezeError, freeze_campaign
+    from quantcrucible.validation.reproduce import kernel_trials, reproduce_members
 
     lock = read_lock(root / "config" / "evaluation.lock.yaml")
     ledger = Ledger.open(root / "ledger" / "crucible.db")
+    campaign_id = str(lock["campaign_id"])
     try:
-        done = freeze_campaign(ledger, str(lock["campaign_id"]), portfolio_hash)
+        if kernel_trials(ledger, campaign_id, portfolio_hash):
+            session = _session(config, root, label="freeze")
+            box = session.sandbox.sandbox if isinstance(session.sandbox, EngineRouter) else None
+            for r in reproduce_members(
+                ledger, campaign_id, portfolio_hash, session.lock, session.is_data,
+                session.archive, box or session.sandbox,
+            ):  # fmt: skip
+                state = "matched" if r.matched else "DIFFERS"
+                sys.stdout.write(
+                    f"  L3 {r.candidate_id} (trial #{r.trial_id}): {r.measured_by} → "
+                    f"{r.canonical} {state}\n"
+                )
+    except ValueError as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+    try:
+        done = freeze_campaign(ledger, campaign_id, portfolio_hash)
     except FreezeError as e:
         sys.stderr.write(f"refused: {e}\n")
         return 2
@@ -545,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     port.add_argument("--root", type=Path, default=Path("."))
     frz = sub.add_parser("freeze", help="freeze the campaign on one validated portfolio")
     frz.add_argument("portfolio_hash")
+    frz.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     frz.add_argument("--root", type=Path, default=Path("."))
     aband = sub.add_parser(
         "campaign-abandon", help="close the OPEN campaign without opening its holdout"
@@ -604,7 +625,7 @@ def _dispatch_unlocked(args: argparse.Namespace) -> int:
     if args.command == "portfolio":
         return portfolio(args.config, args.root, args.calibrate)
     if args.command == "freeze":
-        return freeze(args.portfolio_hash, args.root)
+        return freeze(args.portfolio_hash, args.config, args.root)
     if args.command == "campaign-abandon":
         return campaign_abandon(args.reason, args.root)
     if args.command == "evolve":

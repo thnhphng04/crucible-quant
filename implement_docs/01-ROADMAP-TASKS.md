@@ -546,8 +546,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-47 Holdout on the engine
 **Goal:** the holdout evaluator uses the engine at the lock's precision; a self-test before `claim()`, CPU-kernel fallback mid-run. **Accept when:** a refused preflight leaves the holdout unclaimed. **Evidence:** `evaluator_proc.engine_runner` builds the router (`--engine`, default `auto`; L1 on every CUDA job) and calls `EngineRouter.preflight` from sources and parameters alone, before `claim()`: a float32 member without a kernel, a float32 campaign on the sandbox setting, or a CPU build that misses its pinned fixture digest (`backend.cpu_check`, tied to `run_backtest` by a test) is refused. `tests/holdout/test_evaluator_engine.py`: genome portfolios judged on the kernels in both precisions (float64 equal to the canonical engine to the bit); every refusal leaves the campaign FROZEN and unclaimed; a CUDA fault mid-run finishes on the CPU build with the same Sharpe.
 
-### ☐ P3-48 Freeze precondition
-**Goal:** every portfolio member is re-produced canonically before freeze (audit L3).
+### ✅ P3-48 Freeze precondition
+**Goal:** every portfolio member is re-produced canonically before freeze (audit L3). **Evidence:** `validation/reproduce.py` measures each kernel-measured member again — the sandbox in float64, the CPU build in float32 — and records `MEMBERS_REPRODUCED`; `freeze_campaign` refuses until every such member matched its recorded returns bit for bit, and `cli freeze` runs the re-production first. `tests/validation/test_reproduce.py`: freeze blocked before re-production and after a one-ulp mismatch; float32 re-produces on the CPU build without touching the sandbox.
 
 ### ☐ P3-49 Perpetual input arrays
 **Goal:** `core/perp_arrays.py` packs `PerpBundle` into flat arrays. **Accept when:** first-touch equals `SegmentedPath`.

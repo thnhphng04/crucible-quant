@@ -54,6 +54,9 @@ class Event(StrEnum):
     # left its engine for a canonical one; detail says why.
     ENGINE_AUDIT_MISMATCH = "ENGINE_AUDIT_MISMATCH"
     ENGINE_FALLBACK = "ENGINE_FALLBACK"
+    # Audit L3 before a freeze: detail names the portfolio and, per kernel-measured member, the
+    # canonical engine that measured it again and whether the returns matched (P3-48).
+    MEMBERS_REPRODUCED = "MEMBERS_REPRODUCED"
 
 
 @dataclass(frozen=True, slots=True)

@@ -46,6 +46,7 @@ TradingProject/
 │   │   ├── portfolio_dsr.py       portfolio pipeline ⑤ → ⑥′ + gate ⑤                   §3.2    P1-08
 │   │   ├── robustness.py          gate ⑥′: costs × 2 + second source; member re-runs    §3.2    P1-09
 │   │   ├── freeze.py              OPEN → FROZEN on a validated portfolio (research side) §4.2    P1-10
+│   │   ├── reproduce.py           audit L3: kernel-measured members re-run canonically §3.5  P3-48
 │   │   ├── calibration.py         step 5b: Optuna, every evaluation a param_opt trial   §3.2.1  P1-11
 │   │   ├── research_run.py        pre-freeze workflow: submit → build → ⑤⑥′ → 5b        §3.2.1  P1-12
 │   │   ├── artifacts.py           write-once measurement files (returns, PBO matrix)    §4.1    P1-12

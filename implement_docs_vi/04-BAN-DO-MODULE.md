@@ -46,6 +46,7 @@ TradingProject/
 │   │   ├── portfolio_dsr.py       pipeline danh mục ⑤ → ⑥′ + cổng ⑤                    §3.2    P1-08
 │   │   ├── robustness.py          cổng ⑥′: chi phí × 2 + nguồn thứ hai; chạy lại thành viên §3.2 P1-09
 │   │   ├── freeze.py              OPEN → FROZEN trên danh mục đã qua gate (phía research) §4.2  P1-10
+│   │   ├── reproduce.py           audit L3: member do kernel đo được chạy lại theo đường chuẩn §3.5  P3-48
 │   │   ├── calibration.py         bước 5b: Optuna, mỗi lần đánh giá là trial param_opt  §3.2.1  P1-11
 │   │   ├── research_run.py        quy trình trước đóng băng: nộp → xây → ⑤⑥′ → 5b       §3.2.1  P1-12
 │   │   ├── artifacts.py           file đo ghi một lần (returns, ma trận PBO)           §4.1    P1-12
