@@ -156,12 +156,22 @@ def campaign_scopes(lock: Mapping[str, Any]) -> list[Scope]:
 
     A pre-P3 lock names spot symbols and no directions; it has exactly one scope, the legacy
     whole-basket long-or-flat search, so those campaigns keep the shape they ran under.
+
+    A bracket lock (``bracket_timeout_v1``) searches each locked symbol on its own: its replay
+    takes exactly one instrument, so the whole basket could never produce a trial. Spot is
+    long-only; a perpetual searches both sides. The lock generated from ``user.yaml`` names
+    ``symbols`` only, so this is where a real campaign's scopes come from.
     """
     data = lock["research"].get("data", {})
     instruments = list(data.get("instruments") or [])
+    default: tuple[str, ...] = ("long", "short")
+    if not instruments and lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1":
+        instruments = list(data.get("symbols") or [])
+        if data.get("market", "spot") == "spot":
+            default = ("long",)
     if not instruments:
         return [Scope(LEGACY_INSTRUMENT, "long")]
-    directions = [str(d) for d in data.get("directions", ("long", "short"))]
+    directions = [str(d) for d in data.get("directions", default)]
     return [
         Scope(str(i), d)  # type: ignore[arg-type]
         for i in sorted(instruments)

@@ -10,8 +10,9 @@ the same run — C-random replays its seeded sequence past the proposals it alre
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from quantcrucible.agent.compare import (
     ProtocolError,
@@ -69,13 +70,20 @@ def _submitted(session: ResearchSession, key: Key) -> int:
     return sum(1 for event, _island, _detail in events if event == Event.CANDIDATE_SUBMITTED)
 
 
+def grammar_config(lock: Mapping[str, Any], key: Key) -> GrammarConfig:
+    """The grammar a unit of search samples from: the campaign's exit protocol, and the side
+    its scope searches (a legacy key is the long-or-flat whole-basket search)."""
+    new_exit = lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
+    return GrammarConfig(
+        boll_stop_probability=0.5 if new_exit else 0.0,
+        tp_sl_ratio=float(lock["research"]["exit"]["tp_sl_ratio"]) if new_exit else None,
+        direction="long" if key.is_legacy else key.direction,
+    )
+
+
 def _engine(session: ResearchSession, key: Key, run_label: str) -> Engine:
     rng_seed = engine_seed(key.engine, key.seed, key.instrument, key.direction)
-    new_exit = session.lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
-    grammar = GrammarConfig(
-        boll_stop_probability=0.5 if new_exit else 0.0,
-        tp_sl_ratio=float(session.lock["research"]["exit"]["tp_sl_ratio"]) if new_exit else None,
-    )
+    grammar = grammar_config(session.lock, key)
     if key.engine == "gp":
         gp_settings = session.lock["research"].get("gp", {})
         return GpSearch(

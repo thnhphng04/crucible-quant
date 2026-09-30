@@ -8,14 +8,21 @@ exist.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
-from quantcrucible.agent.grammar import render_genome
+from quantcrucible.agent.evolution.feature_map import FeatureMap
+from quantcrucible.agent.grammar import GrammarConfig, render_genome
 from quantcrucible.core.strategy.base import Bars, generate_signals
 from quantcrucible.core.strategy.template import load_strategy_class
+from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.gates import strategy_hash
+from quantcrucible.validation.run import FEATURE_MAP
+from tests.factories import unit
 
 
 def _bars(n: int = 300, seed: int = 0) -> Bars:
@@ -70,3 +77,20 @@ def test_the_default_direction_is_long() -> None:
     """Existing callers keep the long-or-flat behaviour they had before P3-04."""
     genome = RandomSearch(seed=13).next().genome
     assert render_genome(genome)[0] == render_genome(genome, direction="long")[0]
+
+
+def test_both_engines_render_the_configured_side(tmp_path: Path) -> None:
+    """The engines, not just the renderer: a short scope's proposals emit short or flat."""
+    config = GrammarConfig(direction="short", tp_sl_ratio=1.1, boll_stop_probability=0.5)
+    random = RandomSearch(seed=3, config=config)
+    for _ in range(20):
+        source = random.next().source
+        assert 'Signal("short"' in source and 'Signal("long"' not in source
+    lg = Ledger.open(tmp_path / "l.db")
+    lg.open_campaign("c1", "2024-01-01/2025-01-01", lock_hash="h")
+    fmap = FeatureMap.from_lock({"derived": {"feature_map": FEATURE_MAP}})
+    key = unit(instrument="BTC/USDT", direction="short")
+    gp = GpSearch(lg, "c1", key, 7, fmap, 365.0, 0.30, "run", config=config)
+    for _ in range(20):
+        source = gp.next().source
+        assert 'Signal("short"' in source and 'Signal("long"' not in source

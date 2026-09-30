@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from quantcrucible.agent.run import engine_seed
-from quantcrucible.agent.scheduler import Scope, TrialScheduler, quotas
+from quantcrucible.agent.run import engine_seed, grammar_config
+from quantcrucible.agent.scheduler import Scope, TrialScheduler, campaign_scopes, quotas
+from tests.factories import unit
 
 SHARES = {"gp": 0.5, "random": 0.5}
 SCOPES = (Scope("BTCUSDT", "long"), Scope("BTCUSDT", "short"), Scope("ETHUSDT", "long"))
@@ -117,3 +118,53 @@ def test_the_legacy_sentinel_never_travels_as_an_instrument() -> None:
     real = next(iter(quotas(6, SHARES, seeds=3, scopes=(Scope("BTCUSDT", "short"),))))
     assert not real.is_legacy
     assert real.searched_instrument == "BTCUSDT"
+
+
+FIVE = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
+
+
+def _lock(market: str, exit_protocol: str | None, **data: object) -> dict[str, object]:
+    derived = {} if exit_protocol is None else {"exit_protocol": exit_protocol}
+    return {
+        "research": {"data": {"symbols": FIVE, "market": market, **data}},
+        "derived": derived,
+    }
+
+
+def test_a_bracket_spot_campaign_searches_each_symbol_long() -> None:
+    """A lock generated from user.yaml names symbols, never `instruments`. Read as legacy, a
+    bracket campaign handed the whole basket to a replay that needs exactly one instrument,
+    and every candidate died at gate ③ without a trial. Spot cannot short."""
+    scopes = campaign_scopes(_lock("spot", "bracket_timeout_v1"))
+    assert scopes == [Scope(s, "long") for s in sorted(FIVE)]
+    q = quotas(600, SHARES, seeds=3, scopes=scopes)
+    assert len(q) == 30 and set(q.values()) == {20}
+    assert not any(k.is_legacy for k in q)
+
+
+def test_a_bracket_perpetual_campaign_searches_both_sides() -> None:
+    """The frozen per-instrument spec: 5 contracts x 2 sides x 2 engines x 3 seeds x 10."""
+    scopes = campaign_scopes(_lock("usdt_m_perpetual", "bracket_timeout_v1"))
+    assert scopes == [Scope(s, d) for s in sorted(FIVE) for d in ("long", "short")]
+    assert set(quotas(600, SHARES, seeds=3, scopes=scopes).values()) == {10}
+
+
+def test_a_pre_bracket_lock_keeps_its_legacy_scope() -> None:
+    """Campaigns that ran before the bracket exit keep the shape they ran under."""
+    assert campaign_scopes(_lock("spot", None)) == [Scope("legacy_spot", "long")]
+
+
+def test_explicit_instruments_still_win() -> None:
+    lock = _lock("spot", "bracket_timeout_v1", instruments=["ETH/USDT"], directions=["long"])
+    assert campaign_scopes(lock) == [Scope("ETH/USDT", "long")]
+
+
+def test_the_grammar_renders_the_side_its_scope_searches() -> None:
+    """A short scope whose engines rendered `Signal("long", …)` would record long strategies
+    under a short label."""
+    lock = {"research": {"exit": {"tp_sl_ratio": 1.1}}, "derived": {
+        "exit_protocol": "bracket_timeout_v1"}}  # fmt: skip
+    assert grammar_config(lock, unit(instrument="BTC/USDT", direction="short")).direction == "short"
+    assert grammar_config(lock, unit(instrument="BTC/USDT")).direction == "long"
+    assert grammar_config(lock, unit()).direction == "long"  # legacy: long-or-flat
+    assert grammar_config(lock, unit()).tp_sl_ratio == 1.1

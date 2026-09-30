@@ -34,6 +34,7 @@ On 1h data (≈ 67k bars, L = 400), `step()` recomputes every indicator on each 
   - §10: decision D23.
   - §10.1: the new keys.
 - After the speed-up, the ①b Docker leak check is the next bottleneck (to open as O22).
+- **Update (2026-09-30), first real campaign:** the L2 audit refused both kernel builds within two minutes because `indicator_corr` differed by 1–2 ulp. The kernel's own answer was right: the report code runs on the host for the kernel engine and in Linux for the sandbox, and `np.corrcoef` goes through a BLAS product whose last bit differs between the Windows and Linux builds of numpy 2.4.6. `feature_stats` now computes Pearson's r from sums, a square root and a division; 140 real feature pairs give identical bits on both platforms. `KERNEL_VERSION` also hashes `backtest_report.py` and `feature_stats.py`, since they are part of the kernel's answer. Campaign `c-20260930-144417` ran 174 trials on the kernels at ≈ 110 trials/min and 426 on the sandbox at ≈ 12/min.
 
 ## Alternatives considered
 

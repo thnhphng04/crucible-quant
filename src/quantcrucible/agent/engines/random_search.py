@@ -40,7 +40,9 @@ class RandomSearch:
     def next(self) -> Proposal:
         while True:
             genome = sample_genome(self._rng, self._config)
-            source, params = render_genome(genome, tp_sl_ratio=self._config.tp_sl_ratio)
+            source, params = render_genome(
+                genome, self._config.direction, tp_sl_ratio=self._config.tp_sl_ratio
+            )
             key = (source, tuple(sorted(params.items())))
             if key not in self._seen:
                 self._seen.add(key)

@@ -34,6 +34,7 @@ Trên dữ liệu 1h (≈ 67k bar, L = 400), `step()` tính lại mọi indicato
   - §10: quyết định D23.
   - §10.1: các khóa mới.
 - Sau khi tăng tốc, leak-check ①b trong Docker thành nút thắt tiếp theo (sẽ mở O22).
+- **Cập nhật (2026-09-30), campaign thật đầu tiên:** audit L2 cấm cả hai bản build kernel trong vòng hai phút vì `indicator_corr` lệch 1–2 ulp. Câu trả lời của chính kernel là đúng: mã report chạy trên host với engine kernel và trong Linux với sandbox, còn `np.corrcoef` đi qua một phép nhân BLAS mà bit cuối khác nhau giữa bản build Windows và Linux của numpy 2.4.6. `feature_stats` giờ tính r của Pearson từ các tổng, một căn bậc hai và một phép chia; 140 cặp feature thật cho bit giống hệt nhau trên cả hai nền tảng. `KERNEL_VERSION` cũng hash `backtest_report.py` và `feature_stats.py`, vì chúng là một phần câu trả lời của kernel. Campaign `c-20260930-144417` chạy 174 trial trên kernel với ≈ 110 trial/phút và 426 trial trên sandbox với ≈ 12/phút.
 
 ## Các phương án đã cân nhắc
 
