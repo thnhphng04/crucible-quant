@@ -555,8 +555,8 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-50 Kernel replay perpetual
 **Mục tiêu:** replay bracket perpetual một slot (funding, thanh lý, leverage, clearance, timeout). **Đạt khi:** khớp bit với `replay_signals` cho một slot. **Bằng chứng:** `execution/kernels/perp_replay.py` (K4, njit trên CPU, mỗi cấu hình một luồng; engine replay trên host). `tests/execution/kernels/test_perp_replay.py`: 11 ca × 4 cấu hình, cả hai chiều, trên bundle 4h tổng hợp — equity khớp từng bit, mọi lần mở (bar, khối lượng, giá, stop, leverage) và đóng (bar, giá, lý do), funding đã trả, thanh lý, từ chối, bar mơ hồ; có đủ stop, take-profit, timeout và thanh lý; bar mâu thuẫn khi đang có vị thế thì lỗi giống replay. E4 (ADR-0038): giữ tìm nhị phân; 200 cấu hình × 3k bar mất 5 ms so với ≈ 14 s của replay Python.
 
-### ☐ P3-51 Định tuyến perpetual
-**Mục tiêu:** job perpetual ③/④ và job `signals` cho replay danh mục đi qua router; INV-94 vẫn giữ.
+### ✅ P3-51 Định tuyến perpetual
+**Mục tiêu:** job perpetual ③/④ và job `signals` cho replay danh mục đi qua router; INV-94 vẫn giữ. **Bằng chứng:** router chỉ lên kế hoạch cho job perpetual khi có bundle (đã căn chỉnh, có đường giá giao dịch theo phút), đóng gói mỗi bundle một lần và replay bằng K4; job `signals`, vốn không định giá gì, lấy từ kernel tín hiệu, nên danh mục perpetual float32 qua được preflight của holdout. `tests/validation/test_engine_router_perp.py`: report gate ③, gate ④ và `signals` bằng report của các hàm job trong container cho genome long và short, audit L2 so cả funding và ngày thanh lý, và một job thiếu bundle đi sandbox ở float64 và bị từ chối ở float32.
 
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|

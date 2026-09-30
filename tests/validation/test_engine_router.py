@@ -66,7 +66,7 @@ class FakeSandbox:
             report: dict[str, Any] = {"ok": True, "kind": job.kind, "result": {"n_leaks": 0}}
             return SandboxResult(True, report, "", "", 0, False, None, 0.1)
         cls = load_strategy_class(job.source, f"fake_{len(self.jobs)}")
-        spec = {**job.options, "params": dict(job.params)}
+        spec = {**job.options, "params": dict(job.params), "perp_inputs": dict(job.perp or {})}
         result = sandbox_runner.JOBS[job.kind](cls, dict(job.bars), spec)
         result = json.loads(json.dumps(result))
         if self.tamper and job.kind == "grid_backtest":
@@ -232,9 +232,9 @@ def test_the_holdout_preflight_names_the_engine_or_refuses() -> None:
     assert _router(FakeSandbox(), FP64).preflight(OPTIONS, [zoo]) == "sandbox"
     assert _router(FakeSandbox(), FP64, engine="sandbox").preflight(OPTIONS, [genome]) == "sandbox"
     assert _router(FakeSandbox(), FP32).preflight(OPTIONS, [genome]) == "cpu_kernel"
-    for members in ([genome, zoo], [perp]):
-        with pytest.raises(EngineRefused, match="float32 member"):
-            _router(FakeSandbox(), FP32).preflight(OPTIONS, members)
+    assert _router(FakeSandbox(), FP32).preflight(OPTIONS, [perp]) == "cpu_kernel"  # P3-51
+    with pytest.raises(EngineRefused, match="float32 member"):
+        _router(FakeSandbox(), FP32).preflight(OPTIONS, [genome, zoo])
     with pytest.raises(EngineRefused, match="sandbox"):
         _router(FakeSandbox(), FP32, engine="sandbox").preflight(OPTIONS, [genome])
 

@@ -4,11 +4,13 @@
 submitting ``SandboxJob``s and learn which engine answered only through ``SandboxResult.engine``,
 which the trial records (INV-108).
 
-A ``backtest`` or ``grid_backtest`` job goes to the kernel engine when it is a spot
+A ``backtest``, ``grid_backtest`` or ``signals`` job goes to the kernel engine when it is a
 ``bracket_timeout_v1`` job on one instrument whose source is the exact render of a genome
-(``parse_genome``, INV-106) that compiles (INV-107). Everything else — leak checks, hand-written or
-LLM strategies — runs in the Docker sandbox, except in a float32 campaign, which never falls back
-to the float64 sandbox and refuses instead (no trial; ADR-0022, ADR-0039).
+(``parse_genome``, INV-106) that compiles (INV-107). A perpetual backtest also needs its bundle
+(mark, funding, minute paths, brackets — INV-94) and replays on K4 (P3-51); a ``signals`` job, which
+prices nothing, needs none. Everything else — leak checks, hand-written or LLM strategies — runs in
+the Docker sandbox, except in a float32 campaign, which never falls back to the float64 sandbox
+and refuses instead (no trial; ADR-0022, ADR-0039).
 
 Audits (fail closed, INV-109):
 
@@ -35,6 +37,7 @@ from typing import Any
 import numpy as np
 
 from quantcrucible.config.schema import Compute
+from quantcrucible.core.perp_inputs import PerpBundle, assert_aligned
 from quantcrucible.core.strategy import registry
 from quantcrucible.core.strategy.base import FLAT, Bars, Signal
 from quantcrucible.core.strategy.genome import feature_specs
@@ -52,10 +55,10 @@ from quantcrucible.validation.backtest_report import (
 from quantcrucible.validation.numerics import Numerics
 from quantcrucible.validation.sandbox import JobRunner, SandboxJob, SandboxResult
 
-KERNEL_KINDS = frozenset({"backtest", "grid_backtest"})
+KERNEL_KINDS = frozenset({"backtest", "grid_backtest", "signals"})
 L1_RATE = 0.10  # share of CUDA jobs cross-checked against the CPU build
 CUDA, CPU, SANDBOX = "cuda", "cpu_kernel", "sandbox"
-GRID_AUDIT_KEYS = ("ts", "returns", "n_trades", "avg_holding_bars")
+GRID_AUDIT_KEYS = ("ts", "returns", "n_trades", "avg_holding_bars", "funding_paid", "terminated_at")
 
 
 class Unsupported(Exception):
@@ -83,6 +86,7 @@ class _Plan:
     configs: list[dict[str, Any]]
     lookback: int
     options: Mapping[str, Any]
+    perp: PerpBundle | None = None  # a perpetual gate-③/④ job's inputs
 
 
 def _kernels() -> Any:
@@ -119,6 +123,7 @@ class EngineRouter:
         self._health_lock = threading.Lock()
         self._job_lock = threading.Lock()  # CUDA jobs run one at a time (E5)
         self._axes: dict[int, tuple[Any, list[str]]] = {}  # bars.ts -> its gate-④ axis strings
+        self._packs: dict[int, tuple[Any, Any, Any]] = {}  # bundle -> its packed arrays
         self._cuda_ok: bool | None = None  # None: not self-tested yet
         self._banned = self._read_bans()
 
@@ -262,17 +267,30 @@ class EngineRouter:
         if job.kind not in KERNEL_KINDS:
             raise Unsupported(f"no kernel for {job.kind!r} jobs")
         if len(job.bars) != 1:
-            raise Unsupported("only single-instrument spot jobs (perpetuals: P3-49..51)")
+            raise Unsupported("only single-instrument jobs")
+        ((symbol, bars),) = job.bars.items()
+        bundle = None
+        if job.kind != "signals" and ":" in symbol:  # pricing a perpetual (P3-51)
+            bundle = (job.perp or {}).get(symbol)
+            if bundle is None:  # the sandbox refuses it too: nothing is priced without it
+                raise Unsupported("a perpetual job without its mark, funding and paths (INV-94)")
+            if bundle.trade_paths is None:
+                raise Unsupported("bracket replay requires trade-minute paths")
+            try:
+                assert_aligned({symbol: bundle}, job.bars)
+            except ValueError as exc:
+                raise Unsupported(f"perpetual inputs: {exc}") from None
+        elif job.kind != "signals" and job.perp:
+            raise Unsupported("perpetual inputs on a spot job")
         configs = (
             [dict(c) for c in job.options["grid"]]
             if job.kind == "grid_backtest"
             else [dict(job.params)]
         )
-        parsed = self._program(job.source, configs, job.options, tuple(job.bars), bool(job.perp))
-        ((_, bars),) = job.bars.items()
+        parsed = self._program(job.source, configs, job.options, (symbol,))
         if not np.isfinite(np.stack([bars.open, bars.high, bars.low, bars.close])).all():
             raise Unsupported("non-finite bars")
-        return _Plan(parsed, bars, configs, int(job.options["lookback"]), job.options)
+        return _Plan(parsed, bars, configs, int(job.options["lookback"]), job.options, bundle)
 
     def _program(
         self,
@@ -280,15 +298,14 @@ class EngineRouter:
         configs: list[dict[str, Any]],
         options: Mapping[str, Any],
         symbols: tuple[str, ...],
-        perp: bool,
     ) -> ParsedGenome:
         """Everything about a job the kernels need except its bars: the holdout checks this
         before it claims, when it may not read the bars yet."""
         policy = options.get("exit_policy") or {}
         if policy.get("mode") != "bracket_timeout_v1":
             raise Unsupported("only bracket_timeout_v1 jobs")
-        if len(symbols) != 1 or perp or ":" in symbols[0]:
-            raise Unsupported("only single-instrument spot jobs (perpetuals: P3-49..51)")
+        if len(symbols) != 1:
+            raise Unsupported("only single-instrument jobs")
         try:
             parsed = parse_genome(source)
         except GenomeParseError as exc:
@@ -325,8 +342,7 @@ class EngineRouter:
             try:
                 if m.kind not in KERNEL_KINDS:
                     raise Unsupported(f"no kernel for {m.kind!r} jobs")
-                perp = any(":" in s for s in m.symbols)
-                self._program(m.source, [dict(m.params)], options, m.symbols, perp)
+                self._program(m.source, [dict(m.params)], options, m.symbols)
                 kernel = True
             except Unsupported as exc:
                 if self.fp32:
@@ -387,19 +403,45 @@ class EngineRouter:
         # numpy array — the gate stacks its rows anyway. A JSON pass cost ~5 s per 200-config
         # grid (E5); the report-identity tests hold the two paths to the same values.
         sig = self._signals_on(kb, prog, plan.bars)
+        stream = signals_stream({plan.bars.symbol: _signals(sig, p)})
+        if kind == "signals":  # the portfolio replays of ⑥′ and the holdout price these
+            return {"signals": stream}
+        packed = self._packed(plan.perp, plan.bars) if plan.perp is not None else None
+        pspec = backend.PerpSpec(int(opts.get("leverage", 5)))
         if kind == "grid_backtest":
-            grid = kb.grid(prog, plan.bars, spec, sig)
+            if packed is None:
+                grid = kb.grid(prog, plan.bars, spec, sig)
+            else:
+                grid = kb.perp_grid(prog, plan.bars, packed, spec, pspec, sig)
             m = prog.n_configs
+            funding = grid.funding_paid or [0.0] * m
+            ended = grid.terminated_at or [None] * m
             rows = [
-                GridRow([], grid.n_trades[i], grid.avg_holding_bars[i], 0.0, None) for i in range(m)
-            ]
+                GridRow(
+                    [], grid.n_trades[i], grid.avg_holding_bars[i], funding[i],
+                    str(plan.bars.ts[ended[i]]) if ended[i] is not None else None,
+                )
+                for i in range(m)
+            ]  # fmt: skip
             report = grid_report(self._axis(plan.bars), rows)
             report["returns"] = grid.returns  # [configs, bars - 1]
             return report
-        res = kb.backtest(prog, plan.bars, spec, sig)
-        stream = signals_stream({plan.bars.symbol: _signals(sig, p)})
+        if packed is None:
+            res = kb.backtest(prog, plan.bars, spec, sig)
+        else:
+            res = kb.perp_backtest(prog, plan.bars, packed, spec, pspec, sig)
         corr, pair = indicator_corr([_features(p, plan.configs[0], plan.bars)])
         return backtest_report(res, corr, pair, stream)
+
+    def _packed(self, bundle: PerpBundle, bars: Bars) -> Any:
+        """The bundle as flat arrays, packed once: every candidate of a campaign shares it."""
+        from quantcrucible.core.perp_arrays import pack_bundle
+
+        cached = self._packs.get(id(bundle))
+        if cached is None or cached[0] is not bundle or cached[1] is not bars:
+            cached = (bundle, bars, pack_bundle(bundle, bars))
+            self._packs[id(bundle)] = cached
+        return cached[2]
 
     def _axis(self, bars: Bars) -> list[str]:
         """``[str(t) for t in bars.ts[1:]]``, built once per series: every candidate of a campaign

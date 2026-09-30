@@ -555,8 +555,8 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-50 Perpetual replay kernel
 **Goal:** single-slot perpetual bracket replay (funding, liquidation, leverage, clearance, timeout). **Accept when:** bit parity with `replay_signals` for one slot. **Evidence:** `execution/kernels/perp_replay.py` (K4, CPU njit, one thread per configuration; the engine replays on the host). `tests/execution/kernels/test_perp_replay.py`: 11 cases × 4 configurations, both sides, on synthetic 4h bundles — equity bit for bit, every open (bar, quantity, price, stop, leverage) and close (bar, price, reason), funding paid, liquidations, denials, ambiguous bars; stop, take-profit, timeout and liquidation all occur; an inconsistent bar with a position open fails like the replay. E4 (ADR-0038): bisection kept; 200 configurations × 3k bars in 5 ms against ≈ 14 s for the Python replay.
 
-### ☐ P3-51 Perpetual routing
-**Goal:** ③/④ perpetual jobs and `signals` jobs for the portfolio replay go through the router; INV-94 holds.
+### ✅ P3-51 Perpetual routing
+**Goal:** ③/④ perpetual jobs and `signals` jobs for the portfolio replay go through the router; INV-94 holds. **Evidence:** the router plans a perpetual job only with its bundle (aligned, with trade-minute paths), packs it once per bundle and replays on K4; a `signals` job, which prices nothing, comes from the signal kernel, so float32 perpetual portfolios pass the holdout preflight. `tests/validation/test_engine_router_perp.py`: gate-③, gate-④ and `signals` reports equal the in-container job functions' for long and short genomes, an L2 audit compares funding and liquidation dates too, and a job without its bundle goes to the sandbox in float64 and is refused in float32.
 
 | Phase | Milestones | Arch |
 |---|---|---|

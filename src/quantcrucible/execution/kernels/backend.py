@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from quantcrucible.core.perp_arrays import PerpArrays
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.core.strategy.genome import (
     Combine,
@@ -42,8 +43,16 @@ from quantcrucible.execution.engine import (
 )
 from quantcrucible.execution.kernels._numba import Dtype, Target
 from quantcrucible.execution.kernels.features import run_features
+from quantcrucible.execution.kernels.perp_replay import REASONS as PERP_REASONS
+from quantcrucible.execution.kernels.perp_replay import PerpReplay, run_perp_replay
 from quantcrucible.execution.kernels.program import Program, compile_program
-from quantcrucible.execution.kernels.replay import R_STOP, R_TIMEOUT, REASONS, run_spot_replay
+from quantcrucible.execution.kernels.replay import (
+    R_STOP,
+    R_TIMEOUT,
+    REASONS,
+    SpotReplay,
+    run_spot_replay,
+)
 from quantcrucible.execution.kernels.signals import run_signals
 from quantcrucible.execution.nautilus_bridge import FillRecord, StopPlacement
 
@@ -67,6 +76,17 @@ class GridResult:
     returns: npt.NDArray[np.float64]  # [configs, bars - 1]
     n_trades: list[int]
     avg_holding_bars: list[float]
+    funding_paid: list[float] | None = None  # perpetual only
+    terminated_at: list[int | None] | None = None  # perpetual: the bar of the first liquidation
+
+
+@dataclass(frozen=True, slots=True)
+class PerpSpec:
+    """What a perpetual job adds to :class:`ReplaySpec` (``lot_step`` is unused there)."""
+
+    leverage: int
+    max_portfolio_risk_pct: float = 0.10  # replay_signals' defaults, as _run_bracket calls it
+    clearance: float = 0.25
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,10 +142,46 @@ class KernelBackend:
         sig = sig if sig is not None else self.signals(prog, bars)
         out = self._replay(prog, bars, sig, spec, log=False)
         returns = _ratio_returns_rows(out.equity)
-        avg = [
-            float(h) / int(t) if t else 0.0 for h, t in zip(out.hold_sum, out.trades, strict=True)
-        ]
-        return GridResult(returns, [int(t) for t in out.trades], avg)
+        return GridResult(returns, [int(t) for t in out.trades], _avg_holding(out))
+
+    # ── perpetuals (P3-51): the same signals, the one-slot USDT-M replay K4 ──────────────────
+    def _perp_replay(self, prog: Program, bars: Bars, perp: PerpArrays, sig: Signals,
+                     spec: ReplaySpec, pspec: PerpSpec, log: bool) -> PerpReplay:  # fmt: skip
+        return run_perp_replay(
+            bars.open, bars.close, perp, sig.entry, sig.stop, direction=prog.direction,
+            tp_sl_ratio=spec.tp_sl_ratio, fee=spec.fee, max_risk_pct=spec.max_risk_pct,
+            initial_cash=spec.initial_cash, leverage=pspec.leverage,
+            max_holding_bars=spec.max_holding_bars, trade_log=log,
+            max_portfolio_risk_pct=pspec.max_portfolio_risk_pct, clearance=pspec.clearance,
+        )  # fmt: skip
+
+    def perp_backtest(
+        self, prog: Program, bars: Bars, perp: PerpArrays, spec: ReplaySpec, pspec: PerpSpec,
+        sig: Signals | None = None,
+    ) -> BacktestResult:  # fmt: skip
+        """Gate ③ on a perpetual: what ``_run_bracket`` returns from ``replay_signals``."""
+        if prog.n_configs != 1:
+            raise ValueError("a single backtest takes exactly one configuration")
+        sig = sig if sig is not None else self.signals(prog, bars)
+        out = self._perp_replay(prog, bars, perp, sig, spec, pspec, log=True)
+        return _perp_result(bars, prog, sig, out, spec)
+
+    def perp_grid(
+        self, prog: Program, bars: Bars, perp: PerpArrays, spec: ReplaySpec, pspec: PerpSpec,
+        sig: Signals | None = None,
+    ) -> GridResult:  # fmt: skip
+        sig = sig if sig is not None else self.signals(prog, bars)
+        out = self._perp_replay(prog, bars, perp, sig, spec, pspec, log=False)
+        first = [int(b) if b >= 0 else None for b in out.first_liquidation]
+        return GridResult(
+            _ratio_returns_rows(out.equity), [int(t) for t in out.trades], _avg_holding(out),
+            [float(0 + f) for f in out.funding_paid], first,
+        )  # fmt: skip
+
+
+def _avg_holding(out: SpotReplay | PerpReplay) -> list[float]:
+    """``np.mean`` of the integer holding list: exact, so the integer sum over the count."""
+    return [float(h) / int(t) if t else 0.0 for h, t in zip(out.hold_sum, out.trades, strict=True)]
 
 
 def _ratio_returns_rows(equity: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -188,6 +244,67 @@ def _result(bars: Bars, prog: Program, sig: Signals, out: Any, spec: ReplaySpec)
         denied_orders=int(out.denied[0]),
         periods_per_year=ppy,
         stops_placed=tuple(stops),
+        exits=tuple(exits),
+        ambiguous_bars=int(out.ambiguous[0]),
+    )
+
+
+def _perp_result(
+    bars: Bars, prog: Program, sig: Signals, out: PerpReplay, spec: ReplaySpec
+) -> BacktestResult:
+    """Rebuild what ``engine._run_bracket`` makes of a one-slot ``replay_signals``: every open's
+    fill and stop, then every close's fill, sorted by time (stably), in that append order."""
+    assert out.ilog is not None and out.flog is not None
+    symbol, fee = bars.symbol, spec.fee
+    side = "long" if prog.direction == 1 else "short"
+    entries = int((sig.entry[:, 0] == 1).sum())
+    if entries == 0:
+        side = "long"  # _run_bracket's default when the strategy never enters
+    buy, sell = ("BUY", "SELL") if side == "long" else ("SELL", "BUY")
+    leg = "LONG" if side == "long" else "SHORT"
+    fills: list[FillRecord] = []
+    stops: list[StopPlacement] = []
+    exits: list[ExitRecord] = []
+    holding: list[int] = []
+    k_all = int(out.logged[0])
+    for k in range(k_all):
+        ts = _ts(bars, int(out.ilog[0, k, 0]))
+        qty, price, stop = (float(out.flog[0, k, j]) for j in (0, 1, 3))
+        fills.append(FillRecord(ts, symbol, buy, qty, price, qty * price * fee, leg))
+        stops.append(StopPlacement(ts, symbol, side, stop, qty))
+    for k in range(k_all):
+        bar = int(out.ilog[0, k, 1])
+        if bar < 0:
+            continue
+        reason = PERP_REASONS[int(out.ilog[0, k, 2])]
+        qty, price = float(out.flog[0, k, 0]), float(out.flog[0, k, 2])
+        commission = 0.0 if reason == "liquidation" else qty * price * fee
+        fills.append(
+            FillRecord(_ts(bars, bar), symbol, sell, qty, price, commission, leg, reason == "stop")
+        )
+        exits.append(ExitRecord(bar, symbol, side, price, reason))
+        holding.append(bar - int(out.ilog[0, k, 0]) + (0 if reason == "timeout" else 1))
+    equity = out.equity[0]
+    ppy = _periods_per_year(bars.timeframe)
+    counts = {"long": 0, "short": 0, "flat": len(bars) - entries}
+    counts["long" if prog.direction == 1 else "short"] = entries
+    first = int(out.first_liquidation[0])
+    return BacktestResult(
+        ts=bars.ts,
+        equity=equity,
+        returns=_ratio_returns_rows(equity[None, :])[0],
+        fills=tuple(sorted(fills, key=lambda f: f.ts)),
+        n_trades=len(exits),
+        avg_holding_bars=float(np.mean(holding)) if holding else 0.0,
+        turnover=_bracket_turnover(fills, equity, ppy),
+        signals=counts,
+        denied_orders=int(out.denied[0]),
+        periods_per_year=ppy,
+        stops_placed=tuple(stops),
+        funding_paid=0 + float(out.funding_paid[0]),
+        # _run_bracket unpacks each liquidated (instrument, side) slot and keeps the instrument
+        liquidated=(symbol,) if int(out.liquidations[0]) else (),
+        terminated_at=bars.ts[first] if first >= 0 else None,
         exits=tuple(exits),
         ambiguous_bars=int(out.ambiguous[0]),
     )
