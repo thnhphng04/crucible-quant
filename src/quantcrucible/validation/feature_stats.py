@@ -31,7 +31,21 @@ def max_abs_change_corr(
         xs, ys = x[ok], y[ok]
         if float(np.std(xs)) == 0.0 or float(np.std(ys)) == 0.0:
             continue
-        rho = abs(float(np.corrcoef(xs, ys)[0, 1]))
+        rho = abs(_pearson(xs, ys))
         if math.isfinite(rho) and rho > best:
             best, pair = rho, (a, b)
     return best, pair
+
+
+def _pearson(x: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> float:
+    """Pearson's r from sums, a square root and a division, in a fixed order.
+
+    Not ``np.corrcoef``: it goes through a BLAS matrix product whose last bit differs between the
+    Windows and Linux builds of the same numpy, and the kernel engine (host) and the sandbox
+    (Linux) must report the same bits for the L2 audit (ADR-0038)."""
+    dx = x - np.sum(x) / x.size
+    dy = y - np.sum(y) / y.size
+    sxx, syy = float(np.sum(dx * dx)), float(np.sum(dy * dy))
+    if sxx == 0.0 or syy == 0.0:
+        return math.nan
+    return max(-1.0, min(1.0, float(np.sum(dx * dy)) / math.sqrt(sxx * syy)))
