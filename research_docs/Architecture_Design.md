@@ -61,7 +61,7 @@ Six principles drawn from the research. Every technical decision defers to them.
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║  AGENT LAYER — QuantEvolve         (LLM — only here)          ║
+║  AGENT LAYER — engine A QuantEvolve (LLM; deferred, D19)      ║
 ║                                                               ║
 ║   Island 1 ─┐                      ┌── Evolutionary DB ──┐   ║
 ║   Island 2 ─┤  migrate top 10%     │  Feature map (MAP-  │   ║
@@ -80,11 +80,12 @@ Six principles drawn from the research. Every technical decision defers to them.
 ║                          ↓                                    ║
 ║                    Insight Repository (curated every 50 gens) ║
 ║   (① Data Agent runs once at init → N = C+1 islands)         ║
+║  RUNNING: engine C (C-gp + C-random, no LLM) — §3.1.11        ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓ strategy.py (deterministic)
 ╔═══════════════════════════════════════════════════════════════╗
 ║  VALIDATION LAYER       (cheap → expensive, all → ledger)     ║
-║  ①a AST/DSL  ⓪ Spec-drift  ①b Oracle  ② MinBTL  ③ BT IS     ║
+║  ①a AST/DSL  ⓪ Drift(LLM only)  ①b Oracle  ② MinBTL  ③ BT IS  ║
 ║  ④ CPCV+PBO  ⑤ DSR(portfolio, N_eff statistical trials)      ║
 ║  ⑥′ Data-source robustness ⑥ Holdout(once) ⑦ Dry-run ⑧ Live ║
 ╚════════════════════════════╤══════════════════════════════════╝
@@ -100,11 +101,13 @@ Six principles drawn from the research. Every technical decision defers to them.
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
-║  EXECUTION CORE        Nautilus + Python replay (P5: target)  ║
+║  EXECUTION CORE   Nautilus + Python replay (P5: target)       ║
+║  numba CUDA/njit kernels for C genomes, bit-exact (D23)       ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  ADAPTERS  Binance✅ Bybit✅ IB✅ Databento✅ SSI🔴build it  ║
+║  (adapters ship with Nautilus; not wired live — gates ⑦ ⑧)    ║
 ╚═══════════════════════════════════════════════════════════════╝
 
         ┌──────────────────────────────────────────┐
@@ -356,7 +359,7 @@ Layer 2 — trace regression (runs in a sandbox, after ①a)
 | Generations `G` | 150 (equity), 100 (futures) | ≥150 | SR 1.52 is only reached at gen 150 |
 | LLM inferences/cycle | **5–10** | — | Used for cost estimation |
 | 🆕 Parallel LLM producer threads | — | 1–2 (local GPU) | Asynchronous pipeline: LLM threads push candidates into a prefetch queue, backtest slots (CPU) run in parallel |
-| 🆕 Parallel backtest slots | — | = cores − 1 | |
+| 🆕 Parallel backtest slots | — | `--workers`, default 8 (≈ cores − 1) | One slot per worker; GPU jobs share one device (ADR-0038) |
 | 🆕 Seeds per engine configuration | — | ≥ 3 | MadEvolve paper §6.3: a slightly changed prompt dropped the OOS improvement from +627% to +44%. Report the **distribution** across seeds; every seed adds to `N` |
 
 > ⚠️ **Cost:** 5–10 LLM inferences × 150 generations × N islands. With N=6 islands → **4,500–9,000 LLM calls** for one full run. The paper itself names this as its scalability limit.
@@ -439,7 +442,7 @@ The system runs **several candidate-generation engines** in parallel, sharing ev
 
 ```
                     ┌─► Engine C-gp: GP, typed grammar ─────┐
-config/user.yaml ───┤                                        ├─► scheduler ─► sandbox ─► gates ⓪–④ ─► ledger
+config/user.yaml ───┤                                        ├─► scheduler ─► sandbox ─► gates ①–④ ─► ledger
  (budget shares)    ├─► Engine C-random: i.i.d. samples ────┤  (enforces shares)                         │
                     └─► (deferred, D19) Engines A, B ────────┘                                              ▼
                                                                portfolio built from candidates passing ④ from ALL engines
@@ -755,6 +758,8 @@ CREATE TABLE generation_log (
     strategy_hash  TEXT,                 -- NULL if no code was produced yet
     drift_delta    REAL,                 -- normalized Δ (gate ⓪), if any
     island         TEXT,                 -- 🆕 v0.6: the island the candidate evolved on (§3.1.5); parents + mutation type in detail
+    instrument     TEXT,                 -- 🆕 v0.7 (ADR-0033): the searched scope; NULL = legacy spot basket, resolved on read
+    direction      TEXT,                 -- 🆕 v0.7: long | short
     detail         JSON
 );
 
@@ -780,7 +785,10 @@ CREATE TABLE trials (
     candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: links gate_results; N_eff clusters live in trial_clusters
     gate_failed    TEXT,                 -- NULL if everything passed
     verdict        TEXT NOT NULL,        -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer veto after backtest)
-    island         TEXT                  -- 🆕 v0.6 (§3.1.5)
+    island         TEXT,                 -- 🆕 v0.6 (§3.1.5)
+    instrument     TEXT,                 -- 🆕 v0.7 (ADR-0033)
+    direction      TEXT,
+    backtest_engine TEXT                 -- 🆕 v0.9 (D23): sandbox | cuda | cpu_kernel; NULL = legacy sandbox
 );
 
 -- Portfolio variants evaluated (§3.2.1) — each row is also a selection
@@ -822,6 +830,12 @@ CREATE TABLE gate_results (
     reason         TEXT NOT NULL,
     detail         JSON
 );
+
+-- 🆕 Tables added later, all append-only (migrations 004, 006, 008)
+CREATE TABLE calibration_runs (campaign_id, candidate_id, strategy_hash, budget, started_at);  -- 5b: once per strategy per campaign
+CREATE TABLE calibration_finishes (campaign_id, candidate_id, finished_at, outcome, attempts, trials, errors);
+CREATE TABLE campaign_purposes (campaign_id, purpose, trial_budget);  -- research | harness_test (ADR-0027)
+CREATE TABLE campaign_creation_requests (request_key, draft_digest, campaign_id, dataset_id, created_at);  -- Studio (ADR-0037)
 
 CREATE INDEX idx_hash ON trials(strategy_hash);
 CREATE INDEX idx_cell ON trials(cell_id);
@@ -883,6 +897,11 @@ CREATE TABLE holdout_access (
     verdict         TEXT NOT NULL CHECK (verdict IN ('PASS','FAIL')),  -- the only bit returned to research
     sharpe_oos      REAL                  -- recorded for the human-readable report, NEVER returned to the agent
 );
+
+-- 🆕 ADR-0016/0019: claimed BEFORE it is read; an abandoned campaign never claims (migration 003)
+CREATE TABLE holdout_claims (campaign_id PRIMARY KEY, portfolio_hash, holdout_range,
+                             holdout_lock_hash UNIQUE, claimed_at);  -- triggers refuse an overlapping period
+CREATE TABLE campaign_abandonments (campaign_id PRIMARY KEY, abandoned_at, reason);  -- ABANDONED is final
 ```
 
 **Procedure:**
@@ -921,10 +940,10 @@ TradingProject/
 |-- research_docs_vi/, research_docs/   design and translation
 |-- implement_docs/, implement_docs_vi/ roadmap, ADRs, module map
 |-- src/quantcrucible/
-|   |-- core/strategy/, core/sizing/, core/path_summary.py
+|   |-- core/strategy/, core/sizing/, core/zoo/, core/perp_*.py, core/path_summary.py
 |   |-- agent/engines/            C-gp and C-random; LLM engines deferred
 |   |-- data/                     spot/perp fetch, minute paths, holdout carve
-|   |-- execution/                legacy bridge, bracket policy, shared account
+|   |-- execution/                legacy bridge, bracket policy, spot/perp shared accounts, kernels/ (numba)
 |   |-- validation/               gates, PBO/CPCV, portfolio, sandbox
 |   `-- ledger/, holdout/evaluator_proc.py, review/, studio/
 |-- data/, holdout/             ignored research and holdout data
@@ -1192,7 +1211,7 @@ operational:            # GROUP A — change any time, does not affect statistic
     eval: null
 
 research:               # GROUP B — locked per campaign; mid-campaign changes are refused
-  max_risk_pct: 0.01            # D12; D7 retired target_vol
+  max_risk_pct: 0.01            # D12; D7 retired target_vol; the 10% portfolio cap (D7) is fixed, not configurable
   portfolio:                    # D9
     max_corr: 0.5
     max_strategies: 20
@@ -1207,7 +1226,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   campaign: {purpose: research, trial_budget: null}   # harness_test = the phase-2 engine comparison: no portfolio, no freeze (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
-  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = latest completed UTC boundary
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12, leverage: 5, funding_interval_hours: 8}   # D18; null = latest completed UTC boundary
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; campaign-locked
   backtest: {precision: float64}   # D23 — float64 | float32; campaign-locked
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b

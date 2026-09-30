@@ -28,6 +28,8 @@ venv/
 /holdout/
 /ledger/*.db*
 /ledger/*.runlock
+# Studio runtime state: drafts, jobs, worker logs, writer lock (ADR-0037)
+/studio/
 *.sqlite
 /reference_architecture/
 

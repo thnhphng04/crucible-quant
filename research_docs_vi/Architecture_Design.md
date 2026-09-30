@@ -61,7 +61,7 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║  AGENT LAYER — QuantEvolve       (LLM — chỉ ở đây)            ║
+║  AGENT LAYER — engine A QuantEvolve (LLM; hoãn, D19)          ║
 ║                                                               ║
 ║   Island 1 ─┐                      ┌── Evolutionary DB ──┐   ║
 ║   Island 2 ─┤  migrate top 10%     │  Feature map (MAP-  │   ║
@@ -80,11 +80,12 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 ║                          ↓                                    ║
 ║                    Insight Repository (curate mỗi 50 gen)     ║
 ║   (① Data Agent chạy 1 lần lúc khởi tạo → N = C+1 island)    ║
+║  ĐANG CHẠY: engine C (C-gp + C-random, không LLM) — §3.1.11   ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓ strategy.py (deterministic)
 ╔═══════════════════════════════════════════════════════════════╗
 ║  VALIDATION LAYER        (gate rẻ → đắt, mọi kết quả → ledger)║
-║  ①a AST/DSL  ⓪ Spec-drift  ①b Oracle  ② MinBTL  ③ BT IS     ║
+║  ①a AST/DSL  ⓪ Drift(chỉ LLM)  ①b Oracle  ② MinBTL  ③ BT IS   ║
 ║  ④ CPCV+PBO  ⑤ DSR(danh mục, N_eff trial thống kê)           ║
 ║  ⑥′ Data-source robustness  ⑥ Holdout(1 lần)  ⑦ Dry-run ⑧Live║
 ╚════════════════════════════╤══════════════════════════════════╝
@@ -100,11 +101,13 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
-║  EXECUTION CORE        Nautilus + replay Python (P5: mục tiêu)║
+║  EXECUTION CORE   Nautilus + replay Python (P5: mục tiêu)     ║
+║  Kernel numba CUDA/njit cho genome C, khớp bit replay (D23)   ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  ADAPTERS   Binance✅ Bybit✅ IB✅ Databento✅ SSI🔴tự viết   ║
+║  (adapter có sẵn trong Nautilus; chưa nối live — gate ⑦ ⑧)    ║
 ╚═══════════════════════════════════════════════════════════════╝
 
         ┌──────────────────────────────────────────┐
@@ -356,7 +359,7 @@ Tầng 2 — hồi quy trace (chạy trong sandbox, sau ①a)
 | Generations`G`        | 150 (equity), 100 (futures)   | ≥150      | Gen 150 mới đạt SR 1.52                                |
 | LLM inference/cycle     | **5–10**               | —         | Định mức để ước chi phí                           |
 | 🆕 Luồng sinh LLM song song | — | 1–2 (GPU local) | Pipeline bất đồng bộ: thread LLM đẩy candidate vào hàng đợi prefetch, slot backtest (CPU) chạy song song |
-| 🆕 Slot backtest song song | — | = số core − 1 | |
+| 🆕 Slot backtest song song | — | `--workers`, mặc định 8 (≈ số core − 1) | Mỗi worker một slot; job GPU dùng chung một thiết bị (ADR-0038) |
 | 🆕 Số seed mỗi cấu hình engine | — | ≥ 3 | Paper MadEvolve §6.3: chỉ đổi prompt một chút, cải thiện OOS từ +627% tụt còn +44%. Báo cáo **phân phối** qua các seed; mọi seed cộng vào `N` |
 
 > ⚠️ **Chi phí:** 5–10 LLM inference × 150 generation × N island. Với N=6 island → **4.500–9.000 lần gọi LLM** cho một lần chạy đầy đủ. Paper tự nêu đây là giới hạn scalability.
@@ -439,7 +442,7 @@ Hệ chạy song song **nhiều engine sinh candidate**, dùng chung toàn bộ 
 
 ```
                     ┌─► Engine C-gp: GP, văn phạm có kiểu ──┐
-config/user.yaml ───┤                                        ├─► bộ điều phối ─► sandbox ─► gate ⓪–④ ─► ledger
+config/user.yaml ───┤                                        ├─► bộ điều phối ─► sandbox ─► gate ①–④ ─► ledger
  (tỉ lệ ngân sách)  ├─► Engine C-random: mẫu i.i.d. ────────┤   (ép tỉ lệ)                                │
                     └─► (hoãn, D19) Engine A, Engine B ──────┘                                              ▼
                                                                     dựng danh mục từ ứng viên qua ④ của MỌI engine
@@ -755,6 +758,8 @@ CREATE TABLE generation_log (
     strategy_hash  TEXT,                 -- NULL nếu chưa sinh được code
     drift_delta    REAL,                 -- Δ chuẩn hóa (gate ⓪), nếu có
     island         TEXT,                 -- 🆕 v0.6: đảo nơi candidate tiến hóa (§3.1.5); cha + loại đột biến trong detail
+    instrument     TEXT,                 -- 🆕 v0.7 (ADR-0033): scope đã tìm; NULL = rổ spot legacy, giải lúc đọc
+    direction      TEXT,                 -- 🆕 v0.7: long | short
     detail         JSON
 );
 
@@ -780,7 +785,10 @@ CREATE TABLE trials (
     candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: nối với gate_results; cụm N_eff nằm ở trial_clusters
     gate_failed    TEXT,                 -- NULL nếu pass hết
     verdict        TEXT NOT NULL,        -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer phủ quyết sau backtest)
-    island         TEXT                  -- 🆕 v0.6 (§3.1.5)
+    island         TEXT,                 -- 🆕 v0.6 (§3.1.5)
+    instrument     TEXT,                 -- 🆕 v0.7 (ADR-0033)
+    direction      TEXT,
+    backtest_engine TEXT                 -- 🆕 v0.9 (D23): sandbox | cuda | cpu_kernel; NULL = sandbox legacy
 );
 
 -- Phương án danh mục đã đánh giá (§3.2.1) — mỗi dòng cũng là một phép chọn
@@ -822,6 +830,12 @@ CREATE TABLE gate_results (
     reason         TEXT NOT NULL,
     detail         JSON
 );
+
+-- 🆕 Bảng thêm sau, đều append-only (migration 004, 006, 008)
+CREATE TABLE calibration_runs (campaign_id, candidate_id, strategy_hash, budget, started_at);  -- 5b: mỗi strategy một lần/campaign
+CREATE TABLE calibration_finishes (campaign_id, candidate_id, finished_at, outcome, attempts, trials, errors);
+CREATE TABLE campaign_purposes (campaign_id, purpose, trial_budget);  -- research | harness_test (ADR-0027)
+CREATE TABLE campaign_creation_requests (request_key, draft_digest, campaign_id, dataset_id, created_at);  -- Studio (ADR-0037)
 
 CREATE INDEX idx_hash ON trials(strategy_hash);
 CREATE INDEX idx_cell ON trials(cell_id);
@@ -883,6 +897,11 @@ CREATE TABLE holdout_access (
     verdict         TEXT NOT NULL CHECK (verdict IN ('PASS','FAIL')),  -- chỉ 1 bit trả về vòng nghiên cứu
     sharpe_oos      REAL                  -- ghi cho người đọc báo cáo, KHÔNG trả về agent
 );
+
+-- 🆕 ADR-0016/0019: claim TRƯỚC khi đọc; campaign đã bỏ thì không bao giờ claim (migration 003)
+CREATE TABLE holdout_claims (campaign_id PRIMARY KEY, portfolio_hash, holdout_range,
+                             holdout_lock_hash UNIQUE, claimed_at);  -- trigger từ chối kỳ chồng lấn
+CREATE TABLE campaign_abandonments (campaign_id PRIMARY KEY, abandoned_at, reason);  -- ABANDONED là cuối cùng
 ```
 
 **Quy trình:**
@@ -921,10 +940,10 @@ TradingProject/
 |-- research_docs_vi/, research_docs/   thiết kế và bản dịch
 |-- implement_docs/, implement_docs_vi/ lộ trình, ADR, bản đồ module
 |-- src/quantcrucible/
-|   |-- core/strategy/, core/sizing/, core/path_summary.py
+|   |-- core/strategy/, core/sizing/, core/zoo/, core/perp_*.py, core/path_summary.py
 |   |-- agent/engines/            C-gp và C-random; engine LLM hoãn
 |   |-- data/                     tải spot/perp, path phút, tách holdout
-|   |-- execution/                bridge legacy, bracket, tài khoản chung
+|   |-- execution/                bridge legacy, bracket, tài khoản chung spot/perp, kernels/ (numba)
 |   |-- validation/               các cổng, PBO/CPCV, danh mục, sandbox
 |   `-- ledger/, holdout/evaluator_proc.py, review/, studio/
 |-- data/, holdout/             dữ liệu nghiên cứu và holdout bị Git bỏ qua
@@ -1192,7 +1211,7 @@ operational:            # NHÓM A — đổi bất cứ lúc nào, không ảnh 
     eval: null
 
 research:               # NHÓM B — khóa theo đợt; đổi giữa đợt bị từ chối
-  max_risk_pct: 0.01            # D12; D7 đã bỏ target_vol
+  max_risk_pct: 0.01            # D12; D7 đã bỏ target_vol; trần danh mục 10% (D7) cố định, không cấu hình
   portfolio:                    # D9
     max_corr: 0.5
     max_strategies: 20
@@ -1207,7 +1226,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   campaign: {purpose: research, trial_budget: null}   # harness_test = đợt so sánh engine GĐ 2: không dựng danh mục, không đóng băng (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
-  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = mốc UTC đã hoàn tất
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12, leverage: 5, funding_interval_hours: 8}   # D18; null = mốc UTC đã hoàn tất
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; khóa theo campaign
   backtest: {precision: float64}   # D23 — float64 | float32; khóa theo campaign
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 bước 5b
