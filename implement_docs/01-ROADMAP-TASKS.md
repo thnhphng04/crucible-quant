@@ -558,6 +558,9 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-51 Perpetual routing
 **Goal:** ③/④ perpetual jobs and `signals` jobs for the portfolio replay go through the router; INV-94 holds. **Evidence:** the router plans a perpetual job only with its bundle (aligned, with trade-minute paths), packs it once per bundle and replays on K4; a `signals` job, which prices nothing, comes from the signal kernel, so float32 perpetual portfolios pass the holdout preflight. `tests/validation/test_engine_router_perp.py`: gate-③, gate-④ and `signals` reports equal the in-container job functions' for long and short genomes, an L2 audit compares funding and liquidation dates too, and a job without its bundle goes to the sandbox in float64 and is refused in float32.
 
+### ✅ P3-52 Spot portfolio on one shared cash account
+**Goal:** a spot bracket portfolio is one account replay of its slots, like the perpetual one ([ADR-0040](adr/0040-spot-portfolio-is-one-shared-cash-account.md)). **Accept when:** one member reproduces its gate-③ backtest bit for bit; the build, gate ⑥′ and the holdout replay the same account; an untagged lock keeps its weighted sum. **Evidence:** `execution/spot_account.py`; `tests/execution/test_spot_account.py` (bit parity over 3 seeds, union axis, shared cash in canonical order, the 10% cap, one snapshot per bar); `tests/validation/test_spot_portfolio.py` (lock tag, build, ⑥′, holdout, the legacy rule kept); `tests/validation/test_run.py::test_opens_once_then_resumes` (new locks carry the tag).
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |

@@ -62,7 +62,7 @@ TradingProject/
 │   ├── holdout/                   evaluator_proc.py (tiến trình riêng), campaign.py    §4.2    P1-10
 │   ├── review/                    read model chỉ đọc + app FastAPI (`cli review`)   ADR-0029  công cụ
 │   └── execution/                 engine.py (Nautilus legacy + replay spot bracket),    §3.5    P3-25
-│                                  nautilus_bridge.py, exit_policy.py, joint_account.py, perp_account.py, risk.py
+│                                  nautilus_bridge.py, exit_policy.py, joint_account.py, spot_account.py, perp_account.py, risk.py
 │       ├── kernels/               engine GPU/njit: program (genome → bảng số), nơi duy  §3.5    P3-37
 │       │                          nhất import numba (ADR-0038)
 │       └── adapters/ssi/          adapter VN30F1M                                      §3.5    GĐ 6

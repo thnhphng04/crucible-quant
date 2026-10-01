@@ -12,7 +12,7 @@ Every backtest here goes through a gate pipeline and so through the ledger (P2).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -21,9 +21,11 @@ import pandas as pd
 
 from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars
+from quantcrucible.execution.exit_policy import ExitPolicy
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.ledger.records import TrialRow
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.calibration import (
     CalibrationResult,
@@ -35,22 +37,29 @@ from quantcrucible.validation.gates import GateContext, PipelineOutcome, Strateg
 from quantcrucible.validation.is_gates import signals_path_for
 from quantcrucible.validation.pbo_gate import periods_per_year
 from quantcrucible.validation.portfolio import (
+    ACCOUNT_WEIGHTING,
     Member,
     Portfolio,
     PortfolioRule,
     build_and_record,
     consolidate_on_account,
+    consolidate_on_spot_account,
     eligible_trials,
+    is_perpetual_lock,
     load_returns,
     load_signal_stream,
     record_variant,
     select_slots,
+    shares_spot_account,
     write_account_curve,
 )
 from quantcrucible.validation.portfolio_dsr import DsrGate, PortfolioOutcome, PortfolioPipeline
 from quantcrucible.validation.robustness import RobustnessGate
 from quantcrucible.validation.run import Provenance, candidate_pipeline, make_candidate
 from quantcrucible.validation.sandbox import JobRunner
+
+INITIAL_CASH = 100_000.0
+MAX_PORTFOLIO_RISK_PCT = 0.10  # D7: the summed commitment at the stop, as a share of equity
 
 
 @dataclass
@@ -104,81 +113,100 @@ def submit(
 
 def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOutcome]:
     """Build by the locked rule (a variant row if new), then ⑤ → ⑥′."""
-    rule = PortfolioRule.from_lock(session.lock)
-    ppy = periods_per_year(session.timeframe)
-    if session.lock["research"].get("data", {}).get("market") == "usdt_m_perpetual":
-        if not session.perp_data:
-            raise ValueError("perpetual portfolio needs aligned mark, funding, path and brackets")
-        trials = eligible_trials(session.ledger, session.campaign_id)
-        trial_returns = {t.id: load_returns(t.returns_path) for t in trials}
-        chosen = select_slots(
-            trials, trial_returns, session.ledger.trial_stats(), ppy, rule.max_strategies
-        )
-        if not chosen:
-            raise ValueError("no positive gate-④ candidate for any perpetual slot")
-        streams = {t.id: signals_path_for(Path(t.returns_path)) for t in chosen}
-        for trial in chosen:
-            plans = load_signal_stream(streams[trial.id])
-            if len(plans) != 1 or plans[0].slot != (trial.instrument, trial.direction):
-                raise ValueError(
-                    f"trial {trial.id}: signal stream does not match its locked "
-                    f"{trial.instrument}/{trial.direction} slot"
-                )
-        members = tuple(
-            Member(
-                t.id,
-                t.candidate_id,
-                t.strategy_hash,
-                dict(t.params),
-                1.0 / len(chosen),
-                (t.instrument,),
-                t.timeframe,
-                t.direction,
-            )
-            for t in chosen
-        )
-        research = session.lock["research"]
-        from quantcrucible.execution.exit_policy import ExitPolicy
-
-        replay = consolidate_on_account(
-            members,
-            streams,
-            session.is_data,
-            session.perp_data,
-            settings=RiskSettings(max_risk_pct=float(research["max_risk_pct"])),
-            costs=CostModel(**session.lock["derived"]["costs"]),
-            initial_cash=100_000.0,
-            leverage=int(research["data"]["leverage"]),
-            max_portfolio_risk_pct=0.10,
-            exit_policy=ExitPolicy.from_lock(session.lock),
-        )
-        portfolio = Portfolio(
-            session.campaign_id,
-            replace(rule, selection="slot_psr", weighting="risk_per_slot", rebalance="none"),
-            members,
-            pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:])),
-            ppy,
-            {
-                "eligible": [t.candidate_id for t in trials],
-                "slots": [t.candidate_id for t in chosen],
-            },
-        )
-        write_account_curve(
-            session.results_dir,
-            session.campaign_id,
-            portfolio.portfolio_hash,
-            ts=replay.ts,
-            equity=replay.equity,
-            initial_cash=100_000.0,
-            contributions=replay.contributions,
-        )
+    if is_perpetual_lock(session.lock) or shares_spot_account(session.lock):
+        portfolio = account_portfolio(session, eligible_trials(session.ledger, session.campaign_id))
+        if portfolio is None:
+            raise ValueError("no positive gate-④ candidate for any slot")
         record_variant(session.ledger, portfolio, session.results_dir)
     else:
+        rule = PortfolioRule.from_lock(session.lock)
         portfolio = build_and_record(
-            session.ledger, session.campaign_id, rule, ppy, session.results_dir,
+            session.ledger, session.campaign_id, rule, periods_per_year(session.timeframe),
+            session.results_dir,
         )  # fmt: skip
     pipeline = PortfolioPipeline([DsrGate(), RobustnessGate()])
     return portfolio, pipeline.run(portfolio, session.context())
+
+
+def account_portfolio(session: ResearchSession, trials: Sequence[TrialRow]) -> Portfolio | None:
+    """§3.2.1 as one account: a member per ``(instrument, direction)`` slot, replayed together.
+
+    Perpetual slots share one USDT margin account (ADR-0035); spot slots of an ADR-0040 lock
+    share one cash account. Either way every entry risks ``R`` from one equity snapshot and the
+    summed commitment stays inside the 10% cap, so there is no weight to choose: the account's
+    equity curve *is* the portfolio. ``None`` when no slot has a positive gate-④ candidate. The
+    caller records the variant.
+    """
+    rule = PortfolioRule.from_lock(session.lock)
+    ppy = periods_per_year(session.timeframe)
+    perpetual = is_perpetual_lock(session.lock)
+    if perpetual and not session.perp_data:
+        raise ValueError("perpetual portfolio needs aligned mark, funding, path and brackets")
+    trial_returns = {t.id: load_returns(t.returns_path) for t in trials}
+    chosen = select_slots(
+        trials, trial_returns, session.ledger.trial_stats(), ppy, rule.max_strategies
+    )
+    if not chosen:
+        return None
+    streams = {t.id: signals_path_for(Path(t.returns_path)) for t in chosen}
+    for trial in chosen:
+        plans = load_signal_stream(streams[trial.id])
+        if len(plans) != 1 or plans[0].slot != (trial.instrument, trial.direction):
+            raise ValueError(
+                f"trial {trial.id}: signal stream does not match its locked "
+                f"{trial.instrument}/{trial.direction} slot"
+            )
+    members = tuple(
+        Member(
+            t.id,
+            t.candidate_id,
+            t.strategy_hash,
+            dict(t.params),
+            1.0 / len(chosen),
+            (t.instrument,),
+            t.timeframe,
+            t.direction,
+        )
+        for t in chosen
+    )
+    research = session.lock["research"]
+    settings = RiskSettings(max_risk_pct=float(research["max_risk_pct"]))
+    costs = CostModel(**session.lock["derived"]["costs"])
+    policy = ExitPolicy.from_lock(session.lock)
+    if perpetual:
+        replay = consolidate_on_account(
+            members, streams, session.is_data, session.perp_data,
+            settings=settings, costs=costs, initial_cash=INITIAL_CASH,
+            leverage=int(research["data"]["leverage"]),
+            max_portfolio_risk_pct=MAX_PORTFOLIO_RISK_PCT, exit_policy=policy,
+        )  # fmt: skip
+    else:
+        replay = consolidate_on_spot_account(
+            members, streams, session.is_data,
+            settings=settings, costs=costs, initial_cash=INITIAL_CASH, exit_policy=policy,
+            max_portfolio_risk_pct=MAX_PORTFOLIO_RISK_PCT,
+        )  # fmt: skip
+    portfolio = Portfolio(
+        session.campaign_id,
+        replace(rule, selection="slot_psr", weighting=ACCOUNT_WEIGHTING, rebalance="none"),
+        members,
+        pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:])),
+        ppy,
+        {
+            "eligible": [t.candidate_id for t in trials],
+            "slots": [t.candidate_id for t in chosen],
+        },
+    )
+    write_account_curve(
+        session.results_dir,
+        session.campaign_id,
+        portfolio.portfolio_hash,
+        ts=replay.ts,
+        equity=replay.equity,
+        initial_cash=INITIAL_CASH,
+        contributions=replay.contributions,
+    )
+    return portfolio
 
 
 def calibrate_members(session: ResearchSession, portfolio: Portfolio) -> list[CalibrationResult]:

@@ -34,6 +34,7 @@ from quantcrucible.validation.campaign_service import (
 )
 from quantcrucible.validation.campaign_service import DatasetDescriptor as CampaignDataset
 from quantcrucible.validation.numerics import numerics_tag
+from quantcrucible.validation.portfolio import SHARED_ACCOUNT
 from quantcrucible.validation.run import _check_trial_budget, derived_settings
 
 
@@ -102,6 +103,7 @@ class StudioService:
         derived = derived_settings(cfg.research.evolve_scope)
         derived["exit_protocol"] = "bracket_timeout_v1"
         derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
+        derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
         return derived
 
     def assert_runnable(self, campaign_id: str, *, purpose: str | None = None) -> dict[str, Any]:
@@ -169,6 +171,7 @@ class StudioService:
             ),
             "exit_protocol": "bracket_timeout_v1",
             "backtest_numerics": numerics_tag(cfg.research.backtest.precision),
+            "portfolio_protocol": SHARED_ACCOUNT,
         }
 
     def preview(self, draft_id: str, revision: int) -> dict[str, Any]:

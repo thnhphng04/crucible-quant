@@ -30,10 +30,12 @@ from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.is_gates import backtest_options, write_signal_stream
 from quantcrucible.validation.portfolio import (
+    ACCOUNT_WEIGHTING,
     Member,
     Portfolio,
     combine,
     consolidate_on_account,
+    consolidate_on_spot_account,
     load_returns,
 )
 from quantcrucible.validation.portfolio_dsr import (
@@ -138,7 +140,7 @@ def _write_rerun_streams(
         stream = reports[member.trial_id].get("signals_stream") or {}
         if not stream:
             raise RerunError(
-                f"{member.candidate_id}: sandbox returned no signal stream; a perpetual "
+                f"{member.candidate_id}: sandbox returned no signal stream; an account "
                 "portfolio must be replayed from signals"
             )
         dummy_returns = directory / "returns" / f"{member.trial_id}.parquet"
@@ -157,30 +159,40 @@ def account_returns(
     runner: JobRunner,
     perp: Mapping[str, PerpBundle] | None,
 ) -> pd.Series:
-    """Perpetual portfolio returns from one shared account replay, not member weighting."""
-    if perp is None:
+    """Portfolio returns from one shared account replay, not member weighting: the USDT margin
+    account for perpetual members (ADR-0035), the spot cash account otherwise (ADR-0040)."""
+    perpetual = _has_perpetual(portfolio.members)
+    if perpetual and perp is None:
         raise RerunError("perpetual portfolio has no perpetual inputs")
     reports = {
         m.trial_id: rerun_member_report(
-            m, archive.get(m.strategy_hash), bars, options, runner, perp
+            m, archive.get(m.strategy_hash), bars, options, runner, perp if perpetual else None
         )
         for m in portfolio.members
     }
-    with tempfile.TemporaryDirectory(prefix="qc-robustness-signals-") as tmp:
-        from quantcrucible.execution.exit_policy import ExitPolicy
+    from quantcrucible.execution.exit_policy import ExitPolicy
 
-        replay = consolidate_on_account(
-            portfolio.members,
-            _write_rerun_streams(Path(tmp), portfolio.members, reports),
-            bars,
-            perp,
-            settings=RiskSettings(**options["risk"]),
-            costs=CostModel(**options.get("costs", {})),
-            initial_cash=float(options.get("initial_cash", 100_000.0)),
-            leverage=int(options.get("leverage", 5)),
-            max_portfolio_risk_pct=float(options.get("max_portfolio_risk_pct", 0.10)),
-            exit_policy=ExitPolicy(**options.get("exit_policy", {})),
-        )
+    policy = ExitPolicy(**options.get("exit_policy", {}))
+    settings = RiskSettings(**options["risk"])
+    costs = CostModel(**options.get("costs", {}))
+    cash = float(options.get("initial_cash", 100_000.0))
+    cap = float(options.get("max_portfolio_risk_pct", 0.10))
+    with tempfile.TemporaryDirectory(prefix="qc-robustness-signals-") as tmp:
+        streams = _write_rerun_streams(Path(tmp), portfolio.members, reports)
+        if perpetual:
+            assert perp is not None
+            replay = consolidate_on_account(
+                portfolio.members, streams, bars, perp,
+                settings=settings, costs=costs, initial_cash=cash,
+                leverage=int(options.get("leverage", 5)),
+                max_portfolio_risk_pct=cap, exit_policy=policy,
+            )  # fmt: skip
+        else:
+            replay = consolidate_on_spot_account(
+                portfolio.members, streams, bars,
+                settings=settings, costs=costs, initial_cash=cash, exit_policy=policy,
+                max_portfolio_risk_pct=cap,
+            )  # fmt: skip
     return pd.Series(replay.returns, index=pd.to_datetime(replay.ts[1:]))
 
 
@@ -192,6 +204,11 @@ def account_options(lock: Mapping[str, Any], options: Mapping[str, Any]) -> dict
     out.setdefault("initial_cash", 100_000.0)
     out.setdefault("max_portfolio_risk_pct", 0.10)
     return out
+
+
+def is_account_portfolio(portfolio: Portfolio, lock: Mapping[str, Any]) -> bool:
+    """True when the portfolio's returns are one account's replay, not a weighted sum."""
+    return portfolio.rule.weighting == ACCOUNT_WEIGHTING or is_perpetual_portfolio(portfolio, lock)
 
 
 def is_perpetual_portfolio(portfolio: Portfolio, lock: Mapping[str, Any]) -> bool:
@@ -218,12 +235,13 @@ class RobustnessGate:
         cols = [m.trial_id for m in portfolio.members]
         problems: list[str] = []
         perpetual = is_perpetual_portfolio(portfolio, ctx.lock)
+        on_account = is_account_portfolio(portfolio, ctx.lock)
 
         # ── costs × 2 on the primary source ──────────────────────────────────────────
         stressed_costs = {k: float(v) * mult for k, v in base["costs"].items()}
         perp: Mapping[str, PerpBundle] | None = ctx.services.get("perp_data")
         stressed_options = {**base, "costs": stressed_costs}
-        if perpetual:
+        if on_account:
             stressed_ret = account_returns(
                 portfolio, archive, ctx.services["is_data"], stressed_options, runner, perp
             )
@@ -254,9 +272,9 @@ class RobustnessGate:
         if not second:
             problems.append("no second-source data (research.data.second_exchange)")
         else:
-            if perpetual:
-                second_perp: Mapping[str, PerpBundle] | None = ctx.services.get("second_perp_data")
-                if second_perp is None:
+            second_perp: Mapping[str, PerpBundle] | None = ctx.services.get("second_perp_data")
+            if on_account:
+                if perpetual and second_perp is None:
                     problems.append("no second-source perpetual inputs (second_perp_data)")
                     alt_ret = pd.Series(dtype=np.float64)
                     primary_ret = pd.Series(dtype=np.float64)

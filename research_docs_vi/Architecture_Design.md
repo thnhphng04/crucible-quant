@@ -3,7 +3,7 @@
 > *Crucible Quant — phòng nghiên cứu định lượng dùng AI để tiến hóa chiến lược giao dịch hệ thống, và bắt mọi chiến lược qua lửa thử trước khi được giao dịch thật.*
 >
 > Thiết kế hệ thống AI sinh & kiểm định chiến lược trading deterministic, đa thị trường.
-> Phiên bản: 0.8 (draft) · Ngày: 2026-09-27
+> Phiên bản: 0.10 (draft) · Ngày: 2026-10-01
 > Nền tảng nghiên cứu: [[00-TONG-HOP-NGHIEN-CUU]] · [[04-TRUONG-PHAI-B-HIEU-QUA]] · [[06-PLATFORM-DA-THI-TRUONG]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Thay đổi 0.1 → 0.2** (nguồn: khảo sát 22 hệ trong [[08-LLM-QUANT-RESEARCHER]]): kiến trúc QuantEvolve được xác nhận độc lập bởi MadEvolve (§3.1) · thêm thay đổi bắt buộc **#5 DSL đóng** và **#6 reviewer ngữ cảnh mới tinh** (§3.1.6) · **DSR tính trên danh mục hợp nhất, không phải từng cell** (§3.1.6 — điểm dễ sai nhất) · thêm **gate ⓪ chống trôi spec** (§3.1.7) · thay khuyến nghị "dùng model nhỏ" bằng **bảng định tuyến dị thể + cảnh báo tránh reasoning model** (§3.1.9) · ledger thêm `model_used`/`gen_attempts`/`gen_failures`/`drift_delta` + view `starved_cells` (§4.1) · **P6 nâng lên cấp OS, evaluator chạy process riêng** (§4.2) · loại bỏ meta-evolution và RFT khỏi phạm vi (§9) · cảnh báo không lấy con số paper làm mốc (§11)
@@ -21,6 +21,8 @@
 > **Thay đổi 0.7 → 0.8** (ADR-0036, 27/9/2026): campaign mới khóa SL/TP và thời gian giữ tối đa, hỗ trợ 15m/1h; campaign cũ giữ exit legacy; ghi rõ replay hiện tại, chi phí và giới hạn P5 (§3.2, §3.3, §3.5, D18, D21).
 >
 > **Thay đổi 0.8 → 0.9** (ADR-0037, đã triển khai): thêm Studio UI local để cấu hình, chuẩn bị dữ liệu, preview, tạo và chạy campaign; giữ `cli review` chỉ đọc theo ADR-0029; tách dataset bất biến, job supervisor và ranh giới bảo mật localhost cho mọi mutation (§4.1, §4.2, §5, D22).
+>
+> **Thay đổi 0.9 → 0.10** (ADR-0038–0040, 30/9–1/10/2026): genome engine C chạy trên kernel numba của host, khớp bit với replay Python, precision khóa theo campaign (D23) · campaign mới khóa `derived.portfolio_protocol: shared_account_v1`: danh mục spot, như perpetual, là một tài khoản chung với mỗi slot `(instrument, direction)` một member, trần 10%, trên hợp các trục thời gian; lock cũ giữ luật ô + 1/σ (§3.2.1, D9)
 
 ---
 
@@ -59,7 +61,7 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║  AGENT LAYER — QuantEvolve       (LLM — chỉ ở đây)            ║
+║  AGENT LAYER — engine A QuantEvolve (LLM; hoãn, D19)          ║
 ║                                                               ║
 ║   Island 1 ─┐                      ┌── Evolutionary DB ──┐   ║
 ║   Island 2 ─┤  migrate top 10%     │  Feature map (MAP-  │   ║
@@ -78,11 +80,12 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 ║                          ↓                                    ║
 ║                    Insight Repository (curate mỗi 50 gen)     ║
 ║   (① Data Agent chạy 1 lần lúc khởi tạo → N = C+1 island)    ║
+║  ĐANG CHẠY: engine C (C-gp + C-random, không LLM) — §3.1.11   ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓ strategy.py (deterministic)
 ╔═══════════════════════════════════════════════════════════════╗
 ║  VALIDATION LAYER        (gate rẻ → đắt, mọi kết quả → ledger)║
-║  ①a AST/DSL  ⓪ Spec-drift  ①b Oracle  ② MinBTL  ③ BT IS     ║
+║  ①a AST/DSL  ⓪ Drift(chỉ LLM)  ①b Oracle  ② MinBTL  ③ BT IS   ║
 ║  ④ CPCV+PBO  ⑤ DSR(danh mục, N_eff trial thống kê)           ║
 ║  ⑥′ Data-source robustness  ⑥ Holdout(1 lần)  ⑦ Dry-run ⑧Live║
 ╚════════════════════════════╤══════════════════════════════════╝
@@ -98,11 +101,13 @@ Sáu nguyên tắc rút từ nghiên cứu. Mọi quyết định kỹ thuật p
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
-║  EXECUTION CORE        Nautilus + replay Python (P5: mục tiêu)║
+║  EXECUTION CORE   Nautilus + replay Python (P5: mục tiêu)     ║
+║  Kernel numba CUDA/njit cho genome C, khớp bit replay (D23)   ║
 ╚════════════════════════════╤══════════════════════════════════╝
                              ↓
 ╔═══════════════════════════════════════════════════════════════╗
 ║  ADAPTERS   Binance✅ Bybit✅ IB✅ Databento✅ SSI🔴tự viết   ║
+║  (adapter có sẵn trong Nautilus; chưa nối live — gate ⑦ ⑧)    ║
 ╚═══════════════════════════════════════════════════════════════╝
 
         ┌──────────────────────────────────────────┐
@@ -354,7 +359,7 @@ Tầng 2 — hồi quy trace (chạy trong sandbox, sau ①a)
 | Generations`G`        | 150 (equity), 100 (futures)   | ≥150      | Gen 150 mới đạt SR 1.52                                |
 | LLM inference/cycle     | **5–10**               | —         | Định mức để ước chi phí                           |
 | 🆕 Luồng sinh LLM song song | — | 1–2 (GPU local) | Pipeline bất đồng bộ: thread LLM đẩy candidate vào hàng đợi prefetch, slot backtest (CPU) chạy song song |
-| 🆕 Slot backtest song song | — | = số core − 1 | |
+| 🆕 Slot backtest song song | — | `--workers`, mặc định 8 (≈ số core − 1) | Mỗi worker một slot; job GPU dùng chung một thiết bị (ADR-0038) |
 | 🆕 Số seed mỗi cấu hình engine | — | ≥ 3 | Paper MadEvolve §6.3: chỉ đổi prompt một chút, cải thiện OOS từ +627% tụt còn +44%. Báo cáo **phân phối** qua các seed; mọi seed cộng vào `N` |
 
 > ⚠️ **Chi phí:** 5–10 LLM inference × 150 generation × N island. Với N=6 island → **4.500–9.000 lần gọi LLM** cho một lần chạy đầy đủ. Paper tự nêu đây là giới hạn scalability.
@@ -437,7 +442,7 @@ Hệ chạy song song **nhiều engine sinh candidate**, dùng chung toàn bộ 
 
 ```
                     ┌─► Engine C-gp: GP, văn phạm có kiểu ──┐
-config/user.yaml ───┤                                        ├─► bộ điều phối ─► sandbox ─► gate ⓪–④ ─► ledger
+config/user.yaml ───┤                                        ├─► bộ điều phối ─► sandbox ─► gate ①–④ ─► ledger
  (tỉ lệ ngân sách)  ├─► Engine C-random: mẫu i.i.d. ────────┤   (ép tỉ lệ)                                │
                     └─► (hoãn, D19) Engine A, Engine B ──────┘                                              ▼
                                                                     dựng danh mục từ ứng viên qua ④ của MỌI engine
@@ -553,6 +558,7 @@ Bản 0.2 bắt DSR tính trên danh mục nhưng không nói danh mục đượ
 
 - **Mỗi lần đổi bất kỳ bước nào** (ngưỡng ρ, K, cách chọn đại diện, lịch tái cân bằng) rồi đánh giá lại = **một phương án danh mục mới**, ghi bảng `portfolio_variants` (§4.1) và **cộng vào `N`** ở gate ⑤.
 - Các tham số 0.5 / 20 / hàng tháng là **mặc định tạm** — nhưng phải chốt *trước* lần đánh giá danh mục đầu tiên, không chỉnh sau khi đã thấy DSR.
+- 🆕 **v0.10 — lock có `derived.portfolio_protocol: shared_account_v1` (ADR-0040) thay bước 1–5 bằng một tài khoản chung.** Bước 1 thành mỗi slot `(instrument, direction)` một member (PSR tốt nhất so với SR₀(N_eff, V[SR]), Sharpe IS > 0); không lọc tương quan (ρ và lịch tái cân bằng không được đọc); K vẫn là trần. Không có trọng số: tín hiệu của các member được replay trên một tài khoản — tiền mặt spot hoặc margin USDT perpetual — mỗi entry rủi ro `R` từ một snapshot equity, trong trần danh mục §3.4, trên hợp các trục thời gian của member (spot). Đường equity của tài khoản chính là lợi nhuận danh mục, ở ⑤, ⑥′ và holdout. Lock không có tag giữ quy tắc trên — không dựng lại danh mục theo luật chưa đăng ký.
 
 ### 3.3. Strategy Runtime — hợp đồng cốt lõi
 
@@ -752,6 +758,8 @@ CREATE TABLE generation_log (
     strategy_hash  TEXT,                 -- NULL nếu chưa sinh được code
     drift_delta    REAL,                 -- Δ chuẩn hóa (gate ⓪), nếu có
     island         TEXT,                 -- 🆕 v0.6: đảo nơi candidate tiến hóa (§3.1.5); cha + loại đột biến trong detail
+    instrument     TEXT,                 -- 🆕 v0.7 (ADR-0033): scope đã tìm; NULL = rổ spot legacy, giải lúc đọc
+    direction      TEXT,                 -- 🆕 v0.7: long | short
     detail         JSON
 );
 
@@ -777,7 +785,10 @@ CREATE TABLE trials (
     candidate_id   TEXT NOT NULL,        -- 🆕 ADR-0002: nối với gate_results; cụm N_eff nằm ở trial_clusters
     gate_failed    TEXT,                 -- NULL nếu pass hết
     verdict        TEXT NOT NULL,        -- PASS | REJECT_<gate> | REJECT_FABRICATION (reviewer phủ quyết sau backtest)
-    island         TEXT                  -- 🆕 v0.6 (§3.1.5)
+    island         TEXT,                 -- 🆕 v0.6 (§3.1.5)
+    instrument     TEXT,                 -- 🆕 v0.7 (ADR-0033)
+    direction      TEXT,
+    backtest_engine TEXT                 -- 🆕 v0.9 (D23): sandbox | cuda | cpu_kernel; NULL = sandbox legacy
 );
 
 -- Phương án danh mục đã đánh giá (§3.2.1) — mỗi dòng cũng là một phép chọn
@@ -819,6 +830,12 @@ CREATE TABLE gate_results (
     reason         TEXT NOT NULL,
     detail         JSON
 );
+
+-- 🆕 Bảng thêm sau, đều append-only (migration 004, 006, 008)
+CREATE TABLE calibration_runs (campaign_id, candidate_id, strategy_hash, budget, started_at);  -- 5b: mỗi strategy một lần/campaign
+CREATE TABLE calibration_finishes (campaign_id, candidate_id, finished_at, outcome, attempts, trials, errors);
+CREATE TABLE campaign_purposes (campaign_id, purpose, trial_budget);  -- research | harness_test (ADR-0027)
+CREATE TABLE campaign_creation_requests (request_key, draft_digest, campaign_id, dataset_id, created_at);  -- Studio (ADR-0037)
 
 CREATE INDEX idx_hash ON trials(strategy_hash);
 CREATE INDEX idx_cell ON trials(cell_id);
@@ -880,6 +897,11 @@ CREATE TABLE holdout_access (
     verdict         TEXT NOT NULL CHECK (verdict IN ('PASS','FAIL')),  -- chỉ 1 bit trả về vòng nghiên cứu
     sharpe_oos      REAL                  -- ghi cho người đọc báo cáo, KHÔNG trả về agent
 );
+
+-- 🆕 ADR-0016/0019: claim TRƯỚC khi đọc; campaign đã bỏ thì không bao giờ claim (migration 003)
+CREATE TABLE holdout_claims (campaign_id PRIMARY KEY, portfolio_hash, holdout_range,
+                             holdout_lock_hash UNIQUE, claimed_at);  -- trigger từ chối kỳ chồng lấn
+CREATE TABLE campaign_abandonments (campaign_id PRIMARY KEY, abandoned_at, reason);  -- ABANDONED là cuối cùng
 ```
 
 **Quy trình:**
@@ -918,10 +940,10 @@ TradingProject/
 |-- research_docs_vi/, research_docs/   thiết kế và bản dịch
 |-- implement_docs/, implement_docs_vi/ lộ trình, ADR, bản đồ module
 |-- src/quantcrucible/
-|   |-- core/strategy/, core/sizing/, core/path_summary.py
+|   |-- core/strategy/, core/sizing/, core/zoo/, core/perp_*.py, core/path_summary.py
 |   |-- agent/engines/            C-gp và C-random; engine LLM hoãn
 |   |-- data/                     tải spot/perp, path phút, tách holdout
-|   |-- execution/                bridge legacy, bracket, tài khoản chung
+|   |-- execution/                bridge legacy, bracket, tài khoản chung spot/perp, kernels/ (numba)
 |   |-- validation/               các cổng, PBO/CPCV, danh mục, sandbox
 |   `-- ledger/, holdout/evaluator_proc.py, review/, studio/
 |-- data/, holdout/             dữ liệu nghiên cứu và holdout bị Git bỏ qua
@@ -1147,7 +1169,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D6 | Đồng tiền base                              | 🟡 Mặc định tạm    | USD                                                                           | Tầng FX conversion                                                                          |
 | D7 | ~~Mục tiêu vol danh mục~~ → Trần rủi ro danh mục | ✅ Đã chốt (25/9/2026) | `max_portfolio_risk_pct` = 10% vốn, tổng cam kết tại stop; ≤ 10 vị thế | Thay vol targeting. ADR-0031, §3.4. Vol danh mục nay là **kết quả**, không phải mục tiêu |
 | D8 | Drawdown tối đa chịu được                  | 🟡 Mặc định tạm    | 20%                                                                           | Kill-switch; là một phần của D4                                                            |
-| D9 | Tham số dựng danh mục (ρ, K, tái cân bằng) | 🟡 Mặc định tạm    | 0.5 / 20 / hàng tháng (§3.2.1)                                              | ⚠️ Phải đóng băng **trước lần đánh giá danh mục đầu tiên** — sau đó mỗi lần đổi là một `portfolio_variant` |
+| D9 | Tham số dựng danh mục (ρ, K, tái cân bằng) | 🟡 Mặc định tạm    | 0.5 / 20 / hàng tháng (§3.2.1)                                              | ⚠️ Phải đóng băng **trước lần đánh giá danh mục đầu tiên** — sau đó mỗi lần đổi là một `portfolio_variant`. Dưới `shared_account_v1` (ADR-0040) chỉ K được đọc |
 | D10 | Ngưỡng drift Δ                            | 🟡 Mặc định tạm    | 0.05 / 0.15, Δ chuẩn hóa (§3.1.7)                                          | Hiệu chỉnh ở GĐ 2 trước khi dùng để tự động hủy                                        |
 | D11 | Model Research Agent                      | 🟡 Mặc định tạm    | Non-reasoning, `gpt-oss-120b` (§3.1.9)                                      | A/B nội bộ khi engine A được xây lại (hoãn, D19)                                          |
 | D12 | Lỗ mỗi lệnh khi chạm stop (`max_risk_pct`) | ✅ Đã chốt (25/9/2026) | 1% vốn — nay là **chính** quy tắc sizing, không còn là trần | `Q = R/d`, ADR-0031, §3.4. Lỗ thực có thể khác vì phí, funding, gap và slippage — báo cáo riêng |
@@ -1189,7 +1211,7 @@ operational:            # NHÓM A — đổi bất cứ lúc nào, không ảnh 
     eval: null
 
 research:               # NHÓM B — khóa theo đợt; đổi giữa đợt bị từ chối
-  max_risk_pct: 0.01            # D12; D7 đã bỏ target_vol
+  max_risk_pct: 0.01            # D12; D7 đã bỏ target_vol; trần danh mục 10% (D7) cố định, không cấu hình
   portfolio:                    # D9
     max_corr: 0.5
     max_strategies: 20
@@ -1204,7 +1226,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   campaign: {purpose: research, trial_budget: null}   # harness_test = đợt so sánh engine GĐ 2: không dựng danh mục, không đóng băng (§3.1.11)
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
-  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12}   # D18; null = mốc UTC đã hoàn tất
+  data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12, leverage: 5, funding_interval_hours: 8}   # D18; null = mốc UTC đã hoàn tất
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; khóa theo campaign
   backtest: {precision: float64}   # D23 — float64 | float32; khóa theo campaign
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 bước 5b
