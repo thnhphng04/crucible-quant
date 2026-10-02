@@ -442,18 +442,18 @@ nến giao dịch. Các task này nối dây, tải dữ liệu thật, và đư
 
 ### ☐ P3-24 Tải thật, preflight, dry-run lock
 **Mục tiêu:** điều kiện thứ năm của cổng giai đoạn. **Kiến trúc:** §6.1, D18. **Cần:** P3-17
-**File:** `cli.py`, `config/schema.py`, `config/lock.py`, `config/user.yaml`.
-**Đạt khi:** perpetual OHLCV, mark, funding và bracket đủ coverage chung để khoá; `common_window` trả về 2020-09-14; một lần dry run không đổi lock nào, không mở campaign và không claim holdout.
+**File:** `cli.py` (`data-preflight`; `data-fetch --market perp` chạy nó trước), mới `data/perp_preflight.py`, `data/perp_source.py`.
+**Đạt khi:** perpetual OHLCV, mark, funding và bracket đủ coverage chung để khoá; `common_window` trả về 2020-09-14; một lần dry run không đổi lock nào, không mở campaign và không claim holdout. **Bằng chứng (2026-10-02, Binance thật, key chỉ-đọc):** `data-preflight` trên năm contract, 1h, holdout 12 tháng đọc được 10–12 bậc bracket mỗi contract và tìm thấy cửa sổ chung bắt đầu **2020-09-14** (SOLUSDT là ràng buộc; nến đầu tiên mọi chuỗi đều có là 2020-09-14 08:00 UTC, nên start trong config là 2020-09-15) — 5,05 năm IS; `start: 2020-09-14` bị từ chối, `2020-09-15` qua, và lần chạy không ghi gì. Test: `tests/data/test_perp_preflight.py`, `tests/test_perp_cli.py::test_dryrun_leaves_lock_ledger_and_holdout_claim_untouched`. **Còn mở:** tải phút thật và cắt perpetual ghi-một-lần (`data-fetch --market perp`), rồi `campaign-dryrun` trên dữ liệu đó — lần cắt cố định khoảng holdout, nên chờ user.
 
 **Cổng giai đoạn 3:** fixture chứng minh đường tài khoản chung và preflight dữ liệu thật đạt. **Không campaign thật nào mở trong giai đoạn này** — hình dạng của nó là quyết định riêng, và headroom là 1.185 trial.
 
 **Trạng thái hiện tại.** P3-16 đến P3-23 đã triển khai và kiểm thử: sandbox hiện nhận mark,
 funding, path và bracket; gate ③/④/⑥′, replay holdout và chart tài khoản đều dùng dữ liệu đó.
-P3-24 vẫn cần kiểm tra coverage nguồn thật trước khi mở campaign perpetual: code và test fixture đã có, nhưng chưa tải dữ liệu perpetual thật nào (cần key Binance chỉ-đọc cho snapshot bracket) — lần kiểm tra phase ngày 2026-09-30 thấy đây là điều kiện duy nhất còn mở của cổng. P3-25 bổ sung
+Preflight nguồn thật của P3-24 đã qua ngày 2026-10-02 (cửa sổ chung 2020-09-14, bracket đọc bằng key chỉ-đọc); còn lại tải phút thật, cắt perpetual và một lần dry run trên dữ liệu đó, và không bước nào mở campaign. P3-25 bổ sung
 thoát theo bracket có phiên bản mà không diễn giải lại campaign hay kết quả cũ.
 
-Điểm chặn payload sandbox cũ đã được giải quyết. Cổng giai đoạn còn mở cho đến khi xác minh
-preflight và dry run với đúng symbol và khoảng dữ liệu dự kiến.
+Điểm chặn payload sandbox cũ đã được giải quyết. Điều kiện preflight dữ liệu thật của cổng
+giai đoạn đã đạt; P3-24 còn mở cho đến khi lần cắt và dry run của nó được xác minh trên cửa sổ đó.
 
 **Năm lỗi tìm ra khi review, đã sửa hết (INV-92c, INV-93, INV-93c, INV-95b).** Cả năm đều là code
 có test xanh trong khi đường mà một campaign thật sự đi thì hỏng. `RiskSizer` trả 0 cho mọi

@@ -28,7 +28,7 @@ TradingProject/
 │   │   └── zoo/                   viết tay (ema, sma, rsi v1+v2); tập so độ           §3.1.6  P1-12
 │   │                              giống AST                                                    GĐ 2
 │   ├── data/                      protocol DataSource, nguồn ccxt/Stooq, store,        §6.1    P0-09
-│   │                              holdout_split
+│   │                              holdout_split; perp_source, perp_preflight (P3-24), perp_pipeline
 │   ├── ledger/                    schema.sql, db.py                                    §4      P0-02
 │   ├── validation/
 │   │   ├── gates.py, report.py    pipeline cổng, EvaluationReport                      §3.2    P0-06

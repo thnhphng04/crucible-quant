@@ -28,7 +28,7 @@ TradingProject/
 │   │   └── zoo/                   hand-written (ema, sma, rsi v1+v2); AST            §3.1.6  P1-12
 │   │                              similarity set                                               phase 2
 │   ├── data/                      DataSource protocol, ccxt/Stooq sources, store,      §6.1    P0-09
-│   │                              holdout_split
+│   │                              holdout_split; perp_source, perp_preflight (P3-24), perp_pipeline
 │   ├── ledger/                    schema.sql, db.py                                    §4      P0-02
 │   ├── validation/
 │   │   ├── gates.py, report.py    Gate pipeline, EvaluationReport                      §3.2    P0-06

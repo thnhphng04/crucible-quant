@@ -1,5 +1,6 @@
 """Command line entry points.
 
+    uv run python -m quantcrucible.cli data-preflight   perpetual coverage on the venue, read-only
     uv run python -m quantcrucible.cli data-fetch     download research data + carve the holdout
     uv run python -m quantcrucible.cli data-fetch-second   in-sample bars of the second source (⑥′)
     uv run python -m quantcrucible.cli validate FILE  run one strategy through gates ①a → ④
@@ -29,7 +30,9 @@ from quantcrucible.config.loader import load_user_config
 from quantcrucible.config.lock import CampaignNotOpened
 
 if TYPE_CHECKING:
+    from quantcrucible.config.schema import Data
     from quantcrucible.core.strategy.base import Bars
+    from quantcrucible.data.perp_preflight import PerpPreflight
     from quantcrucible.validation.gates import GateResult
     from quantcrucible.validation.research_run import ResearchSession
 
@@ -83,6 +86,37 @@ def data_fetch(config: Path, root: Path, market: str | None = None) -> int:
     return 0
 
 
+def _perp_preflight(cfg: Data) -> tuple[PerpPreflight, date]:
+    """Ask the venue whether the configured perpetual window can be fetched. Writes nothing."""
+    from quantcrucible.data import perp_preflight
+
+    if cfg.market != "usdt_m_perpetual":
+        raise ValueError("research.data.market must be usdt_m_perpetual")
+    today = datetime.now(UTC).date()
+    end_day = cfg.end or today
+    if end_day > today:
+        raise ValueError("research.data.end cannot be in the future")
+    report = perp_preflight.preflight_perpetual(
+        perp_preflight.PerpSource(),
+        cfg.symbols,
+        cfg.timeframe,
+        datetime.combine(cfg.start, time(), tzinfo=UTC),
+        datetime.combine(end_day, time(), tzinfo=UTC),  # only completed bars
+        datetime.combine(add_months(end_day, -cfg.holdout_months), time(), tzinfo=UTC),
+        funding_interval_hours=cfg.funding_interval_hours,
+    )
+    return report, end_day
+
+
+def data_preflight(config: Path) -> int:
+    """Real-source perpetual coverage, read-only: no download, carve, lock or ledger row."""
+    report, _ = _perp_preflight(load_user_config(config).research.data)
+    sys.stdout.write(report.render())
+    for problem in report.problems:
+        sys.stderr.write(f"refused: {problem}\n")
+    return 0 if report.ok else 2
+
+
 def data_fetch_perp(config: Path, root: Path) -> int:
     """Prepare all four perpetual inputs before the write-once carve is attempted."""
     from quantcrucible.data.manifest import write_manifest
@@ -91,12 +125,13 @@ def data_fetch_perp(config: Path, root: Path) -> int:
     from quantcrucible.data.perp_source import PerpSource, common_window
 
     cfg = load_user_config(config).research.data
-    if cfg.market != "usdt_m_perpetual":
-        raise ValueError("research.data.market must be usdt_m_perpetual")
-    today = datetime.now(UTC).date()
-    end_day = cfg.end or today
-    if end_day > today:
-        raise ValueError("research.data.end cannot be in the future")
+    # Refuse in seconds, not after a five-year minute download or — worse — after the carve.
+    report, end_day = _perp_preflight(cfg)
+    if not report.ok:
+        sys.stdout.write(report.render())
+        for problem in report.problems:
+            sys.stderr.write(f"refused: {problem}\n")
+        return 2
     start = datetime.combine(cfg.start, time(), tzinfo=UTC)
     end = datetime.combine(end_day, time(), tzinfo=UTC)  # only completed bars
     prepared = prepare_perpetual(
@@ -547,6 +582,10 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("--market", choices=["spot", "perp"], help="must match research.data.market")
     fetch.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     fetch.add_argument("--root", type=Path, default=Path("."))
+    pre = sub.add_parser(
+        "data-preflight", help="check the venue serves the perpetual window; writes nothing"
+    )
+    pre.add_argument("--config", type=Path, default=Path("config/user.yaml"))
     second = sub.add_parser(
         "data-fetch-second", help="in-sample bars from the second source for gate ⑥′"
     )
@@ -599,6 +638,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    if args.command == "data-preflight":
+        return data_preflight(args.config)  # read-only and rootless: no writer lock to take
     if args.command in {"review", "studio", "campaign-dryrun"}:
         return _dispatch_unlocked(args)
     from quantcrucible.studio.writer_lock import ProjectBusy, project_writer_lock
