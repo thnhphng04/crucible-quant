@@ -228,6 +228,20 @@ class PerpSource:
                 break
             since = last + step_ms
 
+    def timestamps(
+        self, symbol: str, timeframe: str, since: int, limit: int, *, kind: str
+    ) -> list[int]:
+        """One page of row timestamps, in ms: bar opens for ``trade``/``mark``, settlement times
+        for ``funding`` (where ``timeframe`` is ignored). The preflight asks only *when*."""
+        if kind == "funding":
+            rows = self._venue().fetch_funding_rate_history(symbol, since, limit)
+            return [int(r["timestamp"]) for r in rows]
+        venue = self._venue()
+        fetch = {"trade": venue.fetch_ohlcv, "mark": venue.fetch_mark_ohlcv}.get(kind)
+        if fetch is None:
+            raise ValueError(f"kind must be 'trade', 'mark' or 'funding', got {kind!r}")
+        return [int(r[0]) for r in fetch(symbol, timeframe, since, limit)]
+
     def _raw_page(self, symbol: str, timeframe: str, since: int, *, kind: str) -> list[list[float]]:
         venue = self._venue()
         fetch = {"trade": venue.fetch_ohlcv, "mark": venue.fetch_mark_ohlcv}.get(kind)
