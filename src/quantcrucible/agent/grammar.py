@@ -45,7 +45,7 @@ from quantcrucible.core.strategy.genome import genome_to_dict as genome_to_dict
 from quantcrucible.core.strategy.genome import load_genome as load_genome
 from quantcrucible.core.strategy.genome import render_genome as render_genome
 from quantcrucible.core.strategy.registry import OPS
-from quantcrucible.core.strategy.tunable import MAX_TUNABLES
+from quantcrucible.core.strategy.tunable import LEGACY_MAX_TUNABLES
 
 PRICE_OPS = ("sma", "ema")
 OSC_OPS = ("rsi", "zscore")
@@ -61,6 +61,7 @@ LEVEL_RANGES: dict[tuple[str, Cmp], tuple[float, float]] = {
 DISTANCE_RANGE = (-3.0, 3.0)  # (a - b) / ATR
 STOP_RANGE = (0.5, 5.0)  # stop = k × ATR
 TP_RANGE = (0.5, 10.0)  # take profit = k × ATR
+STOP_PERIOD_RANGE = (5, 50)  # n_stop: ATR period or band period of the stop (ADR-0041, provisional)
 
 
 # ── sampling ────────────────────────────────────────────────────────────────────────────────
@@ -77,7 +78,9 @@ class GrammarConfig:
     tp_sl_ratio: float | None = None
     # the scope's side (P3-04): rendered sources emit it or flat, never the other side (INV-91)
     direction: ScopeDirection = "long"
-    max_params: int = MAX_TUNABLES
+    # a stop_period: tunable_v1 campaign (ADR-0041): every genome carries n_stop, cap 7
+    stop_period: bool = False
+    max_params: int = LEGACY_MAX_TUNABLES
     clause_types: tuple[type, ...] = field(default=CLAUSE_TYPES)
 
 
@@ -170,7 +173,9 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
         kind: Literal["atr", "bollinger"] = (
             "bollinger" if rng.random() < cfg.boll_stop_probability else "atr"
         )
-        genome = Genome(entry, stop, tp, kind)
+        # drawn last, and only when enabled: a fixed-stop campaign samples the stream it always did
+        period = _uniform(rng, "period", *STOP_PERIOD_RANGE) if cfg.stop_period else None
+        genome = Genome(entry, stop, tp, kind, period)
         if len(genome.params()) <= cfg.max_params:
             return genome
 

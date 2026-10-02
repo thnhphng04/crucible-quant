@@ -29,7 +29,12 @@ from quantcrucible.core.strategy.template import (
     fixed_region_hash,
     parse,
 )
-from quantcrucible.core.strategy.tunable import Tunable, TunableError
+from quantcrucible.core.strategy.tunable import (
+    Tunable,
+    TunableError,
+    lock_max_tunables,
+    lock_stop_period,
+)
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.gates import (
     G1A_STATIC,
@@ -387,6 +392,9 @@ class StaticGuardrail:
             return tamper(str(e))
         if actual != expected:
             return tamper("fixed region differs from the locked template")
+        cap = lock_max_tunables(ctx.lock)  # 6, or 7 under stop_period: tunable_v1 (ADR-0041)
+        if len(parsed.tunables) > cap:
+            return reject(f"{len(parsed.tunables)} TUNABLE declarations; at most {cap} allowed")
         problems = check_params(parsed.tunables, candidate.params)
         if problems:
             return reject("; ".join(problems))
@@ -395,7 +403,8 @@ class StaticGuardrail:
         locked_numbers: frozenset[int | float] = frozenset()
         if ctx.lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1":
             ratio = float(ctx.lock["research"]["exit"]["tp_sl_ratio"])
-            locked_numbers = frozenset({8, ratio})
+            # the fixed band period 8 — unless the band period is the n_stop gene (ADR-0041)
+            locked_numbers = frozenset({ratio} if lock_stop_period(ctx.lock) else {8, ratio})
         violations = [v for b in editable for v in check_block(b.body, names, locked_numbers)]
         violations += [v for b in editable for v in check_direction(b.body, candidate.direction)]
         if violations:

@@ -4,6 +4,7 @@ It reproduces what the template's ``signal()`` computes from the features at bar
 
     atr = x["atr"] + 0
     stop = k_stop * atr                     # or k_stop * (close - boll_lower(8)), mirrored short
+                                            # with n_stop (ADR-0041): x["atr_stop"], boll(n_stop)
     ready = atr > 0 and atr - atr == 0 and stop > 0 and stop - stop == 0
     if ready and (<entry clauses>):
         return Signal(direction, 1.0, stop, <tp>)
@@ -87,14 +88,14 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
              entry: Any, stop_out: Any, err: Any) -> None:  # fmt: skip
         c = k // n_bars
         t = k % n_bars
-        combine, close_slot, atr_slot, band_slot, stop_col, direction = (
-            meta[0], meta[1], meta[2], meta[3], meta[4], meta[5],
+        combine, close_slot, atr_slot, band_slot, stop_col, direction, stop_slot = (
+            meta[0], meta[1], meta[2], meta[3], meta[4], meta[5], meta[6],
         )  # fmt: skip
         entry[t, c] = 0
         stop_out[t, c] = ZERO
         atr = now[si[c, atr_slot], t]
         if band_slot < 0:
-            stop = mul(pv[c, stop_col], atr)
+            stop = mul(pv[c, stop_col], now[si[c, stop_slot], t])
         else:
             close = now[si[c, close_slot], t]
             band = now[si[c, band_slot], t]
@@ -145,7 +146,7 @@ Array = npt.NDArray[Any]
 def _meta(prog: Program) -> npt.NDArray[np.int64]:
     return np.asarray(
         [prog.combine, prog.close_slot, prog.atr_slot, prog.band_slot, prog.stop_col,
-         prog.direction],
+         prog.direction, prog.stop_slot],
         dtype=np.int64,
     )  # fmt: skip
 

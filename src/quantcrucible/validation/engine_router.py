@@ -539,15 +539,17 @@ def _features(parsed: ParsedGenome, params: Mapping[str, Any], bars: Bars) -> di
 
 
 def _evaluate(expr: str, params: Mapping[str, Any], bars: Bars) -> Any:
+    def period(arg: str) -> Any:
+        return params[arg.removeprefix("self.p.")] if arg.startswith("self.p.") else int(arg)
+
     if expr == "bars.close":
         return bars.close
-    if expr == "ind.atr(bars, 14)":
-        return registry.atr(bars, 14)
+    if expr.startswith("ind.atr(bars, "):  # ATR(14), or the stop's ATR(n_stop) (ADR-0041)
+        return registry.atr(bars, period(expr.removeprefix("ind.atr(bars, ").removesuffix(")")))
     op, _, arg = expr.removeprefix("ind.").removesuffix(")").partition("(bars.close, ")
     if registry.INDICATORS.get(op) != "series":
         raise Unsupported(f"unknown feature {expr!r}")
-    n = params[arg.removeprefix("self.p.")] if arg.startswith("self.p.") else int(arg)
-    return getattr(registry, op)(bars.close, n)
+    return getattr(registry, op)(bars.close, period(arg))
 
 
 def make_job_runner(

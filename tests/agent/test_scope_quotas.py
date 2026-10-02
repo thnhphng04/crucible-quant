@@ -14,6 +14,8 @@ comparison. It is refused rather than rounded.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from quantcrucible.agent.run import engine_seed, grammar_config
@@ -168,3 +170,14 @@ def test_the_grammar_renders_the_side_its_scope_searches() -> None:
     assert grammar_config(lock, unit(instrument="BTC/USDT")).direction == "long"
     assert grammar_config(lock, unit()).direction == "long"  # legacy: long-or-flat
     assert grammar_config(lock, unit()).tp_sl_ratio == 1.1
+
+
+def test_the_lock_decides_the_stop_period_gene_and_the_cap() -> None:
+    """INV-114 / INV-115 (ADR-0041): both engines read the same grammar from the lock."""
+    derived: dict[str, Any] = {"exit_protocol": "bracket_timeout_v1"}
+    old = {"research": {"exit": {"tp_sl_ratio": 1.1}}, "derived": derived}
+    new = {**old, "derived": {**derived, "stop_period": "tunable_v1", "max_tunables": 7}}
+    cfg = grammar_config(old, unit(instrument="BTC/USDT"))
+    assert (cfg.stop_period, cfg.max_params) == (False, 6)
+    cfg = grammar_config(new, unit(instrument="BTC/USDT"))
+    assert (cfg.stop_period, cfg.max_params) == (True, 7)

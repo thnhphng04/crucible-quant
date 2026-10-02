@@ -22,6 +22,11 @@ from quantcrucible.execution.kernels.signals import run_signals
 
 RATIO = 1.1
 CFG = GrammarConfig(take_profit_probability=0.5, boll_stop_probability=0.5)
+# a stop_period: tunable_v1 campaign: the grid also sweeps n_stop (ADR-0041, INV-115)
+CFG_STOP = GrammarConfig(
+    take_profit_probability=0.5, boll_stop_probability=0.5, stop_period=True, max_params=7
+)
+CFGS = pytest.mark.parametrize("cfg", [CFG, CFG_STOP], ids=["fixed-stop", "stop-period"])
 
 
 def _bars(n: int, seed: int) -> Bars:
@@ -40,12 +45,15 @@ def _configs(genome: Genome, seed: int, n: int) -> tuple[str, list[dict[str, Any
     return src, pbo_grid(list(parse(src).tunables), 3, 0.3, n, seed, center=params)
 
 
-def _check(target: str, n_genomes: int, n_bars: int, lookback: int, n_configs: int) -> int:
+def _check(
+    target: str, n_genomes: int, n_bars: int, lookback: int, n_configs: int,
+    grammar: GrammarConfig = CFG,
+) -> int:  # fmt: skip
     rng = np.random.default_rng(11)
     bars = _bars(n_bars, 5)
     entries = 0
     for i in range(n_genomes):
-        genome = sample_genome(rng, CFG)
+        genome = sample_genome(rng, grammar)
         _, configs = _configs(genome, i, n_configs)
         for direction in ("long", "short"):
             prog = compile_program(genome, direction, RATIO, configs, lookback)
@@ -71,15 +79,18 @@ def _check(target: str, n_genomes: int, n_bars: int, lookback: int, n_configs: i
     return entries
 
 
-def test_cpu_kernel_matches_generate_signals() -> None:
-    assert _check("cpu", n_genomes=25, n_bars=400, lookback=120, n_configs=3) > 100
+@CFGS
+def test_cpu_kernel_matches_generate_signals(cfg: GrammarConfig) -> None:
+    assert _check("cpu", n_genomes=25, n_bars=400, lookback=120, n_configs=3, grammar=cfg) > 100
 
 
+@CFGS
 @pytest.mark.cudasim
-def test_simulated_cuda_kernel_matches_generate_signals() -> None:
-    _check("cuda", n_genomes=2, n_bars=60, lookback=30, n_configs=2)
+def test_simulated_cuda_kernel_matches_generate_signals(cfg: GrammarConfig) -> None:
+    _check("cuda", n_genomes=2, n_bars=60, lookback=30, n_configs=2, grammar=cfg)
 
 
+@CFGS
 @pytest.mark.gpu
-def test_cuda_kernel_matches_generate_signals() -> None:
-    assert _check("cuda", n_genomes=25, n_bars=400, lookback=120, n_configs=3) > 100
+def test_cuda_kernel_matches_generate_signals(cfg: GrammarConfig) -> None:
+    assert _check("cuda", n_genomes=25, n_bars=400, lookback=120, n_configs=3, grammar=cfg) > 100

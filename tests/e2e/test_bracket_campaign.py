@@ -22,6 +22,7 @@ from quantcrucible.config.loader import parse_user_config
 from quantcrucible.config.lock import open_campaign, read_lock, sha256_file
 from quantcrucible.config.schema import Compute
 from quantcrucible.core.strategy.base import Bars
+from quantcrucible.core.strategy.tunable import MAX_TUNABLES, STOP_PERIOD_TUNABLE
 from quantcrucible.data.holdout_split import carve
 from quantcrucible.data.store import ResearchStore, parse_range
 from quantcrucible.ledger.db import Ledger
@@ -65,6 +66,8 @@ def ledger(tmp_path_factory: pytest.TempPathFactory, sandbox_image: str) -> Ledg
     derived = derived_settings("joint")  # what validation.run.current_campaign writes
     derived["exit_protocol"] = "bracket_timeout_v1"
     derived["backtest_numerics"] = numerics_tag("float64")
+    derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041
+    derived["max_tunables"] = MAX_TUNABLES
     open_campaign(
         cfg, lg, CAMPAIGN, lock_path, holdout_range=f"{HOLDOUT[0]}/{HOLDOUT[1]}",
         holdout_lock_hash=sha256_file(root / "holdout.lock"), derived=derived,

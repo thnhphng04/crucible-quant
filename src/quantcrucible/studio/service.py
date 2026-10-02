@@ -24,6 +24,7 @@ from quantcrucible.config.lock import (
     sha256_file,
 )
 from quantcrucible.config.schema import UserConfig
+from quantcrucible.core.strategy.tunable import MAX_TUNABLES, STOP_PERIOD_TUNABLE
 from quantcrucible.data.registry import DatasetRegistry, read_dataset_manifest, resolve_dataset
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.studio.store import DraftStore, StudioConflict
@@ -104,6 +105,8 @@ class StudioService:
         derived["exit_protocol"] = "bracket_timeout_v1"
         derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
         derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
+        derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041
+        derived["max_tunables"] = MAX_TUNABLES
         return derived
 
     def assert_runnable(self, campaign_id: str, *, purpose: str | None = None) -> dict[str, Any]:
@@ -172,6 +175,7 @@ class StudioService:
             "exit_protocol": "bracket_timeout_v1",
             "backtest_numerics": numerics_tag(cfg.research.backtest.precision),
             "portfolio_protocol": SHARED_ACCOUNT,
+            "stop_period": STOP_PERIOD_TUNABLE,
         }
 
     def preview(self, draft_id: str, revision: int) -> dict[str, Any]:

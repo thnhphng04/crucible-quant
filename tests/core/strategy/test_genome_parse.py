@@ -27,36 +27,44 @@ from quantcrucible.core.strategy.genome_parse import (
 
 ZOO = Path(template.__file__).resolve().parents[1] / "zoo"
 CFG = GrammarConfig(take_profit_probability=0.5, boll_stop_probability=0.5)
+# a stop_period: tunable_v1 campaign (ADR-0041)
+CFG_STOP = GrammarConfig(
+    take_profit_probability=0.5, boll_stop_probability=0.5, stop_period=True, max_params=7
+)
 
 
-def _sources(n: int, seed: int = 7) -> list[tuple[Any, str, float | None, str]]:
+def _sources(
+    n: int, seed: int = 7, cfg: GrammarConfig = CFG
+) -> list[tuple[Any, str, float | None, str]]:
     rng = np.random.default_rng(seed)
     out = []
     for _ in range(n):
-        g = sample_genome(rng, CFG)
+        g = sample_genome(rng, cfg)
         for direction in ("long", "short"):
             for ratio in (None, 1.1):
                 out.append((g, direction, ratio, render_genome(g, direction, ratio)[0]))
     return out
 
 
-def test_every_rendered_genome_parses_back_to_itself() -> None:
-    for g, direction, ratio, src in _sources(500):
+@pytest.mark.parametrize("cfg", [CFG, CFG_STOP], ids=["fixed-stop", "stop-period"])
+def test_every_rendered_genome_parses_back_to_itself(cfg: GrammarConfig) -> None:
+    for g, direction, ratio, src in _sources(500, cfg=cfg):
         parsed = parse_genome(src)
         assert parsed.genome == g
         assert parsed.direction == direction
         assert parsed.tp_sl_ratio == ratio
 
 
-def test_bred_children_parse_back_to_themselves() -> None:
+@pytest.mark.parametrize("cfg", [CFG, CFG_STOP], ids=["fixed-stop", "stop-period"])
+def test_bred_children_parse_back_to_themselves(cfg: GrammarConfig) -> None:
     """C-gp offspring can share a parameter object between two nodes; one TUNABLE, one object."""
     rng = np.random.default_rng(1)
     parsed = 0
     for _ in range(150):
-        a, b = sample_genome(rng, CFG), sample_genome(rng, CFG)
+        a, b = sample_genome(rng, cfg), sample_genome(rng, cfg)
         for kind in ("param", "point", "subtree", "crossover"):
             try:
-                child = breed(kind, a, rng, CFG, other=b)
+                child = breed(kind, a, rng, cfg, other=b)
             except OperatorFailed:
                 continue
             src, _ = render_genome(child, "long", 1.1)
@@ -91,6 +99,22 @@ def test_a_source_that_is_not_an_exact_render_is_refused(old: str, new: str) -> 
     assert old in src
     with pytest.raises(GenomeParseError):
         parse_genome(src.replace(old, new, 1))
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("ind.atr(bars, self.p.n_stop)", "ind.atr(bars, 14)"),  # the gene's feature unbound
+        ('self.p.k_stop * x["atr_stop"]', 'self.p.k_stop * x["atr"]'),  # the stop off its gene
+    ],
+)
+def test_a_stop_period_render_edited_is_refused(old: str, new: str) -> None:
+    for _g, _d, _r, src in _sources(50, seed=13, cfg=CFG_STOP):
+        if old in src:
+            with pytest.raises(GenomeParseError):
+                parse_genome(src.replace(old, new, 1))
+            return
+    pytest.fail("no ATR-stop genome sampled")
 
 
 def test_a_swapped_parameter_reference_is_refused() -> None:

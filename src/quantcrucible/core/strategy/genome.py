@@ -126,6 +126,9 @@ class Genome:
     stop: Param
     take_profit: Param | None = None
     stop_kind: Literal["atr", "bollinger"] = "atr"
+    # The stop's period (ADR-0041): ATR(n_stop) for an ATR stop, the band period for a Bollinger
+    # one. ``None`` is the fixed ATR(14) / Bollinger(8) of a lock without ``stop_period``.
+    stop_period: Param | None = None
 
     def clauses(self) -> tuple[Clause, ...]:
         return self.entry.items if isinstance(self.entry, Combine) else (self.entry,)
@@ -136,6 +139,8 @@ class Genome:
         for clause in self.clauses():
             out.extend(_clause_params(clause))
         out.append(self.stop)
+        if self.stop_period is not None:
+            out.append(self.stop_period)
         if self.take_profit is not None:
             out.append(self.take_profit)
         return out
@@ -190,6 +195,8 @@ class _Renderer:
             self.unique.append(p)
             if p is genome.stop:
                 self.names[id(p)] = "k_stop"
+            elif p is genome.stop_period:
+                self.names[id(p)] = "n_stop"
             elif p is genome.take_profit:
                 self.names[id(p)] = "k_tp"
             else:
@@ -241,21 +248,33 @@ class _Renderer:
             return f" {e.op} ".join(f"({self.clause(c)})" for c in e.items)
         return self.clause(e)
 
+    def tail(self) -> list[tuple[str, str]]:
+        """The fixed features after the entry's: the stop's own ATR when it has a period gene,
+        then the ATR(14) yardstick of the guard and of ``Distance`` (ADR-0041)."""
+        period = self.genome.stop_period
+        out: list[tuple[str, str]] = []
+        if period is not None and self.genome.stop_kind == "atr":
+            out.append(("atr_stop", f"ind.atr(bars, {self.p(period)})"))
+        out.append(("atr", "ind.atr(bars, 14)"))
+        return out
+
     def body(self) -> str:
         entry = self.entry()  # registers features first
+        period = self.genome.stop_period
         if self.genome.stop_kind == "bollinger":
             close = self.feature("bars.close")
             band_name = "boll_lower" if self.direction == "long" else "boll_upper"
-            band = self.feature(f"ind.{band_name}(bars.close, 8)")
+            n = "8" if period is None else self.p(period)
+            band = self.feature(f"ind.{band_name}(bars.close, {n})")
             distance = f"({close} - {band})" if self.direction == "long" else f"({band} - {close})"
         else:
-            distance = "atr"
+            distance = "atr" if period is None else 'x["atr_stop"]'
         tunables = "".join(
             f"    # TUNABLE: {self.names[id(p)]} = {_fmt(p.value, p.is_int)}, "
             f"bounds=({_fmt(p.low, p.is_int)}, {_fmt(p.high, p.is_int)})\n"
             for p in self.unique
         )
-        feats = "".join(f'            "{n}": {e},\n' for n, e in self.features)
+        feats = "".join(f'            "{n}": {e},\n' for n, e in (*self.features, *self.tail()))
         tp = ""
         if self.tp_sl_ratio is not None:
             tp = f", {self.tp_sl_ratio!r} * stop"
@@ -266,7 +285,6 @@ class _Renderer:
             + "\n    def indicators(self, bars: Bars) -> Features:\n"
             + "        return {\n"
             + feats
-            + '            "atr": ind.atr(bars, 14),\n'
             + "        }\n\n"
             + "    def signal(self, x: FeatureView) -> Signal:\n"
             + '        atr = x["atr"] + 0\n'
@@ -288,7 +306,7 @@ def feature_specs(
     ``"atr"`` last — e.g. ``("f1", "ind.ema(bars.close, self.p.n1)")``."""
     r = _Renderer(genome, direction, tp_sl_ratio)
     r.body()
-    return [*r.features, ("atr", "ind.atr(bars, 14)")]
+    return [*r.features, *r.tail()]
 
 
 def named_params(genome: Genome) -> list[tuple[str, Param]]:
@@ -321,11 +339,14 @@ _NODES: dict[str, type] = {
 
 def genome_to_dict(node: object) -> object:
     """JSON-safe form of a genome (or any node of one); parameter objects shared by two nodes
-    are written twice and read back as two equal parameters — rendering is unchanged."""
+    are written twice and read back as two equal parameters — rendering is unchanged. A genome
+    without a stop-period gene omits the field, so its JSON is what it was before ADR-0041."""
     if isinstance(node, tuple):
         return [genome_to_dict(x) for x in node]
     if type(node).__name__ in _NODES and not isinstance(node, type):
         fields = {f: genome_to_dict(getattr(node, f)) for f in node.__dataclass_fields__}  # type: ignore[attr-defined]
+        if isinstance(node, Genome) and node.stop_period is None:
+            del fields["stop_period"]
         return {"t": type(node).__name__, **fields}
     return node
 

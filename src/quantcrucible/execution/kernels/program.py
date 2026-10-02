@@ -43,8 +43,8 @@ MAX_PERIOD = 480  # the kernels' pairwise sum is unrolled for windows up to this
 MAX_LOOKBACK = 10_000
 MAX_CONFIGS = 4_096
 MAX_CLAUSES = 8
-ATR_PERIOD = 14  # the rendered signal() always uses ind.atr(bars, 14)
-BAND_PERIOD = 8  # and the Bollinger stop ind.boll_*(bars.close, 8)
+ATR_PERIOD = 14  # the rendered guard and Distance always use ind.atr(bars, 14)
+BAND_PERIOD = 8  # and a Bollinger stop without its n_stop gene ind.boll_*(bars.close, 8)
 
 # ── opcodes ─────────────────────────────────────────────────────────────────────────────────
 OP_CLOSE, OP_SMA, OP_EMA, OP_RSI, OP_ZSCORE = 0, 1, 2, 3, 4
@@ -83,6 +83,7 @@ class Program:
     close_slot: int
     atr_slot: int
     band_slot: int  # NO_SLOT unless the stop is Bollinger
+    stop_slot: int  # the ATR an ATR stop multiplies: ``atr_slot``, or ATR(n_stop) (ADR-0041)
     stop_col: int
     tp_mode: int
     tp_ratio: float
@@ -164,11 +165,17 @@ def _compile(
         combine = COMBINE_AND if genome.entry.op == "and" else COMBINE_OR
     else:
         combine = COMBINE_SINGLE
+    period = genome.stop_period
+    if period is not None and not isinstance(period, Param):
+        raise ProgramError("stop period must be a parameter")
+    stop_slot = atr_slot
     if genome.stop_kind == "bollinger":
         band_op = OP_BOLL_LOWER if direction == "long" else OP_BOLL_UPPER
-        band_slot = b.slot(("band", band_op), band_op, BAND_PERIOD)
+        band_slot = b.slot(("band", band_op), band_op, BAND_PERIOD if period is None else period)
     elif genome.stop_kind == "atr":
         band_slot = NO_SLOT
+        if period is not None:
+            stop_slot = b.slot(("atr_stop",), OP_ATR, period)
     else:
         raise ProgramError("stop kind must be atr or bollinger")
     stop_col = b.col(genome.stop)
@@ -183,6 +190,7 @@ def _compile(
         names=names, pvals=pvals, inst_op=inst_op, inst_period=inst_period,
         slot_inst=slot_inst, clauses=np.asarray(rows, dtype=np.int64).reshape(-1, 5),
         combine=combine, close_slot=close_slot, atr_slot=atr_slot, band_slot=band_slot,
+        stop_slot=stop_slot,
         stop_col=stop_col, tp_mode=tp_mode, tp_ratio=tp_ratio, tp_col=tp_col,
         direction=1 if direction == "long" else -1, lookback=lookback,
     )  # fmt: skip

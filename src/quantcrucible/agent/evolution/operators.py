@@ -1,7 +1,7 @@
 """Typed GP operators for engine C-gp (arch §3.1.11, D20, P2-11).
 
 Every operator maps genomes to a genome of the same grammar, so a child is scale-invariant,
-declares ≤ 6 TUNABLE and passes gate ①a by construction.
+declares no more TUNABLE than the campaign's cap and passes gate ①a by construction.
 
 - ``param``     — one TUNABLE value moves within its bounds. The code is unchanged, so the child
                   keeps its parent's ``strategy_hash``: gate ④ counts it as a variant of the same
@@ -210,7 +210,9 @@ def crossover(a: Genome, b: Genome, rng: np.random.Generator, config: GrammarCon
             i = int(rng.integers(len(clauses)))
             child = _with_clauses(a, (*clauses[:i], clause, *clauses[i + 1 :]))
         if rng.random() < 0.5:
-            child = dataclasses.replace(child, stop=b.stop, stop_kind=b.stop_kind)
+            child = dataclasses.replace(  # the whole stop: width, kind and period (ADR-0041)
+                child, stop=b.stop, stop_kind=b.stop_kind, stop_period=b.stop_period
+            )
         if _fits(child, config) and child != a:
             return child
     raise OperatorFailed("no crossover child fits the TUNABLE budget")

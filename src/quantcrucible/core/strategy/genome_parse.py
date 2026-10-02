@@ -45,6 +45,7 @@ from quantcrucible.core.strategy.tunable import Tunable
 MAX_SOURCE_BYTES = 64 * 1024  # a render is ~2 KB; refuse anything far larger before parsing it
 _KIND = (
     (re.compile(r"k_stop|k_tp"), "mult"),
+    (re.compile(r"n_stop"), "period"),
     (re.compile(r"n\d+"), "period"),
     (re.compile(r"lv\d+"), "level"),
     (re.compile(r"k\d+"), "mult"),
@@ -186,7 +187,7 @@ class _Reader:
         for k, v in zip(d.keys, d.values, strict=True):
             if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
                 raise _fail("feature key")
-            if k.value == "atr":
+            if k.value in ("atr", "atr_stop"):  # fixed by the render: the final comparison checks
                 continue
             self.features[k.value] = self._feature(v)
 
@@ -232,7 +233,8 @@ class _Reader:
             # A campaign TP ratio overrides the genome's k_tp in signal(), but the render still
             # declares it: the genome keeps its take-profit gene.
             take_profit = self.param("k_tp")
-        genome = Genome(entry, stop, take_profit, stop_kind)
+        stop_period = self.param("n_stop") if "n_stop" in self.tunables else None
+        genome = Genome(entry, stop, take_profit, stop_kind, stop_period)
         return ParsedGenome(genome, direction, ratio)
 
     def _stop_kind(self, node: ast.AST) -> Literal["atr", "bollinger"]:
@@ -240,7 +242,8 @@ class _Reader:
             raise _fail("stop")
         if _param_name(node.left) != "k_stop":
             raise _fail("stop multiplier")
-        return "atr" if _is_name(node.right, "atr") else "bollinger"
+        atr = _is_name(node.right, "atr") or _feature_key(node.right) == "atr_stop"
+        return "atr" if atr else "bollinger"
 
     def _entry(self, node: ast.AST) -> Entry:
         if isinstance(node, ast.BoolOp):

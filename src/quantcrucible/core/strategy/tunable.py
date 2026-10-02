@@ -12,10 +12,13 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from typing import Any
 
 import numpy as np
 
-MAX_TUNABLES = 6
+MAX_TUNABLES = 7  # the parser's hard ceiling; a campaign's own cap is gate ①a's (ADR-0041)
+LEGACY_MAX_TUNABLES = 6  # the cap of a lock without ``derived.max_tunables``
+STOP_PERIOD_TUNABLE = "tunable_v1"  # ``derived.stop_period``: the stop's period is a gene (D24)
 
 _NUM = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
 _TUNABLE = re.compile(
@@ -79,6 +82,16 @@ def parse_tunables(source: str) -> list[Tunable]:
     if len(found) > MAX_TUNABLES:
         raise TunableError(f"{len(found)} TUNABLE declarations; at most {MAX_TUNABLES} allowed")
     return found
+
+
+def lock_max_tunables(lock: Mapping[str, Any]) -> int:
+    """The campaign's TUNABLE cap: 7 under ``stop_period: tunable_v1``, 6 for an older lock."""
+    return int(lock.get("derived", {}).get("max_tunables", LEGACY_MAX_TUNABLES))
+
+
+def lock_stop_period(lock: Mapping[str, Any]) -> bool:
+    """Whether the campaign's genomes carry the stop-period gene ``n_stop`` (ADR-0041)."""
+    return bool(lock.get("derived", {}).get("stop_period") == STOP_PERIOD_TUNABLE)
 
 
 def default_params(tunables: list[Tunable]) -> dict[str, float | int]:

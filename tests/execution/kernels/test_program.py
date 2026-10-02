@@ -109,6 +109,29 @@ def test_every_clause_type_encodes() -> None:
     assert prog.combine == P.COMBINE_OR
 
 
+def test_the_stop_period_gene_binds_its_own_slot_per_configuration() -> None:
+    """ADR-0041: an ATR stop reads ATR(n_stop) while the guard keeps ATR(14); a Bollinger stop's
+    band period is n_stop. Both move with the configuration."""
+    n_stop = Param("period", 5, 50, 21)
+    g = dataclasses.replace(_g1(), stop_period=n_stop)
+    base = _defaults(g)
+    prog = compile_program(g, "long", 1.1, [base, {**base, "n_stop": 9}], 400)
+    assert prog.names == ("n1", "n2", "n3", "k_stop", "n_stop")
+    atr = prog.slot_inst[:, prog.atr_slot]
+    stop = prog.slot_inst[:, prog.stop_slot]
+    assert prog.inst_period[atr].tolist() == [14, 14]
+    assert prog.inst_op[stop].tolist() == [P.OP_ATR, P.OP_ATR]
+    assert prog.inst_period[stop].tolist() == [21, 9]
+    boll = dataclasses.replace(g, stop_kind="bollinger")
+    prog = compile_program(boll, "short", 1.1, [base, {**base, "n_stop": 9}], 400)
+    band = prog.slot_inst[:, prog.band_slot]
+    assert prog.inst_op[band].tolist() == [P.OP_BOLL_UPPER, P.OP_BOLL_UPPER]
+    assert prog.inst_period[band].tolist() == [21, 9]
+    assert prog.stop_slot == prog.atr_slot  # unused by a Bollinger stop
+    fixed = compile_program(_g1(), "long", 1.1, [_defaults(_g1())], 400)
+    assert fixed.stop_slot == fixed.atr_slot  # INV-114: no gene, the ATR(14) of before
+
+
 def test_a_campaign_ratio_overrides_the_genome_take_profit() -> None:
     g = dataclasses.replace(_g1(), take_profit=Param("mult", 0.5, 10.0, 3.0))
     prog = compile_program(g, "long", 1.1, [_defaults(g)], 400)

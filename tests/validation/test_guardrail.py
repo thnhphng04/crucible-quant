@@ -7,8 +7,17 @@ from pathlib import Path
 import pytest
 
 from quantcrucible.core.strategy.base import ScopeDirection
+from quantcrucible.core.strategy.genome import (
+    Combine,
+    Distance,
+    Genome,
+    Indicator,
+    Param,
+    Threshold,
+    render_genome,
+)
 from quantcrucible.core.strategy.template import canonical_template, parse, render, template_hash
-from quantcrucible.core.strategy.tunable import default_params
+from quantcrucible.core.strategy.tunable import STOP_PERIOD_TUNABLE, default_params
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.gates import GateContext, GateResult, StrategyCandidate
@@ -292,3 +301,52 @@ def test_strength_must_be_one(ctx: GateContext) -> None:
     src = render(canonical_template(), {"joint": body(signal=_sig("long", "0.5"))})
     result = StaticGuardrail().check(_scoped(src, "long"), ctx)
     assert not result.passed and "strength" in result.reason, result.reason
+
+
+# ── the stop-period gene and the campaign's TUNABLE cap (ADR-0041, INV-114, INV-115) ────────
+def _seven(stop_kind: str, stop_period: bool = True) -> str:
+    """A rendered genome with six TUNABLE before the stop-period gene: seven with it."""
+
+    def n(lo: int, hi: int, v: int) -> Param:
+        return Param("period", lo, hi, v)
+
+    entry = Combine("and", (
+        Distance(Indicator("ema", n(2, 300, 20)), Indicator("sma", n(2, 300, 50)), ">",
+                 Param("level", -3.0, 3.0, 0.5)),
+        Threshold(Indicator("rsi", n(2, 100, 14)), ">", Param("level", 50.0, 90.0, 60.0)),
+    ))  # fmt: skip
+    g = Genome(
+        entry, Param("mult", 0.5, 5.0, 2.0), stop_kind=stop_kind,  # type: ignore[arg-type]
+        stop_period=n(5, 50, 21) if stop_period else None,
+    )  # fmt: skip
+    return render_genome(g, "long", tp_sl_ratio=1.1)[0]
+
+
+def _bracket(ctx: GateContext, stop_period: bool) -> GateContext:
+    derived = {**ctx.lock["derived"], "exit_protocol": "bracket_timeout_v1"}
+    if stop_period:
+        derived |= {"stop_period": STOP_PERIOD_TUNABLE, "max_tunables": 7}
+    ctx.lock = {"research": {**ctx.lock["research"], "exit": {"tp_sl_ratio": 1.1}},
+                "derived": derived}  # fmt: skip
+    return ctx
+
+
+@pytest.mark.parametrize("stop_kind", ["atr", "bollinger"])
+def test_a_seventh_tunable_passes_only_under_a_stop_period_lock(
+    ctx: GateContext, stop_kind: str
+) -> None:
+    src = _seven(stop_kind)
+    assert len(parse(src).tunables) == 7
+    result = run(_bracket(ctx, stop_period=False), src)
+    assert not result.passed and result.event == Event.AST_REJECT
+    assert "at most 6" in result.reason, result.reason
+    result = run(_bracket(ctx, stop_period=True), src)
+    assert result.passed, result.reason
+
+
+def test_the_fixed_band_period_is_no_exception_under_a_stop_period_lock(ctx: GateContext) -> None:
+    src = _seven("bollinger", stop_period=False)
+    assert "ind.boll_lower(bars.close, 8)" in src
+    assert run(_bracket(ctx, stop_period=False), src).passed
+    result = run(_bracket(ctx, stop_period=True), src)
+    assert not result.passed and "undeclared constant 8" in result.reason, result.reason

@@ -45,7 +45,7 @@ from quantcrucible.agent.monitor import (
     warned_keys,
 )
 from quantcrucible.agent.scheduler import Key, campaign_scopes, quotas
-from quantcrucible.core.strategy.tunable import MAX_TUNABLES
+from quantcrucible.core.strategy.tunable import LEGACY_MAX_TUNABLES
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
 from quantcrucible.validation.cpcv import (
@@ -203,7 +203,7 @@ PROTOCOL: dict[str, Any] = {
         "version": 2,  # 1 = the absolute PSR value, 2 = its rank in the population (ADR-0029)
         "primary": "rank of PSR(IS returns vs SR0(N_eff, V[SR])) within the scored population, "
         "average ties, normalised to [0, 1]",
-        "max_tunables": MAX_TUNABLES,
+        "max_tunables": LEGACY_MAX_TUNABLES,  # the penalty's scale n_params / 6 (ADR-0041)
         "note": "what C-gp selects parents with; C-random reads no score at all (INV-65)",
     },
     "supporting": [
