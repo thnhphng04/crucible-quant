@@ -16,7 +16,7 @@ from quantcrucible.agent.evolution.operators import (
     choose_kind,
     mutate_param,
 )
-from quantcrucible.agent.grammar import GrammarConfig, render_genome
+from quantcrucible.agent.grammar import GrammarConfig, render_genome, sample_genome
 from quantcrucible.core.strategy.template import parse, template_hash
 from quantcrucible.core.strategy.tunable import MAX_TUNABLES
 from quantcrucible.ledger.db import Ledger
@@ -123,3 +123,50 @@ def test_crossover_needs_a_second_parent() -> None:
     g = RandomSearch(seed=1).next().genome
     with pytest.raises(OperatorFailed):
         breed("crossover", g, np.random.default_rng(0), CFG)
+
+
+CFG_STOP = GrammarConfig(boll_stop_probability=0.5, tp_sl_ratio=1.1, stop_period=True,
+                         max_params=7)  # fmt: skip
+
+
+def test_under_a_stop_period_lock_every_child_keeps_n_stop(ctx: GateContext) -> None:
+    """INV-115: children of every operator keep the gene, stay ≤ 7 and pass ①a."""
+    ctx.lock = {
+        "research": {"evolve_scope": "joint", "exit": {"tp_sl_ratio": 1.1}},
+        "derived": {**ctx.lock["derived"], "exit_protocol": "bracket_timeout_v1",
+                    "stop_period": "tunable_v1", "max_tunables": 7},
+    }  # fmt: skip
+    rng = np.random.default_rng(2)
+    pool = [sample_genome(rng, CFG_STOP) for _ in range(40)]
+    made = 0
+    for i in range(400):
+        kind: MutationKind = ("param", "point", "subtree", "crossover")[i % 4]
+        a, b = pool[int(rng.integers(len(pool)))], pool[int(rng.integers(len(pool)))]
+        try:
+            child = breed(kind, a, rng, CFG_STOP, other=b)
+        except OperatorFailed:
+            continue
+        assert child.stop_period is not None
+        source, params = render_genome(child, "long", 1.1)
+        ok, reason = _passes_1a(ctx, source, params)
+        assert ok, f"{kind}: {reason}\n{source}"
+        assert "n_stop" in params and len(params) <= 7
+        made += 1
+    assert made > 300
+
+
+def test_a_crossover_that_takes_the_mates_stop_takes_its_period_too() -> None:
+    rng = np.random.default_rng(4)
+    taken = 0
+    for _ in range(200):
+        a, b = sample_genome(rng, CFG_STOP), sample_genome(rng, CFG_STOP)
+        try:
+            child = breed("crossover", a, rng, CFG_STOP, other=b)
+        except OperatorFailed:
+            continue
+        if child.stop is b.stop:
+            assert child.stop_period is b.stop_period and child.stop_kind == b.stop_kind
+            taken += 1
+        else:
+            assert child.stop_period is a.stop_period
+    assert taken > 20

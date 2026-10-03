@@ -36,7 +36,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from quantcrucible.agent.evolution.archive import Entry
-from quantcrucible.core.strategy.tunable import MAX_TUNABLES
+from quantcrucible.core.strategy.tunable import LEGACY_MAX_TUNABLES
 from quantcrucible.validation.statistical import (
     SharpeMoments,
     deflated_benchmark,
@@ -133,7 +133,9 @@ def terms(entries: Sequence[Entry], ctx: RankContext) -> dict[str, Terms]:
         out[e.candidate_id] = Terms(
             primary=primary[e.candidate_id],
             similarity=-LAMBDA_SIM * sim,
-            params=-LAMBDA_PARAMS * len(e.params) / MAX_TUNABLES,
+            # a fixed scale: every TUNABLE costs λ/6 in every campaign, the n_stop gene of a
+            # cap-7 lock too, so old rankings and the locked protocol do not move (ADR-0041)
+            params=-LAMBDA_PARAMS * len(e.params) / LEGACY_MAX_TUNABLES,
             spp=LAMBDA_SPP * math.tanh(float(p.get("spp_median_sharpe", 0.0))),
             plateau=LAMBDA_PLATEAU * float(p.get("plateau", 0.0)),
         )

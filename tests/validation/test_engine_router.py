@@ -90,7 +90,10 @@ def _bars(n: int = 600) -> dict[str, Bars]:
     return {"BTC/USDT": Bars("BTC/USDT", "1h", ts, open_, high, low, close, np.ones(n))}
 
 
-def _genome_job(kind: str = "backtest") -> SandboxJob:
+STOPS = ["fixed", "atr_gene", "bollinger_gene"]  # ADR-0041: with and without the n_stop gene
+
+
+def _genome_job(kind: str = "backtest", stop: str = "fixed") -> SandboxJob:
     def n(v: int) -> Param:
         return Param("period", 2, 300, v)
 
@@ -98,6 +101,8 @@ def _genome_job(kind: str = "backtest") -> SandboxJob:
         Combine("and", (Cross(Indicator("ema", n(10)), True, Indicator("ema", n(30))),
                         Slope(Indicator("sma", n(20)), True))),
         Param("mult", 0.5, 5.0, 1.5),
+        stop_kind="bollinger" if stop == "bollinger_gene" else "atr",
+        stop_period=None if stop == "fixed" else Param("period", 5, 50, 21),
     )  # fmt: skip
     src, params = render_genome(g, "long", 1.1)
     options = dict(OPTIONS)
@@ -107,7 +112,7 @@ def _genome_job(kind: str = "backtest") -> SandboxJob:
             {**params, "n1": 12},
             {**params, "k_stop": 2.0},
             {**params, "n3": 25},
-        ]
+        ] + ([] if stop == "fixed" else [{**params, "n_stop": 9}, {**params, "n_stop": 40}])
     return SandboxJob(kind, src, _bars(), params, options)
 
 
@@ -127,9 +132,10 @@ def _canon(result: Any) -> str:
     return json.dumps(result, sort_keys=True, default=lambda a: a.tolist())
 
 
+@pytest.mark.parametrize("stop", STOPS)
 @pytest.mark.parametrize("kind", ["backtest", "grid_backtest"])
-def test_a_genome_job_runs_on_the_kernel_and_reports_like_the_sandbox(kind: str) -> None:
-    job = _genome_job(kind)
+def test_a_genome_job_runs_on_the_kernel_and_reports_like_the_sandbox(kind: str, stop: str) -> None:
+    job = _genome_job(kind, stop)
     box = FakeSandbox()
     res = _router(box, FP64).run(job)
     assert res.ok and res.engine == "cpu_kernel" and not box.jobs

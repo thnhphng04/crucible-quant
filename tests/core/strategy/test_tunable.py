@@ -3,9 +3,14 @@
 import pytest
 
 from quantcrucible.core.strategy.tunable import (
+    LEGACY_MAX_TUNABLES,
+    MAX_TUNABLES,
+    STOP_PERIOD_TUNABLE,
     Tunable,
     TunableError,
     default_params,
+    lock_max_tunables,
+    lock_stop_period,
     parse_tunables,
     pbo_grid,
 )
@@ -22,10 +27,20 @@ def test_parse_types() -> None:
     assert isinstance(default_params(ts)["fast"], int)
 
 
-def test_seven_tunables_rejected() -> None:
-    src = "".join(f"# TUNABLE: p{i} = 1, bounds=(0, 2)\n" for i in range(7))
-    with pytest.raises(TunableError, match="at most 6"):
+def test_eight_tunables_rejected() -> None:
+    """The parser's hard ceiling; the campaign's own cap is gate ①a's (ADR-0041)."""
+    src = "".join(f"# TUNABLE: p{i} = 1, bounds=(0, 2)\n" for i in range(8))
+    with pytest.raises(TunableError, match="at most 7"):
         parse_tunables(src)
+
+
+def test_the_lock_sets_the_cap_and_the_stop_period() -> None:
+    """INV-114: a lock without the keys keeps 6 and fixed stop periods; INV-115: tunable_v1."""
+    assert lock_max_tunables({}) == LEGACY_MAX_TUNABLES == 6
+    assert not lock_stop_period({"derived": {"exit_protocol": "bracket_timeout_v1"}})
+    new = {"derived": {"stop_period": STOP_PERIOD_TUNABLE, "max_tunables": 7}}
+    assert lock_max_tunables(new) == MAX_TUNABLES == 7
+    assert lock_stop_period(new)
 
 
 @pytest.mark.parametrize(

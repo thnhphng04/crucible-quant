@@ -142,3 +142,26 @@ def test_shared_param_is_one_tunable() -> None:
     source, params = grammar.render_genome(g)
     assert params == {"n1": 20, "k_stop": 2.0}
     assert source.count("ind.ema(bars.close, self.p.n1)") == 1
+
+
+def test_under_a_stop_period_lock_every_sample_carries_n_stop(ctx: GateContext) -> None:
+    """INV-115: 1,000 samples pass ①a under the cap of 7, each declaring n_stop in [5, 50]."""
+    ctx.lock = {
+        "research": {"evolve_scope": "joint", "exit": {"tp_sl_ratio": 1.1}},
+        "derived": {**ctx.lock["derived"], "exit_protocol": "bracket_timeout_v1",
+                    "stop_period": "tunable_v1", "max_tunables": 7},
+    }  # fmt: skip
+    cfg = grammar.GrammarConfig(
+        boll_stop_probability=0.5, tp_sl_ratio=1.1, stop_period=True, max_params=7
+    )
+    engine = RandomSearch(seed=7, config=cfg)
+    sizes: Counter[int] = Counter()
+    for i in range(1000):
+        p = engine.next()
+        ok, reason = _static(ctx, p.source, p.params)
+        assert ok, f"sample {i}: {reason}\n{p.source}"
+        tunables = parse(p.source).tunables
+        sizes[len(tunables)] += 1
+        assert len(tunables) <= 7
+        assert grammar.STOP_PERIOD_RANGE[0] <= p.params["n_stop"] <= grammar.STOP_PERIOD_RANGE[1]
+    assert sizes[7] > 0  # the seventh slot is used, not just declared

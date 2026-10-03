@@ -3,7 +3,7 @@
 > *Crucible Quant — phòng nghiên cứu định lượng dùng AI để tiến hóa chiến lược giao dịch hệ thống, và bắt mọi chiến lược qua lửa thử trước khi được giao dịch thật.*
 >
 > Thiết kế hệ thống AI sinh & kiểm định chiến lược trading deterministic, đa thị trường.
-> Phiên bản: 0.10 (draft) · Ngày: 2026-10-01
+> Phiên bản: 0.11 (draft) · Ngày: 2026-10-02
 > Nền tảng nghiên cứu: [[00-TONG-HOP-NGHIEN-CUU]] · [[04-TRUONG-PHAI-B-HIEU-QUA]] · [[06-PLATFORM-DA-THI-TRUONG]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Thay đổi 0.1 → 0.2** (nguồn: khảo sát 22 hệ trong [[08-LLM-QUANT-RESEARCHER]]): kiến trúc QuantEvolve được xác nhận độc lập bởi MadEvolve (§3.1) · thêm thay đổi bắt buộc **#5 DSL đóng** và **#6 reviewer ngữ cảnh mới tinh** (§3.1.6) · **DSR tính trên danh mục hợp nhất, không phải từng cell** (§3.1.6 — điểm dễ sai nhất) · thêm **gate ⓪ chống trôi spec** (§3.1.7) · thay khuyến nghị "dùng model nhỏ" bằng **bảng định tuyến dị thể + cảnh báo tránh reasoning model** (§3.1.9) · ledger thêm `model_used`/`gen_attempts`/`gen_failures`/`drift_delta` + view `starved_cells` (§4.1) · **P6 nâng lên cấp OS, evaluator chạy process riêng** (§4.2) · loại bỏ meta-evolution và RFT khỏi phạm vi (§9) · cảnh báo không lấy con số paper làm mốc (§11)
@@ -23,6 +23,8 @@
 > **Thay đổi 0.8 → 0.9** (ADR-0037, đã triển khai): thêm Studio UI local để cấu hình, chuẩn bị dữ liệu, preview, tạo và chạy campaign; giữ `cli review` chỉ đọc theo ADR-0029; tách dataset bất biến, job supervisor và ranh giới bảo mật localhost cho mọi mutation (§4.1, §4.2, §5, D22).
 >
 > **Thay đổi 0.9 → 0.10** (ADR-0038–0040, 30/9–1/10/2026): genome engine C chạy trên kernel numba của host, khớp bit với replay Python, precision khóa theo campaign (D23) · campaign mới khóa `derived.portfolio_protocol: shared_account_v1`: danh mục spot, như perpetual, là một tài khoản chung với mỗi slot `(instrument, direction)` một member, trần 10%, trên hợp các trục thời gian; lock cũ giữ luật ô + 1/σ (§3.2.1, D9)
+
+> **Thay đổi 0.10 → 0.11** (ADR-0041, 2/10/2026): campaign mới khóa `derived.stop_period: tunable_v1` — chu kỳ của stop (ATR hoặc dải Bollinger) thành gene `n_stop` (TUNABLE, [5, 50]) và trần TUNABLE thành **7**; ATR(14) vẫn là thước đo cho guard `ready` và clause `Distance`; lock cũ giữ trần 6 và chu kỳ 14/8 (§3.2, §3.3.1, D24)
 
 ---
 
@@ -415,7 +417,7 @@ Tầng 2 — hồi quy trace (chạy trong sandbox, sau ①a)
 | # | Cơ chế trong repo | Áp vào ta như thế nào |
 |---|---|---|
 | **L1** | **`EVOLVE-BLOCK-START/END`**: chỉ vùng giữa hai marker được sửa; phần hạ tầng bên ngoài giữ nguyên | Template strategy chia 2 vùng: **ngoài block** = hợp đồng `Signal`, phí/slippage, truy cập dữ liệu (cố định); **trong block** = logic tín hiệu. ⚠️ Repo chỉ *dặn* bằng prompt — ta **cưỡng chế**: hash(prefix + suffix) phải không đổi sau mỗi patch, lệch ⇒ `AST_REJECT` |
-| **L2** | **`# TUNABLE: name = v, bounds=(a, b)`** — khai báo tham số tự do kèm biên | Chính là thứ §3.2 cần: **lưới PBO lấy thẳng từ khai báo TUNABLE**; `n_params` cho complexity penalty đếm từ đây; luật ≤ 6 tham số cưỡng chế ở đây. Tham số không khai báo mà là hằng số trong block ⇒ reject |
+| **L2** | **`# TUNABLE: name = v, bounds=(a, b)`** — khai báo tham số tự do kèm biên | Chính là thứ §3.2 cần: **lưới PBO lấy thẳng từ khai báo TUNABLE**; `n_params` cho complexity penalty đếm từ đây; luật ≤ 6 tham số (≤ 7 dưới lock `stop_period: tunable_v1`, D24) cưỡng chế ở đây. Tham số không khai báo mà là hằng số trong block ⇒ reject |
 | **L3** | **`public_metrics` vs `private_metrics`**: evaluator trả hai nhóm; chỉ public vào prompt, private chỉ lưu | Mọi thứ ngoài IS (đường CPCV, PBO, kết quả robustness) là **private** — agent không bao giờ thấy. ⚠️ Kênh `text_feedback` của evaluator cũng đi thẳng vào prompt ⇒ phải sinh **chỉ từ public metrics** |
 | **L4** | **Patch hai chế độ**: SEARCH/REPLACE (~70%) + viết lại cả block (~30%), tăng tỉ lệ viết lại khi đình trệ; lỗi patch → **retry nhiều lượt kèm thông báo lỗi**, tối đa 3 | Dùng cho Coding Team (Iterative Refinement). Chế độ diff tự nhiên giữ Δ drift nhỏ (§3.1.7). ⚠️ Repo cho áp **một phần** patch (block lỗi bị bỏ qua) — ta dùng `strict=True`: một block lỗi ⇒ cả patch lỗi |
 | **L5** | **Pipeline bất đồng bộ**: thread sinh LLM đẩy candidate vào hàng đợi prefetch; slot đánh giá chạy song song; "generation" = bộ đếm ngân sách | Hợp với chạy local: LLM (GPU) và backtest (CPU) không chờ nhau. Khi đó migration/insight curation phải định nghĩa theo **số candidate đã đánh giá**, không theo generation đồng bộ |
@@ -527,7 +529,7 @@ class Gate(Protocol):
 
 **🆕 PBO kiểm định cái gì (v0.3).** CSCV cần một **ma trận hiệu suất** `T × M` của `M` cấu hình được so sánh *và* một **quy tắc chọn winner**. PBO đo xác suất quy tắc chọn đó chọn phải cấu hình mà OOS nằm dưới trung vị. Nó không phải thuộc tính của một chuỗi returns đơn lẻ. Với gate ④, ta định nghĩa:
 
-- **Tập cấu hình** = **lưới tham số đăng ký trước** quanh ứng viên, 🆕 dựng tự động từ khai báo `TUNABLE` (§3.3.1): mỗi tham số tự do (≤ 6) lấy 3–5 giá trị trong khoảng ±30% (bước cố định trong `evaluation.lock.yaml`), cộng các biến thể mà vòng refine *thực sự đã thử* cho hypothesis này (lấy từ ledger). `M` bị chặn trên (vd ≤ 200, lấy mẫu nếu vượt).
+- **Tập cấu hình** = **lưới tham số đăng ký trước** quanh ứng viên, 🆕 dựng tự động từ khai báo `TUNABLE` (§3.3.1): mỗi tham số tự do (≤ 6, hoặc ≤ 7 dưới lock `stop_period: tunable_v1`) lấy 3–5 giá trị trong khoảng ±30% (bước cố định trong `evaluation.lock.yaml`), cộng các biến thể mà vòng refine *thực sự đã thử* cho hypothesis này (lấy từ ledger). `M` bị chặn trên (vd ≤ 200, lấy mẫu nếu vượt).
 - **Quy tắc chọn** = Sharpe IS cao nhất — đúng quy tắc mà vòng tiến hóa dùng.
 - **Ý nghĩa:** PBO thấp ⇒ quy tắc chọn tham số trong vùng này có tính ổn định OOS. PBO cao ⇒ tham số được chọn nhờ nhiễu. PBO **không** thay cho DSR: nó không phạt số hypothesis đã thử trên toàn dự án.
 - 🆕 **v0.6 — độ ổn định tham số (D20).** Từ chính lưới đó (IS, không tốn trial) tính thêm: **trung vị Sharpe của lưới** (System Parameter Permutation, Walton) và **plateau** = tỉ lệ cấu hình láng giềng có Sharpe IS ≥ 50% Sharpe của candidate. Cả hai chỉ dựa trên IS nên là chỉ số `public` (§3.3.2), được dùng làm **thành phần phụ** trong điểm xếp hạng của C-gp; không bao giờ dùng để chọn một cấu hình trong lưới (lưới không phải trial, ADR-0011). PBO và CPCV vẫn là `private`.
@@ -617,7 +619,7 @@ class GeneratedStrategy(Strategy):
 **Luật cưỡng chế ở gate ①a** (mọi vi phạm ⇒ `AST_REJECT`, ghi `generation_log`):
 
 1. `SHA256(prefix) ‖ SHA256(suffix)` — phần ngoài hai marker — phải **bằng đúng** giá trị trong `evaluation.lock.yaml`. Nếu LLM trả nguyên file thay vì chỉ vùng tiến hóa, file đó bị từ chối chứ không được ghép (MadEvolve lại chấp nhận file nguyên như vậy — §3.1.10).
-2. Mỗi tham số tự do phải có dòng `TUNABLE` với `bounds` hữu hạn; tối đa **6** dòng. Hằng số số học dùng làm ngưỡng/chu kỳ mà không khai báo ⇒ reject. Ngoại lệ: hằng số trong whitelist (0, 1, chu kỳ ATR 14…) và, chỉ dưới lock `bracket_timeout_v1`, chu kỳ Bollinger 8 cùng tỷ lệ TP/SL đã khóa.
+2. Mỗi tham số tự do phải có dòng `TUNABLE` với `bounds` hữu hạn; tối đa **6** dòng, hoặc **7** dưới lock `stop_period: tunable_v1` (D24: dòng thứ bảy dành cho chu kỳ stop `n_stop`). Hằng số số học dùng làm ngưỡng/chu kỳ mà không khai báo ⇒ reject. Ngoại lệ: hằng số trong whitelist (0, 1, chu kỳ ATR 14…) và, chỉ dưới lock `bracket_timeout_v1`, tỷ lệ TP/SL đã khóa cùng chu kỳ Bollinger 8 — riêng chu kỳ 8 không còn là ngoại lệ dưới lock `stop_period: tunable_v1`, vì chu kỳ dải khi đó là `n_stop`.
 3. Chỉ gọi `ind.*` trong whitelist và toán tử DSL (§3.1.6).
 
 4. 🆕 **Ràng buộc tương quan indicator** (kiểm ở gate ③, vì cần dữ liệu): hai chuỗi indicator bất kỳ trong vùng tiến hóa có |ρ| trên IS > `max_indicator_corr` (mặc định 0.9) ⇒ reject. Theo MadEvolve §6.3: ràng buộc số feature và tương quan cặp cho kết quả IS/OOS nhất quán hơn.
@@ -1184,6 +1186,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D21 | Thoát lệnh campaign mới | ✅ Đã chốt (27/9/2026) | `bracket_timeout_v1`: stop ATR/Bollinger và TP cố định từ close nến tín hiệu; mặc định TP/SL = **1,1**, giữ tối đa **100 bar**, hết hạn khớp ở open nến kế; `flat` không đóng lệnh đang giữ | Tỷ lệ và giới hạn là Nhóm B; lock cũ thiếu phiên bản giữ `legacy_flat` (ADR-0036) |
 | D22 | Studio UI local | ✅ Đã triển khai | `cli studio` là mặt điều khiển local trên `127.0.0.1`: draft không ghi config/ledger; preview không có side effect; Create/Run dùng service chung với CLI, dataset v1 bất biến, job store riêng và một writer lock; `cli review` vẫn chỉ đọc | ADR-0037 kế tiếp ADR-0029. Không có remote access, live trading, tự freeze hoặc mở holdout qua Studio |
 | D23 | Engine backtest & precision | ✅ Đã chốt (30/9/2026) | Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit dự phòng), khớp từng bit với replay Python; precision `float64 \| float32` khóa theo campaign, ngang hàng (fp32 được mở holdout); campaign fp32 từ chối chiến lược không có genome; holdout tự kiểm GPU trước khi claim | ADR-0038, ADR-0039. Lock cũ thiếu khóa ⇒ float64 |
+| D24 | Chu kỳ stop là TUNABLE | ✅ Đã chốt (2/10/2026) | Campaign mới khóa `derived.stop_period: tunable_v1` và `derived.max_tunables: 7`: mỗi genome có gene `n_stop` ∈ [5, 50] — chu kỳ ATR của stop ATR (feature riêng `atr_stop`) hoặc chu kỳ dải của stop Bollinger (hệ số 2σ giữ nguyên); ATR(14) vẫn là thước đo cho guard `ready` và `Distance`; `n_stop` vào lưới PBO, phạt độ phức tạp và trần TUNABLE như mọi tham số khác | ADR-0041, thay phần Bollinger(8) của ADR-0036. Lock cũ thiếu khóa ⇒ trần 6, chu kỳ 14/8, render từng byte như cũ |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 
