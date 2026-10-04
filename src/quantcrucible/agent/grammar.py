@@ -94,13 +94,30 @@ def _uniform(rng: np.random.Generator, kind: ParamKind, lo: float, hi: float) ->
     return Param(kind, lo, hi, round(float(rng.uniform(lo, hi)), 4))
 
 
-def period_range(op: str) -> tuple[int, int]:
+# v3 (ADR-0044): a long RSI hugs 50 and never reaches its levels; a z-score of n values never
+# exceeds (n − 1)/√n — 1.79 at n = 5, 2.85 at n = 10 — so short ones never reach theirs (P3-54)
+PERIOD_CAPS_V3: dict[str, tuple[int, int]] = {"rsi": (2, 30), "zscore": (10, 300)}
+
+
+def period_range(op: str, version: int = 1) -> tuple[int, int]:
     low, high = OPS[op].period or PERIOD_RANGE
-    return max(low, PERIOD_RANGE[0]), min(high, PERIOD_RANGE[1])
+    low, high = max(low, PERIOD_RANGE[0]), min(high, PERIOD_RANGE[1])
+    if version >= 3 and op in PERIOD_CAPS_V3:
+        cap_low, cap_high = PERIOD_CAPS_V3[op]
+        low, high = max(low, cap_low), min(high, cap_high)
+    return low, high
 
 
-def sample_period(rng: np.random.Generator, op: str) -> Param:
-    lo, hi = period_range(op)
+def _log_uniform_period(rng: np.random.Generator, lo: int, hi: int) -> Param:
+    """An integer period, uniform in log(period): as many draws in [2, 20] as in [30, 300]."""
+    value = round(float(np.exp(rng.uniform(np.log(lo), np.log(hi)))))
+    return Param("period", lo, hi, min(max(value, lo), hi))
+
+
+def sample_period(rng: np.random.Generator, op: str, version: int = 1) -> Param:
+    lo, hi = period_range(op, version)
+    if version >= 3:
+        return _log_uniform_period(rng, lo, hi)
     return _uniform(rng, "period", lo, hi)
 
 
@@ -109,52 +126,55 @@ def sample_level(rng: np.random.Generator, op: str, cmp: Cmp) -> Param:
     return _uniform(rng, "level", lo, hi)
 
 
-def sample_price_series(rng: np.random.Generator) -> Series:
+def sample_price_series(rng: np.random.Generator, version: int = 1) -> Series:
     if rng.random() < 0.3:
         return Close()
     op = PRICE_OPS[int(rng.integers(len(PRICE_OPS)))]
-    return Indicator(op, sample_period(rng, op))
+    return Indicator(op, sample_period(rng, op, version))
 
 
-def _two_price_series(rng: np.random.Generator) -> tuple[Series, Series]:
+def _two_price_series(rng: np.random.Generator, version: int) -> tuple[Series, Series]:
     while True:
-        a, b = sample_price_series(rng), sample_price_series(rng)
+        a, b = sample_price_series(rng, version), sample_price_series(rng, version)
         if a != b and not (isinstance(a, Close) and isinstance(b, Close)):
             return a, b
 
 
-def sample_oscillator(rng: np.random.Generator) -> Indicator:
+def sample_oscillator(rng: np.random.Generator, version: int = 1) -> Indicator:
     op = OSC_OPS[int(rng.integers(len(OSC_OPS)))]
-    return Indicator(op, sample_period(rng, op))
+    return Indicator(op, sample_period(rng, op, version))
 
 
 def _cmp(rng: np.random.Generator) -> Cmp:
     return ">" if rng.random() < 0.5 else "<"
 
 
-def sample_clause(rng: np.random.Generator, kind: type) -> Clause:
+def sample_clause(rng: np.random.Generator, kind: type, version: int = 1) -> Clause:
+    """A clause of ``kind``; ``version`` is the campaign's grammar version (periods from v3)."""
+    v = version
     if kind is Compare:
-        a, b = _two_price_series(rng)
+        a, b = _two_price_series(rng, v)
         return Compare(a, _cmp(rng), b)
     if kind is Cross:
-        a, b = _two_price_series(rng)
+        a, b = _two_price_series(rng, v)
         return Cross(a, bool(rng.random() < 0.5), b)
     if kind is Threshold:
-        osc, cmp = sample_oscillator(rng), _cmp(rng)
+        osc, cmp = sample_oscillator(rng, v), _cmp(rng)
         return Threshold(osc, cmp, sample_level(rng, osc.op, cmp))
     if kind is CrossLevel:
-        osc, up = sample_oscillator(rng), bool(rng.random() < 0.5)
+        osc, up = sample_oscillator(rng, v), bool(rng.random() < 0.5)
         return CrossLevel(osc, up, sample_level(rng, osc.op, ">" if up else "<"))
     if kind is Distance:
-        a, b = _two_price_series(rng)
+        a, b = _two_price_series(rng, v)
         return Distance(a, b, _cmp(rng), _uniform(rng, "level", *DISTANCE_RANGE))
     if kind is Breakout:
         up = bool(rng.random() < 0.5)
-        return Breakout(up, sample_period(rng, "rolling_max" if up else "rolling_min"))
+        return Breakout(up, sample_period(rng, "rolling_max" if up else "rolling_min", v))
     if kind is Slope:
-        series: Series = sample_price_series(rng) if rng.random() < 0.6 else sample_oscillator(rng)
+        use_price = rng.random() < 0.6
+        series: Series = sample_price_series(rng, v) if use_price else sample_oscillator(rng, v)
         if isinstance(series, Close):
-            series = Indicator("ema", sample_period(rng, "ema"))
+            series = Indicator("ema", sample_period(rng, "ema", v))
         return Slope(series, bool(rng.random() < 0.5))
     raise ValueError(f"unknown clause type {kind!r}")
 
@@ -168,8 +188,8 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
         kinds = [cfg.clause_types[int(rng.integers(len(cfg.clause_types)))] for _ in range(n)]
         if cfg.version >= 2 and cfg.category is not None:
             clauses = tuple(sample_clause_in_category(rng, k, cfg) for k in kinds)
-        else:  # the stream every older campaign sampled
-            clauses = tuple(sample_clause(rng, k) for k in kinds)
+        else:  # no island category: the version's own stream (v1: what older campaigns drew)
+            clauses = tuple(sample_clause(rng, k, cfg.version) for k in kinds)
         entry: Entry = clauses[0]
         if n > 1:
             entry = Combine("or" if rng.random() < cfg.or_probability else "and", clauses)
@@ -264,11 +284,11 @@ def sample_clause_in_category(rng: np.random.Generator, kind: type, cfg: Grammar
     """A clause of ``kind`` in the config's category on its side, drawn again until it is —
     up to ``MAX_CATEGORY_DRAWS``, after which the last draw stands (a ``kind`` that cannot
     express the category, such as a price ``Slope`` on the momentum island, only costs draws)."""
-    clause = sample_clause(rng, kind)
+    clause = sample_clause(rng, kind, cfg.version)
     for _ in range(MAX_CATEGORY_DRAWS - 1):
         if clause_category(clause, cfg.direction, cfg.version) == cfg.category:
             break
-        clause = sample_clause(rng, kind)
+        clause = sample_clause(rng, kind, cfg.version)
     return clause
 
 

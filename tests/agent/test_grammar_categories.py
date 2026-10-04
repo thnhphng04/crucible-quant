@@ -148,6 +148,6 @@ def test_the_lock_names_the_grammar_version() -> None:
     old = {"research": {"exit": {"tp_sl_ratio": 1.1}}, "derived": {}}
     new = {**old, "derived": {"grammar_version": GRAMMAR_VERSION}}
     assert lock_grammar_version(old) == 1
-    assert lock_grammar_version(new) == GRAMMAR_VERSION == 2
+    assert lock_grammar_version(new) == GRAMMAR_VERSION >= 2  # later tasks raise it
     assert grammar_config(old, unit()).version == 1
-    assert grammar_config(new, unit()).version == 2
+    assert grammar_config(new, unit()).version == GRAMMAR_VERSION

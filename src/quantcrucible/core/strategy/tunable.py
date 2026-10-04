@@ -94,7 +94,7 @@ def lock_stop_period(lock: Mapping[str, Any]) -> bool:
     return bool(lock.get("derived", {}).get("stop_period") == STOP_PERIOD_TUNABLE)
 
 
-GRAMMAR_VERSION = 2  # ``derived.grammar_version`` a new lock records (ADR-0043)
+GRAMMAR_VERSION = 3  # ``derived.grammar_version`` a new lock records (ADR-0043, ADR-0044)
 
 
 def lock_grammar_version(lock: Mapping[str, Any]) -> int:

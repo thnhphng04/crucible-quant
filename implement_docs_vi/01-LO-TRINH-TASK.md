@@ -573,6 +573,9 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-56 Danh mục chiến lược theo hướng
 **Mục tiêu:** danh mục của clause tính đến hướng của scope, và hai cách viết của cùng một điều kiện có cùng nhãn ([ADR-0043](adr/0043-danh-muc-chien-luoc-theo-huong.md)); lock mới ghi `derived.grammar_version: 2`. **Chấp nhận khi:** INV-117 theo một bảng viết tay cho mọi loại clause ở cả hai hướng; nhãn và cách lấy mẫu version 1 không đổi; đảo danh mục v2 chỉ seed đúng danh mục của nó ở cả hai hướng. **Bằng chứng:** `agent/grammar.py` (`polarity`, `clause_category`, `sample_clause_in_category`, `CATEGORY_CLAUSES_V2`), `agent/engines/gp_search.py::_seeding`, `agent/pipeline.py`, `agent/run.py::grammar_config`, `core/strategy/tunable.py::lock_grammar_version`; `tests/agent/test_grammar_categories.py`, `tests/validation/test_run.py`. `tests/agent/test_ranking_recovery.py::test_the_rank_form_holds_more_of_the_paying_clause` (slow) đã đỏ sẵn trên `main` trước task này.
 
+### ✅ P3-57 Period lấy mẫu theo log và giới hạn period oscillator
+**Mục tiêu:** ít clause suy biến hơn ([ADR-0044](adr/0044-period-log-va-gioi-han-oscillator.md)): dưới `grammar_version: 3`, period của clause được lấy theo log-uniform trong bound, period `rsi` giới hạn [2, 30] và period `zscore` giới hạn [10, 300]. **Chấp nhận khi:** INV-118; tỷ lệ lần bốc trên 100 bar trong [2, 300] bằng ln 3 / ln 150; cách lấy mẫu v1 và render golden không đổi. **Bằng chứng:** `agent/grammar.py` (`PERIOD_CAPS_V3`, `period_range`, `sample_period`, `sample_clause`), `agent/evolution/operators.py::_swap_indicator`, `core/strategy/tunable.py::GRAMMAR_VERSION`; `tests/agent/test_grammar_sampling_v3.py`, `tests/tooling/test_grammar_diagnostics.py`, `tests/validation/test_run.py`.
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

@@ -192,6 +192,14 @@ ATR. Code luôn có guard `ready` trên ATR và stop ⇒ mọi genome qua gate �
 Level và hệ số được làm tròn 4 chữ số. Các bound này **đi theo TUNABLE** vào code, nên toán tử
 `param` và lưới PBO ở gate ④ cũng bị kẹp trong đúng khoảng này.
 
+**Grammar v3** (P3-57, ADR-0044, lock mới có `derived.grammar_version: 3`):
+- Period của clause lấy **log-uniform** trong bound (`round(exp(U(ln lo, ln hi)))`): trên `[2, 300]`
+  chỉ ~22% số lần bốc trên 100 bar, thay vì ~67% khi lấy đều. Bound giữ nguyên.
+- `rsi` period giới hạn `[2, 30]` (RSI dài bám quanh 50, không chạm level); `zscore` period
+  giới hạn `[10, 300]` (z-score của n giá trị không vượt `(n − 1)/√n`, chỉ 1,79 khi n = 5).
+- Toán tử `point` đổi `rsi ↔ zscore` sẽ kẹp period vào khoảng của oscillator mới.
+- `n_stop`, level và `k` không đổi.
+
 ### 3.4 Các chỉ báo (indicator) dùng trong grammar
 
 Mọi chỉ báo nằm trong whitelist `ind` ở [registry.py](src/quantcrucible/core/strategy/registry.py)

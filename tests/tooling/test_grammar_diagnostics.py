@@ -167,3 +167,35 @@ def test_grid_covers_each_range_and_describes_its_points() -> None:
     assert min(r["n1"] for r in rows if r["osc"] == "zscore") == 5
     pairs = {(r["n1"], r["n2"]) for r in rows if r["clause"] == "Cross"}
     assert (0, 2) in pairs and (200, 300) in pairs and (300, 300) not in pairs
+
+
+def _degenerate_share(ev: object, version: int) -> dict[str, float]:
+    from quantcrucible.agent.grammar import CLAUSE_TYPES, sample_clause
+
+    rng = np.random.default_rng(0)
+    out = {}
+    for kind in CLAUSE_TYPES:
+        rates = [D.fire_rate(ev, sample_clause(rng, kind, version)) for _ in range(120)]
+        out[kind.__name__] = float(
+            np.mean([r < D.DEGENERATE or r > 1 - D.DEGENERATE for r in rates])
+        )
+    return out
+
+
+def test_grammar_v3_samples_fewer_dead_clauses_on_a_random_walk() -> None:
+    """INV-118 (ADR-0044): on a seeded random walk — not the in-sample bars, so CI needs no
+    data — v3's sampling leaves fewer clauses true on < 1% or > 99% of the bars than v1's.
+    Measured when the rule was set: 17.6% → 12.0% overall, Cross 42% → 20%, CrossLevel
+    47% → 22%. Distance rises (7.5% → 17.5%) until its denominator changes (P3-58)."""
+    rng = np.random.default_rng(11)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, 3000)))
+    ev = D.Evaluator(_range_bars(close))
+    v1, v3 = _degenerate_share(ev, 1), _degenerate_share(ev, 3)
+    assert np.mean(list(v3.values())) < 0.14 < np.mean(list(v1.values()))
+    assert v3["Cross"] < v1["Cross"] / 1.5
+    assert v3["CrossLevel"] < v1["CrossLevel"] / 1.5
+
+
+def _range_bars(close: np.ndarray) -> Bars:
+    ts = np.datetime64("2020-01-01", "ns") + np.arange(len(close)) * np.timedelta64(1, "D")
+    return Bars("X/Y", "1d", ts, close, close * 1.01, close * 0.99, close, np.ones(len(close)))

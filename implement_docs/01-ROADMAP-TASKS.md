@@ -573,6 +573,9 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-56 Strategy categories by direction
 **Goal:** a clause's category accounts for the scope's side, and two spellings of one condition share a label ([ADR-0043](adr/0043-strategy-categories-by-direction.md)); new locks record `derived.grammar_version: 2`. **Accept when:** INV-117 against a hand-written table of every clause type on both sides; version 1 labels and sampling unchanged; a v2 category island seeds only its category on both sides. **Evidence:** `agent/grammar.py` (`polarity`, `clause_category`, `sample_clause_in_category`, `CATEGORY_CLAUSES_V2`), `agent/engines/gp_search.py::_seeding`, `agent/pipeline.py`, `agent/run.py::grammar_config`, `core/strategy/tunable.py::lock_grammar_version`; `tests/agent/test_grammar_categories.py`, `tests/validation/test_run.py`. `tests/agent/test_ranking_recovery.py::test_the_rank_form_holds_more_of_the_paying_clause` (slow) already fails on `main` before this task.
 
+### ✅ P3-57 Log-uniform periods and oscillator period caps
+**Goal:** fewer degenerate clauses ([ADR-0044](adr/0044-log-uniform-periods-and-oscillator-caps.md)): under `grammar_version: 3` entry periods are drawn log-uniform within their bounds, `rsi` periods capped to [2, 30] and `zscore` periods to [10, 300]. **Accept when:** INV-118; the share of draws above 100 bars on [2, 300] is ln 3 / ln 150; v1 sampling and the golden renders unchanged. **Evidence:** `agent/grammar.py` (`PERIOD_CAPS_V3`, `period_range`, `sample_period`, `sample_clause`), `agent/evolution/operators.py::_swap_indicator`, `core/strategy/tunable.py::GRAMMAR_VERSION`; `tests/agent/test_grammar_sampling_v3.py`, `tests/tooling/test_grammar_diagnostics.py`, `tests/validation/test_run.py`.
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |
