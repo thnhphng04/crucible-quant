@@ -23,6 +23,8 @@ from typing import Protocol
 from quantcrucible.agent.engines.random_search import Proposal
 from quantcrucible.agent.grammar import categories, genome_to_dict, signature
 from quantcrucible.agent.scheduler import Key, TrialScheduler
+from quantcrucible.core.strategy.base import ScopeDirection
+from quantcrucible.core.strategy.tunable import lock_grammar_version
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.research_run import ResearchSession, submit
 from quantcrucible.validation.run import Provenance
@@ -157,8 +159,10 @@ def session_evaluator(session: ResearchSession, run_label: str) -> Evaluate:
     """Evaluate through the real gates: each slot thread gets its own session and ledger
     connection (a SQLite connection is bound to its thread); the sandbox runner is shared."""
     local = threading.local()
+    version = lock_grammar_version(session.lock)
 
     def evaluate(key: Key, proposal: Proposal, candidate_id: str) -> Outcome:
+        side: ScopeDirection = "long" if key.is_legacy else key.direction
         s: ResearchSession | None = getattr(local, "session", None)
         if s is None:
             s = replace(session, ledger=Ledger.open(session.ledger.path))
@@ -169,7 +173,8 @@ def session_evaluator(session: ResearchSession, run_label: str) -> Evaluate:
             direction=None if key.is_legacy else key.direction,
             island=proposal.island, parents=proposal.parents, mutation=proposal.mutation,
             descriptors={
-                "categories": list(categories(proposal.genome)),
+                # by the scope's side under grammar v2 (ADR-0043); a legacy key is long-or-flat
+                "categories": list(categories(proposal.genome, side, version)),
                 "signature": list(signature(proposal.genome)),
                 "genome": genome_to_dict(proposal.genome),
             },

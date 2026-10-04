@@ -146,6 +146,20 @@ stop luôn là `k_stop`, period của stop là `n_stop` (khi có gene), TP là `
 | `Breakout(up, n)` | `close > rolling_max(close, n).ago(1)` | period | up breakout, down mean_reversion |
 | `Slope(s, up)` | `s > s.ago(1)` | period của s | oscillator → momentum, giá → trend |
 
+Cột danh mục trên là **grammar v1** (lock cũ). Từ **grammar v2** (P3-56, ADR-0043, lock mới có
+`derived.grammar_version: 2`) danh mục tính theo hướng của scope:
+
+- **Họ:** `Compare`, `Cross`, `Distance`, `Slope` trên giá → trend; `Threshold`, `CrossLevel`,
+  `Slope` trên oscillator → momentum; `Breakout` → breakout.
+- **Cực:** +1 nếu clause đúng khi giá đi lên (`>`, `up`), −1 nếu ngược lại. Clause hai chuỗi được
+  đọc theo "nhanh − chậm" (`close` nhanh nhất, period nhỏ hơn nhanh hơn, cùng period thì `ema`
+  trước `sma`), nên `a > b` và `b < a` có cùng cực.
+- **Danh mục** = họ nếu cực × hướng > 0 (long = +1, short = −1), ngược lại là `mean_reversion`.
+
+Ví dụ: `rsi > 70` → long momentum, short mean_reversion; `Breakout(down)` → long mean_reversion,
+short breakout; `close < sma(200)` → long mean_reversion, short trend. Đảo có danh mục chỉ seed
+clause đúng danh mục của nó (đảo mean_reversion dùng cả 7 loại clause).
+
 Toán hạng (công thức và khoảng period của từng chỉ báo ở mục 3.4):
 - **Chuỗi giá**: `close` (xác suất `0.3`), còn lại `sma` hoặc `ema` (mỗi cái 0.35). Hai chuỗi giá
   của một clause phải khác nhau và không được cùng là `close`.

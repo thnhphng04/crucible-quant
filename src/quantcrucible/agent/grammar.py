@@ -82,6 +82,10 @@ class GrammarConfig:
     stop_period: bool = False
     max_params: int = LEGACY_MAX_TUNABLES
     clause_types: tuple[type, ...] = field(default=CLAUSE_TYPES)
+    # the campaign's grammar version (``derived.grammar_version``; 1 for older locks)
+    version: int = 1
+    # v2 (ADR-0043): an island seeded with a category samples clauses of that category only
+    category: str | None = None
 
 
 def _uniform(rng: np.random.Generator, kind: ParamKind, lo: float, hi: float) -> Param:
@@ -162,7 +166,10 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
     while True:
         n = 1 + int(rng.choice(len(weights), p=weights / weights.sum()))
         kinds = [cfg.clause_types[int(rng.integers(len(cfg.clause_types)))] for _ in range(n)]
-        clauses = tuple(sample_clause(rng, k) for k in kinds)
+        if cfg.version >= 2 and cfg.category is not None:
+            clauses = tuple(sample_clause_in_category(rng, k, cfg) for k in kinds)
+        else:  # the stream every older campaign sampled
+            clauses = tuple(sample_clause(rng, k) for k in kinds)
         entry: Entry = clauses[0]
         if n > 1:
             entry = Combine("or" if rng.random() < cfg.or_probability else "and", clauses)
@@ -189,9 +196,49 @@ CATEGORY_CLAUSES: dict[str, tuple[type, ...]] = {
     "mean_reversion": (Threshold, CrossLevel, Distance, Breakout),
     "breakout": (Breakout,),
 }
+# v2: a family's clause types, and every type for mean reversion — any clause can fade a move
+CATEGORY_CLAUSES_V2: dict[str, tuple[type, ...]] = {
+    **CATEGORY_CLAUSES,
+    "mean_reversion": CLAUSE_TYPES,
+}
+MAX_CATEGORY_DRAWS = 50
 
 
-def clause_category(c: Clause) -> str:
+def _speed(s: Series) -> tuple[int, int]:
+    """Smaller is faster: the close, then shorter periods; at one period, ema before sma."""
+    if isinstance(s, Close):
+        return (0, 0)
+    return (int(s.period.value), 0 if s.op == "ema" else 1)
+
+
+def _family(c: Clause) -> str:
+    if isinstance(c, Threshold | CrossLevel):
+        return "momentum"
+    if isinstance(c, Slope):
+        return "momentum" if isinstance(c.series, Indicator) and c.series.op in OSC_OPS else "trend"
+    if isinstance(c, Breakout):
+        return "breakout"
+    return "trend"
+
+
+def polarity(c: Clause) -> int:
+    """+1 when the clause holds as price rises, −1 when it holds as price falls. A clause on two
+    price series is read fast − slow, so ``a > b`` and ``b < a`` get the same polarity."""
+    if isinstance(c, Compare | Cross | Distance):
+        rising = c.up if isinstance(c, Cross) else c.op == ">"
+        fast_left = _speed(c.left) <= _speed(c.right)
+        return 1 if rising == fast_left else -1
+    if isinstance(c, Threshold):
+        return 1 if c.op == ">" else -1
+    return 1 if c.up else -1
+
+
+def clause_category(c: Clause, direction: ScopeDirection = "long", version: int = 1) -> str:
+    """The clause's strategy category. v2 (ADR-0043): its family when it trades with the move on
+    this side — polarity × side > 0 — mean reversion otherwise. v1: the clause alone."""
+    if version >= 2:
+        side = 1 if direction == "long" else -1
+        return _family(c) if polarity(c) * side > 0 else "mean_reversion"
     if isinstance(c, Compare | Cross):
         return "trend"
     if isinstance(c, Slope):
@@ -205,10 +252,24 @@ def clause_category(c: Clause) -> str:
     return "breakout" if c.up else "mean_reversion"
 
 
-def categories(genome: Genome) -> tuple[str, ...]:
+def categories(
+    genome: Genome, direction: ScopeDirection = "long", version: int = 1
+) -> tuple[str, ...]:
     """The strategy categories a genome's clauses belong to, in ``CATEGORIES`` order."""
-    found = {clause_category(c) for c in genome.clauses()}
+    found = {clause_category(c, direction, version) for c in genome.clauses()}
     return tuple(c for c in CATEGORIES if c in found)
+
+
+def sample_clause_in_category(rng: np.random.Generator, kind: type, cfg: GrammarConfig) -> Clause:
+    """A clause of ``kind`` in the config's category on its side, drawn again until it is —
+    up to ``MAX_CATEGORY_DRAWS``, after which the last draw stands (a ``kind`` that cannot
+    express the category, such as a price ``Slope`` on the momentum island, only costs draws)."""
+    clause = sample_clause(rng, kind)
+    for _ in range(MAX_CATEGORY_DRAWS - 1):
+        if clause_category(clause, cfg.direction, cfg.version) == cfg.category:
+            break
+        clause = sample_clause(rng, kind)
+    return clause
 
 
 # ── structural signature (novelty in the ranking, arch §3.1.6 #1) ─────────────────────────────

@@ -36,6 +36,7 @@ from quantcrucible.agent.pipeline import (
 from quantcrucible.agent.runlock import RunLockError, campaign_run_lock
 from quantcrucible.agent.scheduler import Key, TrialScheduler, campaign_scopes, quotas
 from quantcrucible.core.strategy.tunable import (
+    lock_grammar_version,
     lock_max_tunables,
     lock_stop_kinds,
     lock_stop_period,
@@ -86,6 +87,7 @@ def grammar_config(lock: Mapping[str, Any], key: Key) -> GrammarConfig:
         tp_sl_ratio=float(lock["research"]["exit"]["tp_sl_ratio"]) if new_exit else None,
         direction="long" if key.is_legacy else key.direction,
         stop_period=lock_stop_period(lock),
+        version=lock_grammar_version(lock),
         max_params=lock_max_tunables(lock),
     )
 

@@ -22,7 +22,12 @@ from quantcrucible.config.lock import (
 from quantcrucible.config.schema import UserConfig
 from quantcrucible.core.strategy.base import Bars, ScopeDirection
 from quantcrucible.core.strategy.template import parse, template_hash
-from quantcrucible.core.strategy.tunable import MAX_TUNABLES, STOP_PERIOD_TUNABLE, default_params
+from quantcrucible.core.strategy.tunable import (
+    GRAMMAR_VERSION,
+    MAX_TUNABLES,
+    STOP_PERIOD_TUNABLE,
+    default_params,
+)
 from quantcrucible.data.holdout_split import read_holdout_lock
 from quantcrucible.data.manifest import verify_manifest
 from quantcrucible.execution.nautilus_bridge import CostModel
@@ -119,6 +124,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
     derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041: n_stop is a gene,
     derived["max_tunables"] = MAX_TUNABLES  # inside a cap of 7
+    derived["grammar_version"] = GRAMMAR_VERSION  # ADR-0043: categories by direction
     # The manifest records the exact fetched window even when user.yaml requested latest (null).
     fetched_end = date.fromisoformat(str(manifest["range"]).split("/")[1]) - timedelta(days=1)
     if cfg.research.data.end is not None and fetched_end != cfg.research.data.end:

@@ -47,6 +47,7 @@ from quantcrucible.agent.evolution.ranking import RankContext, scores
 from quantcrucible.agent.evolution.sampling import sample_mate, sample_parent
 from quantcrucible.agent.grammar import (
     CATEGORY_CLAUSES,
+    CATEGORY_CLAUSES_V2,
     CLAUSE_TYPES,
     Genome,
     GrammarConfig,
@@ -62,9 +63,15 @@ ENGINE = "gp"
 MAX_TRIES = 20
 
 
-def _clause_types(category: str | None) -> tuple[type, ...]:
-    """Clause types an island samples when seeding: its category's, or all for the open one."""
-    return CLAUSE_TYPES if category is None else CATEGORY_CLAUSES[category]
+def _seeding(config: GrammarConfig, category: str | None) -> GrammarConfig:
+    """What an island samples when seeding: its category's clause types, or all for the open
+    one. From grammar v2 (ADR-0043) every seeded clause also has the island's category on the
+    scope's side — under v1 a momentum island drew mean-reversion thresholds half the time."""
+    if category is None:
+        return replace(config, clause_types=CLAUSE_TYPES)
+    if config.version >= 2:
+        return replace(config, clause_types=CATEGORY_CLAUSES_V2[category], category=category)
+    return replace(config, clause_types=CATEGORY_CLAUSES[category])
 
 
 class GpSearch:
@@ -93,10 +100,7 @@ class GpSearch:
         self.config = config or GrammarConfig()
         self.rng = np.random.default_rng(rng_seed)
         self.islands = island_names()
-        self.seeding = {
-            i: replace(self.config, clause_types=_clause_types(island_category(i)))
-            for i in self.islands
-        }
+        self.seeding = {i: _seeding(self.config, island_category(i)) for i in self.islands}
         # resume: counts and what was already proposed come from the ledger
         self.proposals = 0
         self.children = 0
