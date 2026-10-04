@@ -28,6 +28,7 @@ from quantcrucible.core.strategy.genome import (
     Cross,
     CrossLevel,
     Distance,
+    DistanceScale,
     Entry,
     Genome,
     Indicator,
@@ -194,6 +195,13 @@ class _Reader:
     def _feature(self, v: ast.AST) -> tuple[str, ...]:
         if _attr(v, "bars", "close") is not None:
             return ("close",)
+        if (  # a grammar-v4 Distance yardstick (ADR-0045); the final comparison checks its args
+            isinstance(v, ast.Call)
+            and _attr(v.func, "ind") == "spread_stdev"
+            and len(v.args) == 3
+            and not v.keywords
+        ):
+            return ("spread",)
         if not (isinstance(v, ast.Call) and len(v.args) == 2 and not v.keywords):
             raise _fail("feature")
         op = _attr(v.func, "ind")
@@ -264,12 +272,22 @@ class _Reader:
         if not (isinstance(node, ast.Compare) and len(node.ops) == 1):
             raise _fail("clause")
         op, left, right = _cmp(node.ops[0]), node.left, node.comparators[0]
-        if isinstance(left, ast.BinOp):  # (a - b) / x["atr"] op k
+        if isinstance(left, ast.BinOp):  # (a - b) / x["atr"] op k, or / x["fK"] (spread_stdev)
             if not (isinstance(left.op, ast.Div) and isinstance(left.left, ast.BinOp)):
                 raise _fail("distance")
-            diff = left.left
+            diff, den = left.left, _feature_key(left.right)
+            if den == "atr":
+                scale: DistanceScale = "atr"
+            elif den is not None and self.features.get(den) == ("spread",):
+                scale = "spread"
+            else:
+                raise _fail("distance scale")
             return Distance(
-                self.series(diff.left), self.series(diff.right), op, self.param(_param_name(right))
+                self.series(diff.left),
+                self.series(diff.right),
+                op,
+                self.param(_param_name(right)),
+                scale,
             )
         prev = _is_ago1(right)
         if prev is not None:

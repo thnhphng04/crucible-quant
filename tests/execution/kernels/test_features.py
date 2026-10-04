@@ -102,6 +102,69 @@ def test_cuda_kernel_matches_the_registry_on_every_window() -> None:
     _check("cuda", 1_500, (30, 400), seed=3)
 
 
+# (a_op, a_n, b_op, b_n, n): the spread_stdev instances a grammar-v4 Distance compiles to
+SPREADS = [
+    (P.OP_EMA, 8, P.OP_SMA, 20, 20),
+    (P.OP_CLOSE, 0, P.OP_SMA, 14, 14),
+    (P.OP_SMA, 3, P.OP_CLOSE, 0, 3),
+    (P.OP_SMA, 64, P.OP_EMA, 129, 129),
+    (P.OP_EMA, 2, P.OP_EMA, 30, 30),
+    (P.OP_EMA, 129, P.OP_CLOSE, 0, 129),
+]
+OPERAND = {
+    P.OP_CLOSE: ORACLES[P.OP_CLOSE],
+    P.OP_SMA: ORACLES[P.OP_SMA],
+    P.OP_EMA: ORACLES[P.OP_EMA],
+}
+
+
+def _check_spread(target: str, n_bars: int, lookbacks: tuple[int, ...], seed: int) -> None:
+    """INV-119 (ADR-0045): each operand computed on the window, then the registry's deviation
+    of their difference — what the render's indicators() returns at every bar."""
+    bars = _bars(n_bars, seed)
+    ops = [P.OP_SPREAD] * len(SPREADS)
+    pers = [s[4] for s in SPREADS]
+    aux = [s[:4] for s in SPREADS]
+    for lookback in lookbacks:
+        now, prev = run_features(
+            ops, pers, bars.close, bars.high, bars.low, lookback, target, inst_aux=aux,  # type: ignore[arg-type]
+        )  # fmt: skip
+        finite = 0
+        for t in range(n_bars):
+            window = bars.window(t, lookback)
+            for i, (a_op, a_n, b_op, b_n, n) in enumerate(SPREADS):
+                v = R.spread_stdev(OPERAND[a_op](window, a_n), OPERAND[b_op](window, b_n), n)
+                want_prev = v[-2] if len(v) >= 2 else np.nan
+                where = f"{target} spread {SPREADS[i]} L {lookback} t {t}"
+                assert np.array_equal(now[i, t], v[-1], equal_nan=True), where
+                assert np.array_equal(prev[i, t], want_prev, equal_nan=True), where
+                finite += bool(np.isfinite(v[-1]))
+        assert finite > 0
+
+
+def test_cpu_spread_kernel_matches_the_registry_on_every_window() -> None:
+    _check_spread("cpu", 500, (30, 300), seed=4)
+
+
+@pytest.mark.cudasim
+def test_simulated_cuda_spread_kernel_matches_the_registry() -> None:
+    _check_spread("cuda", 40, (25,), seed=5)
+
+
+@pytest.mark.gpu
+def test_cuda_spread_kernel_matches_the_registry_on_every_window() -> None:
+    _check_spread("cuda", 1_000, (30, 400), seed=6)
+
+
+@pytest.mark.parametrize(
+    "aux", [(P.OP_RSI, 14, P.OP_SMA, 20), (P.OP_SMA, 0, P.OP_SMA, 20), (P.OP_CLOSE, 3, P.OP_SMA, 9)]
+)
+def test_a_spread_with_a_bad_operand_is_caught_in_the_kernel(aux: tuple[int, ...]) -> None:
+    bars = _bars(50, 0)
+    with pytest.raises(KernelInputError):
+        run_features([P.OP_SPREAD], [20], bars.close, bars.high, bars.low, 30, inst_aux=[aux])
+
+
 def test_non_finite_bars_are_refused() -> None:
     bars = _bars(50, 0)
     close = bars.close.copy()

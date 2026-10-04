@@ -3,9 +3,12 @@
 A genome is a small typed tree — the entry rule built from clauses over price series and
 oscillators, plus an ATR stop — rendered into the template's evolvable block. The grammar only
 builds scale-invariant rules (price series are compared with price series, oscillators with
-levels, price distances are divided by ATR), declares every number as a TUNABLE (≤ 6), and
-always emits the readiness guard on ATR and the stop, so a sampled strategy passes gate ①a by
-construction. C-random samples genomes i.i.d.; C-gp (P2-11) breeds them with the same types.
+levels, price distances are divided by ATR — from grammar v4 by the spread's own deviation),
+declares every number as a TUNABLE (within the lock's cap), and always emits the readiness
+guard on ATR and the stop, so a sampled strategy passes gate ①a by construction. C-random
+samples genomes i.i.d.; C-gp (P2-11) breeds them with the same types. The lock's
+``grammar_version`` selects the rules: 2 categories by side (ADR-0043), 3 log-uniform periods
+and oscillator caps (ADR-0044), 4 the spread-scaled ``Distance`` (ADR-0045).
 
 Only the ``joint`` evolve scope is supported (named blocks: O13). The genome types, rendering and
 serialization live in :mod:`quantcrucible.core.strategy.genome`; this module samples and
@@ -114,11 +117,21 @@ def _log_uniform_period(rng: np.random.Generator, lo: int, hi: int) -> Param:
     return Param("period", lo, hi, min(max(value, lo), hi))
 
 
-def sample_period(rng: np.random.Generator, op: str, version: int = 1) -> Param:
+def sample_period(
+    rng: np.random.Generator, op: str, version: int = 1, high: int | None = None
+) -> Param:
+    """A period of ``op`` within its range, below ``high`` when given."""
     lo, hi = period_range(op, version)
+    if high is not None:
+        hi = min(hi, high)
     if version >= 3:
         return _log_uniform_period(rng, lo, hi)
     return _uniform(rng, "period", lo, hi)
+
+
+# v4 (ADR-0045): spread_stdev(a, b, n) is finite from bar max(n_a, n_b) + n − 1 of its window, so
+# Distance operands stay ≤ 200 bars — warm-up ≤ 399 — inside the locked 400-bar lookback
+SPREAD_OPERAND_MAX = 200
 
 
 def sample_level(rng: np.random.Generator, op: str, cmp: Cmp) -> Param:
@@ -126,16 +139,20 @@ def sample_level(rng: np.random.Generator, op: str, cmp: Cmp) -> Param:
     return _uniform(rng, "level", lo, hi)
 
 
-def sample_price_series(rng: np.random.Generator, version: int = 1) -> Series:
+def sample_price_series(
+    rng: np.random.Generator, version: int = 1, high: int | None = None
+) -> Series:
     if rng.random() < 0.3:
         return Close()
     op = PRICE_OPS[int(rng.integers(len(PRICE_OPS)))]
-    return Indicator(op, sample_period(rng, op, version))
+    return Indicator(op, sample_period(rng, op, version, high))
 
 
-def _two_price_series(rng: np.random.Generator, version: int) -> tuple[Series, Series]:
+def _two_price_series(
+    rng: np.random.Generator, version: int, high: int | None = None
+) -> tuple[Series, Series]:
     while True:
-        a, b = sample_price_series(rng, version), sample_price_series(rng, version)
+        a, b = sample_price_series(rng, version, high), sample_price_series(rng, version, high)
         if a != b and not (isinstance(a, Close) and isinstance(b, Close)):
             return a, b
 
@@ -165,8 +182,10 @@ def sample_clause(rng: np.random.Generator, kind: type, version: int = 1) -> Cla
         osc, up = sample_oscillator(rng, v), bool(rng.random() < 0.5)
         return CrossLevel(osc, up, sample_level(rng, osc.op, ">" if up else "<"))
     if kind is Distance:
-        a, b = _two_price_series(rng, v)
-        return Distance(a, b, _cmp(rng), _uniform(rng, "level", *DISTANCE_RANGE))
+        a, b = _two_price_series(rng, v, SPREAD_OPERAND_MAX if v >= 4 else None)
+        cmp = _cmp(rng)  # drawn before k: the stream older versions sampled
+        k = _uniform(rng, "level", *DISTANCE_RANGE)
+        return Distance(a, b, cmp, k, "spread" if v >= 4 else "atr")  # ADR-0045
     if kind is Breakout:
         up = bool(rng.random() < 0.5)
         return Breakout(up, sample_period(rng, "rolling_max" if up else "rolling_min", v))

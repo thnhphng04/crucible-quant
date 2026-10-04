@@ -576,6 +576,9 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-57 Log-uniform periods and oscillator period caps
 **Goal:** fewer degenerate clauses ([ADR-0044](adr/0044-log-uniform-periods-and-oscillator-caps.md)): under `grammar_version: 3` entry periods are drawn log-uniform within their bounds, `rsi` periods capped to [2, 30] and `zscore` periods to [10, 300]. **Accept when:** INV-118; the share of draws above 100 bars on [2, 300] is ln 3 / ln 150; v1 sampling and the golden renders unchanged. **Evidence:** `agent/grammar.py` (`PERIOD_CAPS_V3`, `period_range`, `sample_period`, `sample_clause`), `agent/evolution/operators.py::_swap_indicator`, `core/strategy/tunable.py::GRAMMAR_VERSION`; `tests/agent/test_grammar_sampling_v3.py`, `tests/tooling/test_grammar_diagnostics.py`, `tests/validation/test_run.py`.
 
+### ✅ P3-58 Distance over the spread's own deviation
+**Goal:** a `Distance` clause that is live on every period ([ADR-0045](adr/0045-distance-over-the-spread-deviation.md)): under `grammar_version: 4` it divides `a − b` by `spread_stdev(a, b, n)`, operands ≤ 200 bars. **Accept when:** INV-119; the registry's values by hand; kernel ≡ registry on every window and kernel ≡ `generate_signals` on CPU, the CUDA simulator and the GPU; the router's report equals the sandbox's; an ATR `Distance` unchanged. **Evidence:** `core/strategy/registry.py::spread_stdev`, `core/strategy/genome.py` (`Distance.scale`), `core/strategy/genome_parse.py`, `agent/grammar.py` (`SPREAD_OPERAND_MAX`), `execution/kernels/program.py` (`OP_SPREAD`, `inst_aux`, the sixth clause column), `features.py` (`spread`), `signals.py`, `backend.py`, `validation/engine_router.py::_evaluate`; the tests listed under INV-119.
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |

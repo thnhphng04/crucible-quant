@@ -196,6 +196,17 @@ def test_grammar_v3_samples_fewer_dead_clauses_on_a_random_walk() -> None:
     assert v3["CrossLevel"] < v1["CrossLevel"] / 1.5
 
 
+def test_grammar_v4_distance_is_rarely_dead() -> None:
+    """INV-119 (ADR-0045): over its spread's own deviation, a v4 Distance stays live where the
+    v3 one — log-uniform periods over ATR(14) — is degenerate one time in six."""
+    rng = np.random.default_rng(11)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, 3000)))
+    ev = D.Evaluator(_range_bars(close))
+    v3, v4 = _degenerate_share(ev, 3), _degenerate_share(ev, 4)
+    assert v4["Distance"] < 0.05 < v3["Distance"]
+    assert np.mean(list(v4.values())) < np.mean(list(v3.values()))
+
+
 def _range_bars(close: np.ndarray) -> Bars:
     ts = np.datetime64("2020-01-01", "ns") + np.arange(len(close)) * np.timedelta64(1, "D")
     return Bars("X/Y", "1d", ts, close, close * 1.01, close * 0.99, close, np.ones(len(close)))

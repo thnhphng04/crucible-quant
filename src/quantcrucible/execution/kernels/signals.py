@@ -10,7 +10,8 @@ It reproduces what the template's ``signal()`` computes from the features at bar
         return Signal(direction, 1.0, stop, <tp>)
 
 The clauses are evaluated only when ``ready`` holds, as Python's ``and`` short-circuits — so a
-Distance clause never divides by a zero ATR. Comparisons with NaN are false, as in Python, and
+Distance clause never divides by a zero ATR, and its spread yardstick (ADR-0045) is NaN, never 0,
+where the spread does not move. Comparisons with NaN are false, as in Python, and
 ``cross_up``/``cross_down`` are false whenever one of their four values is NaN. The output is an
 entry flag and the stop distance per bar and configuration, laid out ``[bar, config]`` so the
 replay threads read consecutive configurations together.
@@ -62,8 +63,7 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
         return (a0 <= b0 and a1 > b1) if up == 1 else (a0 >= b0 and a1 < b1)
 
     @dev
-    def clause(k: int, c: int, t: int, cl: Any, si: Any, pv: Any, now: Any, prev: Any,
-               atr: Any) -> Any:  # fmt: skip
+    def clause(k: int, c: int, t: int, cl: Any, si: Any, pv: Any, now: Any, prev: Any) -> Any:
         kind = cl[k, 0]
         ia = si[c, cl[k, 1]] if cl[k, 1] >= 0 else 0
         ib = si[c, cl[k, 2]] if cl[k, 2] >= 0 else 0
@@ -77,8 +77,9 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
             return cmp(now[ia, t], lvl, flag)
         if kind == P.CL_CROSSLEVEL:
             return cross(prev[ia, t], now[ia, t], lvl, lvl, flag)
-        if kind == P.CL_DISTANCE:
-            return cmp(div(sub(now[ia, t], now[ib, t]), atr), lvl, flag)
+        if kind == P.CL_DISTANCE:  # over ATR(14) or the spread's own deviation (ADR-0045)
+            den = now[si[c, cl[k, 5]], t]
+            return cmp(div(sub(now[ia, t], now[ib, t]), den), lvl, flag)
         if kind == P.CL_BREAKOUT:  # close now against the level's previous bar
             return now[ia, t] > prev[ib, t] if flag == 1 else now[ia, t] < prev[ib, t]
         # CL_SLOPE
@@ -108,13 +109,13 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
         if combine == P.COMBINE_OR:
             hit = False
             for j in range(n_cl):
-                if clause(j, c, t, cl, si, pv, now, prev, atr):
+                if clause(j, c, t, cl, si, pv, now, prev):
                     hit = True
                     break
         else:  # a single clause, or `and`
             hit = True
             for j in range(n_cl):
-                if not clause(j, c, t, cl, si, pv, now, prev, atr):
+                if not clause(j, c, t, cl, si, pv, now, prev):
                     hit = False
                     break
         if hit:

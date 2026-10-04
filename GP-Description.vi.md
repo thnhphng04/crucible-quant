@@ -200,6 +200,19 @@ Level và hệ số được làm tròn 4 chữ số. Các bound này **đi theo
 - Toán tử `point` đổi `rsi ↔ zscore` sẽ kẹp period vào khoảng của oscillator mới.
 - `n_stop`, level và `k` không đổi.
 
+**Grammar v4** (P3-58, ADR-0045, lock mới có `derived.grammar_version: 4`): `Distance` chia cho
+**độ lệch chuẩn của chính spread** thay vì ATR(14):
+
+```
+(a − b) / spread_stdev(a, b, n)  op  k        n = period của b (của a nếu b là close)
+spread_stdev = √( (1/n) Σ (s_i − s̄)² ),  s = a − b   (= 0 ⇒ NaN ⇒ clause False)
+```
+
+- Không thêm TUNABLE; `k = 0` vẫn tương đương `Compare`. `k ∈ [-3, 3]` giữ nguyên.
+- Period của toán hạng `Distance` giới hạn `[2, 200]`: warm-up `max(n_a, n_b) + n − 1 ≤ 399` vừa
+  trong lookback 400 bar.
+- Trên random walk: `Distance` suy biến 17,5% (v3) → 0%; trên dữ liệu IS (P3-54) 1,6%.
+
 ### 3.4 Các chỉ báo (indicator) dùng trong grammar
 
 Mọi chỉ báo nằm trong whitelist `ind` ở [registry.py](src/quantcrucible/core/strategy/registry.py)
@@ -242,6 +255,12 @@ của stop thành gene `n_stop` ∈ `[5, 50]` dưới lock `tunable_v1`: stop AT
 `"atr_stop": ind.atr(bars, self.p.n_stop)`, stop Bollinger dùng `n_stop` làm period của band (hệ số
 2σ giữ nguyên). `atr(bars, 14)` vẫn là thước đo cho `Distance` và guard `ready`. Lock không có
 `stop_period` thì giữ nguyên `14` / `8` như bảng trên.
+
+Chỉ báo thứ 12, từ grammar v4 (P3-58, ADR-0045):
+
+| Chỉ báo | Công thức | Period | Dùng ở |
+|---|---|---|---|
+| `spread_stdev(a, b, n)` | Độ lệch chuẩn tổng thể của `a − b` trên `n` bar; `= 0` ⇒ NaN | `n` = period của `b` (của `a` nếu `b` là close), không phải TUNABLE riêng | Mẫu số của `Distance` v4: `(a − b) / spread_stdev(a, b, n)` |
 
 **Vị từ** (trả `bool`, so bar hiện tại với bar trước):
 

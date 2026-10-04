@@ -576,6 +576,9 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-57 Period lấy mẫu theo log và giới hạn period oscillator
 **Mục tiêu:** ít clause suy biến hơn ([ADR-0044](adr/0044-period-log-va-gioi-han-oscillator.md)): dưới `grammar_version: 3`, period của clause được lấy theo log-uniform trong bound, period `rsi` giới hạn [2, 30] và period `zscore` giới hạn [10, 300]. **Chấp nhận khi:** INV-118; tỷ lệ lần bốc trên 100 bar trong [2, 300] bằng ln 3 / ln 150; cách lấy mẫu v1 và render golden không đổi. **Bằng chứng:** `agent/grammar.py` (`PERIOD_CAPS_V3`, `period_range`, `sample_period`, `sample_clause`), `agent/evolution/operators.py::_swap_indicator`, `core/strategy/tunable.py::GRAMMAR_VERSION`; `tests/agent/test_grammar_sampling_v3.py`, `tests/tooling/test_grammar_diagnostics.py`, `tests/validation/test_run.py`.
 
+### ✅ P3-58 Distance chia độ lệch chuẩn của chính spread
+**Mục tiêu:** clause `Distance` sống ở mọi period ([ADR-0045](adr/0045-distance-chia-do-lech-cua-spread.md)): dưới `grammar_version: 4`, nó chia `a − b` cho `spread_stdev(a, b, n)`, toán hạng ≤ 200 bar. **Chấp nhận khi:** INV-119; giá trị registry tính tay; kernel ≡ registry trên mọi cửa sổ và kernel ≡ `generate_signals` trên CPU, giả lập CUDA và GPU; báo cáo của router bằng báo cáo của sandbox; `Distance` dạng ATR không đổi. **Bằng chứng:** `core/strategy/registry.py::spread_stdev`, `core/strategy/genome.py` (`Distance.scale`), `core/strategy/genome_parse.py`, `agent/grammar.py` (`SPREAD_OPERAND_MAX`), `execution/kernels/program.py` (`OP_SPREAD`, `inst_aux`, cột clause thứ sáu), `features.py` (`spread`), `signals.py`, `backend.py`, `validation/engine_router.py::_evaluate`; các test liệt kê ở INV-119.
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

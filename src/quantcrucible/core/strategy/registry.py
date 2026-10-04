@@ -20,7 +20,7 @@ from scipy.signal import lfilter
 
 from quantcrucible.core.strategy.base import Bars, FloatArray, SeriesView
 
-IndicatorKind = Literal["series", "bars", "predicate"]
+IndicatorKind = Literal["series", "bars", "pair", "predicate"]
 
 
 def _check_period(n: int) -> None:
@@ -126,6 +126,18 @@ def boll_lower(x: FloatArray, n: int) -> FloatArray:
     return out
 
 
+def spread_stdev(x: FloatArray, y: FloatArray, n: int) -> FloatArray:
+    """Population standard deviation of the spread ``x − y`` over n bars; NaN where it is 0 or
+    a window holds a NaN — the yardstick of a grammar-v4 ``Distance`` (ADR-0045)."""
+    _check_period(n)
+    d = _as_float(x) - _as_float(y)
+    out = np.full(len(d), np.nan)
+    if len(d) >= n:
+        sd = sliding_window_view(d, n).std(axis=1)
+        out[n - 1 :] = np.where(sd > 0, sd, np.nan)
+    return out
+
+
 def atr(bars: Bars, n: int) -> FloatArray:
     """Wilder's average true range."""
     _check_period(n)
@@ -188,6 +200,7 @@ class _Indicators:
     zscore = staticmethod(zscore)
     boll_upper = staticmethod(boll_upper)
     boll_lower = staticmethod(boll_lower)
+    spread_stdev = staticmethod(spread_stdev)
     atr = staticmethod(atr)
     rsi = staticmethod(rsi)
     cross_up = staticmethod(cross_up)
@@ -230,9 +243,11 @@ OPS: dict[str, OpSpec] = {
     "boll_lower": OpSpec("series", "same", (8, 8)),
     "rsi": OpSpec("series", "dimensionless", (2, 100), (0.0, 100.0), warmup_extra=1),
     "atr": OpSpec("bars", "price", (2, 100)),
+    "spread_stdev": OpSpec("pair", "price", (2, 300)),
     "cross_up": OpSpec("predicate", "bool"),
     "cross_down": OpSpec("predicate", "bool"),
 }
 
-# name → how it is called: "series" f(array, n), "bars" f(bars, n), "predicate" f(view, view|float)
+# name → how it is called: "series" f(array, n), "bars" f(bars, n), "pair" f(array, array, n),
+# "predicate" f(view, view|float)
 INDICATORS: dict[str, IndicatorKind] = {name: spec.kind for name, spec in OPS.items()}

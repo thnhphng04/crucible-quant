@@ -35,6 +35,8 @@ from quantcrucible.execution.kernels._numba import (
 
 CUDA_LANES_PER_LAUNCH = 1 << 20  # keeps one launch well under the WDDM watchdog (O(L) per lane)
 THREADS = 128
+# a spread_stdev lane keeps its operands' last n + 1 in-window values (ADR-0045)
+SPREAD_BUFFER = P.MAX_PERIOD + 1
 
 # value sources for the pairwise sum and the smoothing
 V_X, V_SQDEV, V_TR, V_GAIN, V_LOSS = 0, 1, 2, 3, 4
@@ -214,37 +216,113 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
         prev = at(op, n, x, h, lo, t - 1, wlo) if w >= 2 else NAN
         return prev, now
 
-    def body(k: int, x: Any, h: Any, lo: Any, ops: Any, pers: Any, L: int, now: Any, prev: Any,
-             err: Any) -> None:  # fmt: skip
+    # ── spread_stdev(a, b, n) on the window [wlo, t] (ADR-0045) ─────────────────────────
+    @dev
+    def operand(buf: Any, op: int, n: int, x: Any, h: Any, lo: Any, wlo: int, first: int,
+                cnt: int) -> None:  # fmt: skip
+        """buf[i] = op(n) at bar first + i as the window's indicators() computes it: NaN before
+        the window and during warm-up; an ema seeded at the window start like registry._smooth."""
+        for i in range(cnt):
+            buf[i] = NAN
+        t = first + cnt - 1
+        if op == P.OP_EMA:
+            if t - wlo + 1 < n:
+                return
+            alpha = div(TWO, add(T(n), ONE))
+            one_a = sub(ONE, alpha)
+            y = div(pw_sum(x, h, lo, wlo, n, ZERO, V_X, wlo), T(n))
+            if wlo + n - 1 >= first:
+                buf[wlo + n - 1 - first] = y
+            z = mul(one_a, y)
+            for e in range(wlo + n, t + 1):
+                y = add(z, mul(alpha, x[e]))
+                z = mul(one_a, y)
+                if e >= first:
+                    buf[e - first] = y
+            return
+        for i in range(cnt):  # close, or an sma: the same on any window that holds it
+            if first + i >= wlo:
+                buf[i] = at(op, n, x, h, lo, first + i, wlo)
+
+    @dev
+    def spread_sd(buf: Any, s: int, n: int) -> Any:
+        _m, sd = mean_std(buf, s, n)
+        return sd if sd > ZERO else NAN  # NaN in the window: NaN, as numpy's std
+
+    @dev
+    def spread_core(a: Any, b: Any, n: int, a_op: int, a_n: int, b_op: int, b_n: int, x: Any,
+                    h: Any, lo: Any, t: int, lookback: int) -> Any:  # fmt: skip
+        """(prev, now): the deviation of a − b over [t − n, t − 1] and [t − n + 1, t]."""
+        wlo = t - lookback + 1 if t - lookback + 1 > 0 else 0
+        first, cnt = t - n, n + 1
+        operand(a, a_op, a_n, x, h, lo, wlo, first, cnt)
+        operand(b, b_op, b_n, x, h, lo, wlo, first, cnt)
+        for i in range(cnt):
+            a[i] = sub(a[i], b[i])
+        return spread_sd(a, 0, n), spread_sd(a, 1, n)
+
+    if target == "cpu":
+
+        @dev
+        def spread(n: int, a_op: int, a_n: int, b_op: int, b_n: int, x: Any, h: Any, lo: Any,
+                   t: int, lookback: int) -> Any:  # fmt: skip
+            a = np.empty(SPREAD_BUFFER, T)
+            b = np.empty(SPREAD_BUFFER, T)
+            return spread_core(a, b, n, a_op, a_n, b_op, b_n, x, h, lo, t, lookback)
+
+    else:
+
+        @dev
+        def spread(n: int, a_op: int, a_n: int, b_op: int, b_n: int, x: Any, h: Any, lo: Any,
+                   t: int, lookback: int) -> Any:  # fmt: skip
+            a = cuda.local.array(SPREAD_BUFFER, T)
+            b = cuda.local.array(SPREAD_BUFFER, T)
+            return spread_core(a, b, n, a_op, a_n, b_op, b_n, x, h, lo, t, lookback)
+
+    @dev
+    def operand_ok(op: int, n: int) -> bool:
+        if op == P.OP_CLOSE:
+            return n == 0
+        return (op == P.OP_SMA or op == P.OP_EMA) and 1 <= n <= P.MAX_PERIOD
+
+    def body(k: int, x: Any, h: Any, lo: Any, ops: Any, pers: Any, aux: Any, L: int, now: Any,
+             prev: Any, err: Any) -> None:  # fmt: skip
         n_bars = x.size
         inst = k // n_bars
         t = k % n_bars
         op = ops[inst]
         n = pers[inst]
-        if op < P.OP_CLOSE or op > P.OP_ATR or n < 0 or n > P.MAX_PERIOD or (n == 0 and op != 0):
+        bad = op < P.OP_CLOSE or op > P.OP_SPREAD or n < 0 or n > P.MAX_PERIOD
+        if op == P.OP_SPREAD:
+            ok = n >= 1 and operand_ok(aux[inst, 0], aux[inst, 1])
+            bad = bad or not (ok and operand_ok(aux[inst, 2], aux[inst, 3]))
+        if bad or (n == 0 and op != 0):
             err[0] = 1  # defence in depth (INV-107): the program never produces this
             prev[inst, t] = NAN
             now[inst, t] = NAN
             return
-        p, q = feature(op, n, x, h, lo, t, L)
+        if op == P.OP_SPREAD:
+            p, q = spread(n, aux[inst, 0], aux[inst, 1], aux[inst, 2], aux[inst, 3], x, h, lo, t, L)
+        else:
+            p, q = feature(op, n, x, h, lo, t, L)
         prev[inst, t] = p
         now[inst, t] = q
 
     lane = dev(body)
     if target == "cpu":
 
-        def cpu(x: Any, h: Any, lo: Any, ops: Any, pers: Any, L: int, now: Any, prev: Any,
-                err: Any) -> None:  # fmt: skip
+        def cpu(x: Any, h: Any, lo: Any, ops: Any, pers: Any, aux: Any, L: int, now: Any,
+                prev: Any, err: Any) -> None:  # fmt: skip
             for k in prange(ops.size * x.size):
-                lane(k, x, h, lo, ops, pers, L, now, prev, err)
+                lane(k, x, h, lo, ops, pers, aux, L, now, prev, err)
 
         return cpu_kernel(cpu), None
 
-    def gpu(x: Any, h: Any, lo: Any, ops: Any, pers: Any, L: int, now: Any, prev: Any, err: Any,
-            offset: int, count: int) -> None:  # fmt: skip
+    def gpu(x: Any, h: Any, lo: Any, ops: Any, pers: Any, aux: Any, L: int, now: Any, prev: Any,
+            err: Any, offset: int, count: int) -> None:  # fmt: skip
         k = offset + cuda.grid(1)
         if k < count:
-            lane(k, x, h, lo, ops, pers, L, now, prev, err)
+            lane(k, x, h, lo, ops, pers, aux, L, now, prev, err)
 
     return None, cuda_kernel(gpu)
 
@@ -274,13 +352,21 @@ def run_features(
     lookback: int,
     target: Target = "cpu",
     dtype: Dtype = "float64",
+    inst_aux: npt.ArrayLike | None = None,
 ) -> tuple[Array, Array]:
-    """``(now, prev)``, each ``[instances, bars]`` in ``dtype``."""
+    """``(now, prev)``, each ``[instances, bars]`` in ``dtype``. ``inst_aux`` holds the operands
+    of ``OP_SPREAD`` instances (``Program.inst_aux``); none means no such instance."""
     x, h, lo = _inputs(close, high, low, dtype)
     ops = np.ascontiguousarray(np.asarray(inst_op, dtype=np.int64))
     pers = np.ascontiguousarray(np.asarray(inst_period, dtype=np.int64))
     if ops.ndim != 1 or ops.shape != pers.shape or not ops.size:
         raise KernelInputError("instance tables must be equal-length, non-empty 1-D arrays")
+    if inst_aux is None:
+        aux = np.zeros((ops.size, 4), dtype=np.int64)
+    else:
+        aux = np.ascontiguousarray(np.asarray(inst_aux, dtype=np.int64))
+    if aux.shape != (ops.size, 4):
+        raise KernelInputError("the operand table must have one row of four per instance")
     if not 2 <= lookback <= P.MAX_LOOKBACK:
         raise KernelInputError("lookback out of range")
     shape = (ops.size, x.size)
@@ -288,10 +374,10 @@ def run_features(
     cpu, gpu = _build(target, dtype)
     if target == "cpu":
         now, prev = np.empty(shape, x.dtype), np.empty(shape, x.dtype)
-        cpu(x, h, lo, ops, pers, lookback, now, prev, err)
+        cpu(x, h, lo, ops, pers, aux, lookback, now, prev, err)
     else:
         with DEVICE_LOCK:
-            d = [cuda.to_device(v) for v in (x, h, lo, ops, pers)]
+            d = [cuda.to_device(v) for v in (x, h, lo, ops, pers, aux)]
             d_now, d_prev = cuda.device_array(shape, x.dtype), cuda.device_array(shape, x.dtype)
             d_err = cuda.to_device(err)
             count = ops.size * x.size

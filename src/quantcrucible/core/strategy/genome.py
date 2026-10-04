@@ -18,6 +18,7 @@ from quantcrucible.core.strategy.template import canonical_template, render
 
 ParamKind = Literal["period", "level", "mult"]
 Cmp = Literal[">", "<"]
+DistanceScale = Literal["atr", "spread"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,12 +82,15 @@ class CrossLevel:
 
 @dataclass(frozen=True, slots=True)
 class Distance:
-    """``(left - right) / ATR  op  k`` — a price distance measured in ATRs."""
+    """``(left - right) / scale  op  k``: a price distance measured in ATR(14), or — grammar v4,
+    ADR-0045 — in the spread's own standard deviation over the period of ``right`` (of
+    ``left`` when ``right`` is the close)."""
 
     left: Series
     right: Series
     op: Cmp
     k: Param
+    scale: DistanceScale = "atr"
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,10 +219,21 @@ class _Renderer:
         self.features.append((name, expr))
         return f'x["{name}"]'
 
-    def series(self, s: Series) -> str:
+    def expr(self, s: Series) -> str:
+        """The ``indicators()`` expression of a series."""
         if isinstance(s, Close):
-            return self.feature("bars.close")
-        return self.feature(f"ind.{s.op}(bars.close, {self.p(s.period)})")
+            return "bars.close"
+        return f"ind.{s.op}(bars.close, {self.p(s.period)})"
+
+    def series(self, s: Series) -> str:
+        return self.feature(self.expr(s))
+
+    def spread_scale(self, c: Distance) -> str:
+        ref = c.right if isinstance(c.right, Indicator) else c.left
+        if not isinstance(ref, Indicator):
+            raise ValueError("a Distance needs at least one indicator")
+        args = f"{self.expr(c.left)}, {self.expr(c.right)}, {self.p(ref.period)}"
+        return self.feature(f"ind.spread_stdev({args})")
 
     def clause(self, c: Clause) -> str:
         if isinstance(c, Compare):
@@ -233,7 +248,8 @@ class _Renderer:
             return f"ind.{fn}({self.series(c.osc)}, {self.p(c.level)})"
         if isinstance(c, Distance):
             left, right = self.series(c.left), self.series(c.right)
-            return f'({left} - {right}) / x["atr"] {c.op} {self.p(c.k)}'
+            scale = self.spread_scale(c) if c.scale == "spread" else 'x["atr"]'
+            return f"({left} - {right}) / {scale} {c.op} {self.p(c.k)}"
         if isinstance(c, Breakout):
             op = "rolling_max" if c.up else "rolling_min"
             level = self.feature(f"ind.{op}(bars.close, {self.p(c.period)})")
@@ -340,13 +356,16 @@ _NODES: dict[str, type] = {
 def genome_to_dict(node: object) -> object:
     """JSON-safe form of a genome (or any node of one); parameter objects shared by two nodes
     are written twice and read back as two equal parameters — rendering is unchanged. A genome
-    without a stop-period gene omits the field, so its JSON is what it was before ADR-0041."""
+    without a stop-period gene omits the field, so its JSON is what it was before ADR-0041; an
+    ATR-scaled ``Distance`` omits ``scale`` for the same reason (ADR-0045)."""
     if isinstance(node, tuple):
         return [genome_to_dict(x) for x in node]
     if type(node).__name__ in _NODES and not isinstance(node, type):
         fields = {f: genome_to_dict(getattr(node, f)) for f in node.__dataclass_fields__}  # type: ignore[attr-defined]
         if isinstance(node, Genome) and node.stop_period is None:
             del fields["stop_period"]
+        if isinstance(node, Distance) and node.scale == "atr":
+            del fields["scale"]
         return {"t": type(node).__name__, **fields}
     return node
 

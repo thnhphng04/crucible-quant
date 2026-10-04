@@ -13,7 +13,7 @@ pytest.importorskip("numba")
 
 from quantcrucible.agent.grammar import GrammarConfig, sample_genome
 from quantcrucible.core.strategy.base import Bars, generate_signals
-from quantcrucible.core.strategy.genome import Genome, render_genome
+from quantcrucible.core.strategy.genome import Distance, Genome, render_genome
 from quantcrucible.core.strategy.template import load_strategy_class, parse
 from quantcrucible.core.strategy.tunable import pbo_grid
 from quantcrucible.execution.kernels.features import run_features
@@ -26,7 +26,15 @@ CFG = GrammarConfig(take_profit_probability=0.5, boll_stop_probability=0.5)
 CFG_STOP = GrammarConfig(
     take_profit_probability=0.5, boll_stop_probability=0.5, stop_period=True, max_params=7
 )
-CFGS = pytest.mark.parametrize("cfg", [CFG, CFG_STOP], ids=["fixed-stop", "stop-period"])
+# grammar v4: log-uniform periods, capped oscillators, Distance over the spread's deviation
+CFG_V4 = GrammarConfig(stop_period=True, max_params=7, version=4)
+# every clause a v4 Distance, so its spread yardstick is exercised on each genome (ADR-0045)
+CFG_DISTANCE = GrammarConfig(stop_period=True, max_params=7, version=4, clause_types=(Distance,))
+CFGS = pytest.mark.parametrize(
+    "cfg",
+    [CFG, CFG_STOP, CFG_V4, CFG_DISTANCE],
+    ids=["fixed-stop", "stop-period", "grammar-v4", "v4-distance"],
+)
 
 
 def _bars(n: int, seed: int) -> Bars:
@@ -59,7 +67,7 @@ def _check(
             prog = compile_program(genome, direction, RATIO, configs, lookback)
             now, prev = run_features(
                 prog.inst_op, prog.inst_period, bars.close, bars.high, bars.low, lookback,
-                target,  # type: ignore[arg-type]
+                target, inst_aux=prog.inst_aux,  # type: ignore[arg-type]
             )  # fmt: skip
             entry, stop = run_signals(prog, now, prev, target)  # type: ignore[arg-type]
             src, _ = render_genome(genome, direction, RATIO)

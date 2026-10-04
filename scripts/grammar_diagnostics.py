@@ -226,7 +226,8 @@ class Evaluator:
             osc = self.series(c.osc)
             return _cross(osc, np.full(len(osc), float(c.level.value)), c.up)
         if isinstance(c, Distance):
-            return _cmp(self.distance_ratio(c, scale), c.op, float(c.k.value))
+            own = "spread" if c.scale == "spread" else scale  # a v4 clause names its own
+            return _cmp(self.distance_ratio(c, own), c.op, float(c.k.value))
         if isinstance(c, Breakout):
             level = self.ind("rolling_max" if c.up else "rolling_min", int(c.period.value))
             return _cmp(self.bars.close, ">" if c.up else "<", _prev(level))

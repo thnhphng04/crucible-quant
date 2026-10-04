@@ -31,6 +31,11 @@ CFG = GrammarConfig(take_profit_probability=0.5, boll_stop_probability=0.5)
 CFG_STOP = GrammarConfig(
     take_profit_probability=0.5, boll_stop_probability=0.5, stop_period=True, max_params=7
 )
+# grammar v4: Distance divides by the spread's own deviation (ADR-0045)
+CFG_V4 = GrammarConfig(stop_period=True, max_params=7, version=4)
+CFGS = pytest.mark.parametrize(
+    "cfg", [CFG, CFG_STOP, CFG_V4], ids=["fixed-stop", "stop-period", "grammar-v4"]
+)
 
 
 def _sources(
@@ -46,7 +51,7 @@ def _sources(
     return out
 
 
-@pytest.mark.parametrize("cfg", [CFG, CFG_STOP], ids=["fixed-stop", "stop-period"])
+@CFGS
 def test_every_rendered_genome_parses_back_to_itself(cfg: GrammarConfig) -> None:
     for g, direction, ratio, src in _sources(500, cfg=cfg):
         parsed = parse_genome(src)
@@ -55,7 +60,7 @@ def test_every_rendered_genome_parses_back_to_itself(cfg: GrammarConfig) -> None
         assert parsed.tp_sl_ratio == ratio
 
 
-@pytest.mark.parametrize("cfg", [CFG, CFG_STOP], ids=["fixed-stop", "stop-period"])
+@CFGS
 def test_bred_children_parse_back_to_themselves(cfg: GrammarConfig) -> None:
     """C-gp offspring can share a parameter object between two nodes; one TUNABLE, one object."""
     rng = np.random.default_rng(1)
