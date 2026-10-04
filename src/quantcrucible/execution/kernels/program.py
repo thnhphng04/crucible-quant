@@ -19,6 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 from quantcrucible.core.strategy.genome import (
+    Bandwidth,
     Breakout,
     Close,
     Combine,
@@ -32,6 +33,7 @@ from quantcrucible.core.strategy.genome import (
     Series,
     Slope,
     Threshold,
+    VolRatio,
     named_params,
 )
 
@@ -43,12 +45,16 @@ MAX_PERIOD = 480  # the kernels' pairwise sum is unrolled for windows up to this
 MAX_LOOKBACK = 10_000
 MAX_CONFIGS = 4_096
 MAX_CLAUSES = 8
-ATR_PERIOD = 14  # the rendered guard and Distance always use ind.atr(bars, 14)
+ATR_PERIOD = 14  # the guard and an ATR Distance read ind.atr(bars, 14), unless one ATR (ADR-0047)
 BAND_PERIOD = 8  # and a Bollinger stop without its n_stop gene ind.boll_*(bars.close, 8)
 
 # ── opcodes ─────────────────────────────────────────────────────────────────────────────────
 OP_CLOSE, OP_SMA, OP_EMA, OP_RSI, OP_ZSCORE = 0, 1, 2, 3, 4
 OP_RMAX, OP_RMIN, OP_BOLL_UPPER, OP_BOLL_LOWER, OP_ATR = 5, 6, 7, 8, 9
+OP_SPREAD = 10  # spread_stdev(a, b, n): its operands are in ``inst_aux`` (ADR-0045)
+OP_BANDWIDTH = 11  # bandwidth(close, n), the band width per √bar (ADR-0047)
+# atr_ratio(bars, n, slow) and band_ratio(close, n, slow): ``slow`` is ``inst_aux[i, 0]``
+OP_ATR_RATIO, OP_BAND_RATIO = 12, 13
 SERIES_OPS = {
     "sma": OP_SMA, "ema": OP_EMA, "rsi": OP_RSI, "zscore": OP_ZSCORE,
     "rolling_max": OP_RMAX, "rolling_min": OP_RMIN,
@@ -69,16 +75,21 @@ class ProgramError(ValueError):
 class Program:
     """One job: one genome, ``n_configs`` parameter sets, one lookback.
 
-    ``clauses`` rows are ``(kind, slot_a, slot_b, param_col, flag)``: ``flag`` is ``CMP_*`` for a
-    comparison and 1/0 for up/down; ``param_col`` indexes ``pvals`` (``NO_SLOT`` if unused).
+    ``clauses`` rows are ``(kind, slot_a, slot_b, param_col, flag, den_slot)``: ``flag`` is
+    ``CMP_*`` for a comparison and 1/0 for up/down; ``param_col`` indexes ``pvals``; ``den_slot``
+    is a ``Distance``'s yardstick — ATR(14) or its ``spread_stdev`` (``NO_SLOT`` if unused).
+    ``inst_aux`` rows are ``(a_op, a_period, b_op, b_period)`` for an ``OP_SPREAD`` instance,
+    ``(slow, 0, 0, 0)`` for a volatility ratio's (ADR-0047), zeros otherwise. ``atr_slot`` is
+    ATR(14), or ATR(n_stop) — then also ``stop_slot`` — when the stop's ATR is the only one.
     """
 
     names: tuple[str, ...]
     pvals: FloatArray  # [configs, params]
     inst_op: IntArray  # [instances]
     inst_period: IntArray  # [instances]
+    inst_aux: IntArray  # [instances, 4]
     slot_inst: IntArray  # [configs, slots]
-    clauses: IntArray  # [clauses, 5]
+    clauses: IntArray  # [clauses, 6]
     combine: int
     close_slot: int
     atr_slot: int
@@ -152,9 +163,14 @@ def _compile(
                 raise ProgramError(f"{name} must be a finite number")
             pvals[m, j] = float(v)
 
+    period = genome.stop_period
+    if period is not None and not isinstance(period, Param):
+        raise ProgramError("stop period must be a parameter")
     b = _Builder(len(configs), pvals, column)
     close_slot = b.slot(("close",), OP_CLOSE, None)
-    atr_slot = b.slot(("atr",), OP_ATR, ATR_PERIOD)
+    # the render's only ATR is the stop's ATR(n_stop) when it has one (ADR-0047), else ATR(14)
+    atr_slot = b.slot(("atr",), OP_ATR, period if genome.one_atr else ATR_PERIOD)
+    b.atr_slot = atr_slot
     clauses = genome.clauses()
     if not 1 <= len(clauses) <= MAX_CLAUSES:
         raise ProgramError(f"need 1 to {MAX_CLAUSES} clauses")
@@ -165,16 +181,13 @@ def _compile(
         combine = COMBINE_AND if genome.entry.op == "and" else COMBINE_OR
     else:
         combine = COMBINE_SINGLE
-    period = genome.stop_period
-    if period is not None and not isinstance(period, Param):
-        raise ProgramError("stop period must be a parameter")
     stop_slot = atr_slot
     if genome.stop_kind == "bollinger":
         band_op = OP_BOLL_LOWER if direction == "long" else OP_BOLL_UPPER
         band_slot = b.slot(("band", band_op), band_op, BAND_PERIOD if period is None else period)
     elif genome.stop_kind == "atr":
         band_slot = NO_SLOT
-        if period is not None:
+        if period is not None and not genome.one_atr:
             stop_slot = b.slot(("atr_stop",), OP_ATR, period)
     else:
         raise ProgramError("stop kind must be atr or bollinger")
@@ -185,10 +198,10 @@ def _compile(
         tp_mode, tp_ratio, tp_col = TP_ATR, 0.0, b.col(genome.take_profit)
     else:
         tp_mode, tp_ratio, tp_col = TP_NONE, 0.0, NO_SLOT
-    inst_op, inst_period, slot_inst = b.tables()
+    inst_op, inst_period, inst_aux, slot_inst = b.tables()
     return Program(
-        names=names, pvals=pvals, inst_op=inst_op, inst_period=inst_period,
-        slot_inst=slot_inst, clauses=np.asarray(rows, dtype=np.int64).reshape(-1, 5),
+        names=names, pvals=pvals, inst_op=inst_op, inst_period=inst_period, inst_aux=inst_aux,
+        slot_inst=slot_inst, clauses=np.asarray(rows, dtype=np.int64).reshape(-1, 6),
         combine=combine, close_slot=close_slot, atr_slot=atr_slot, band_slot=band_slot,
         stop_slot=stop_slot,
         stop_col=stop_col, tp_mode=tp_mode, tp_ratio=tp_ratio, tp_col=tp_col,
@@ -203,15 +216,60 @@ class _Builder:
         self.column = column
         self.slots: dict[tuple[Any, ...], int] = {}
         self.slot_cols: list[list[int]] = []  # per slot: the instance of each configuration
-        self.instances: dict[tuple[int, int], int] = {}
+        # (op, period, a_op, a_period, b_op, b_period): the operands are zeros but for OP_SPREAD
+        self.instances: dict[tuple[int, ...], int] = {}
+        self.atr_slot = NO_SLOT
 
     def col(self, p: object) -> int:
         if not isinstance(p, Param) or id(p) not in self.column:
             raise ProgramError("parameter not declared by the render")
         return self.column[id(p)]
 
-    def _instance(self, op: int, period: int) -> int:
-        return self.instances.setdefault((op, period), len(self.instances))
+    def _instance(self, op: int, period: int, aux: tuple[int, int, int, int] = (0, 0, 0, 0)) -> int:
+        return self.instances.setdefault((op, period, *aux), len(self.instances))
+
+    def _period(self, p: Param | None, m: int) -> int:
+        return 0 if p is None else int(self.pvals[m, self.col(p)])
+
+    def spread(self, c: Distance) -> int:
+        """The slot of ``spread_stdev(left, right, n)``, n the period of right (of left when
+        right is the close) — the render's yardstick, per configuration (ADR-0045)."""
+        operands: list[tuple[int, Param | None]] = []
+        for s in (c.left, c.right):
+            if isinstance(s, Close):
+                operands.append((OP_CLOSE, None))
+            elif isinstance(s, Indicator) and s.op in ("sma", "ema"):
+                operands.append((SERIES_OPS[s.op], s.period))
+            else:
+                raise ProgramError(f"unsupported spread operand {s!r}")
+        (a_op, a_p), (b_op, b_p) = operands
+        n = b_p if b_p is not None else a_p
+        if n is None:
+            raise ProgramError("a spread needs an indicator")
+        key = ("spread", a_op, id(a_p), b_op, id(b_p))
+        if key in self.slots:
+            return self.slots[key]
+        per_config = []
+        for m in range(self.n):
+            aux = (a_op, self._period(a_p, m), b_op, self._period(b_p, m))
+            per_config.append(self._instance(OP_SPREAD, self._period(n, m), aux))
+        self.slots[key] = len(self.slot_cols)
+        self.slot_cols.append(per_config)
+        return self.slots[key]
+
+    def ratio(self, c: VolRatio | Bandwidth) -> int:
+        """The slot of ``atr_ratio`` / ``band_ratio`` (fast, slow), per configuration."""
+        op = OP_ATR_RATIO if isinstance(c, VolRatio) else OP_BAND_RATIO
+        key = ("ratio", op, id(c.fast), id(c.slow))
+        if key in self.slots:
+            return self.slots[key]
+        per_config = []
+        for m in range(self.n):
+            slow = self._period(c.slow, m)
+            per_config.append(self._instance(op, self._period(c.fast, m), (slow, 0, 0, 0)))
+        self.slots[key] = len(self.slot_cols)
+        self.slot_cols.append(per_config)
+        return self.slots[key]
 
     def slot(self, key: tuple[Any, ...], op: int, period: int | Param | None) -> int:
         """A feature slot; ``period`` is a constant, a TUNABLE (varies per config) or none."""
@@ -236,31 +294,50 @@ class _Builder:
 
     def clause(self, c: object) -> list[int]:
         if isinstance(c, Compare):
-            return [CL_COMPARE, self.series(c.left), self.series(c.right), NO_SLOT, _cmp(c.op)]
+            a, b = self.series(c.left), self.series(c.right)
+            return [CL_COMPARE, a, b, NO_SLOT, _cmp(c.op), NO_SLOT]
         if isinstance(c, Cross):
-            return [CL_CROSS, self.series(c.left), self.series(c.right), NO_SLOT, int(c.up)]
+            a, b = self.series(c.left), self.series(c.right)
+            return [CL_CROSS, a, b, NO_SLOT, int(c.up), NO_SLOT]
         if isinstance(c, Threshold):
-            return [CL_THRESHOLD, self.series(c.osc), NO_SLOT, self.col(c.level), _cmp(c.op)]
+            return [CL_THRESHOLD, self.series(c.osc), NO_SLOT, self.col(c.level), _cmp(c.op),
+                    NO_SLOT]  # fmt: skip
         if isinstance(c, CrossLevel):
-            return [CL_CROSSLEVEL, self.series(c.osc), NO_SLOT, self.col(c.level), int(c.up)]
+            return [CL_CROSSLEVEL, self.series(c.osc), NO_SLOT, self.col(c.level), int(c.up),
+                    NO_SLOT]  # fmt: skip
         if isinstance(c, Distance):
             a, b = self.series(c.left), self.series(c.right)
-            return [CL_DISTANCE, a, b, self.col(c.k), _cmp(c.op)]
+            if c.scale == "atr":
+                den = self.atr_slot
+            elif c.scale == "spread":
+                den = self.spread(c)
+            else:
+                raise ProgramError(f"unsupported Distance scale {c.scale!r}")
+            return [CL_DISTANCE, a, b, self.col(c.k), _cmp(c.op), den]
         if isinstance(c, Breakout):
             op = OP_RMAX if c.up else OP_RMIN
             name = "rolling_max" if c.up else "rolling_min"
             level = self.slot(("ind", name, id(c.period)), op, c.period)
-            return [CL_BREAKOUT, self.slot(("close",), OP_CLOSE, None), level, NO_SLOT, int(c.up)]
+            close = self.slot(("close",), OP_CLOSE, None)
+            return [CL_BREAKOUT, close, level, NO_SLOT, int(c.up), NO_SLOT]
         if isinstance(c, Slope):
-            return [CL_SLOPE, self.series(c.series), NO_SLOT, NO_SLOT, int(c.up)]
+            return [CL_SLOPE, self.series(c.series), NO_SLOT, NO_SLOT, int(c.up), NO_SLOT]
+        if isinstance(c, VolRatio | Bandwidth):  # one feature against k, as a Threshold
+            return [CL_THRESHOLD, self.ratio(c), NO_SLOT, self.col(c.k), _cmp(c.op), NO_SLOT]
         raise ProgramError(f"unsupported clause {c!r}")
 
-    def tables(self) -> tuple[IntArray, IntArray, IntArray]:
+    def tables(self) -> tuple[IntArray, IntArray, IntArray, IntArray]:
         by_index = sorted(self.instances.items(), key=lambda kv: kv[1])
-        inst_op = np.asarray([op for (op, _), _ in by_index], dtype=np.int64)
-        inst_period = np.asarray([per for (_, per), _ in by_index], dtype=np.int64)
+        inst_op = np.asarray([key[0] for key, _ in by_index], dtype=np.int64)
+        inst_period = np.asarray([key[1] for key, _ in by_index], dtype=np.int64)
+        inst_aux = np.asarray([key[2:] for key, _ in by_index], dtype=np.int64).reshape(-1, 4)
         slot_inst = np.asarray(self.slot_cols, dtype=np.int64).T.reshape(self.n, -1)
-        return inst_op, inst_period, np.ascontiguousarray(slot_inst)
+        return (
+            inst_op,
+            inst_period,
+            np.ascontiguousarray(inst_aux),
+            np.ascontiguousarray(slot_inst),
+        )
 
 
 def _cmp(op: str) -> int:

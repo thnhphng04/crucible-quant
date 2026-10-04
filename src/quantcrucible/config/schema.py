@@ -17,6 +17,7 @@ CampaignPurpose = Literal["research", "harness_test"]
 Market = Literal["spot", "usdt_m_perpetual"]
 Precision = Literal["float64", "float32"]  # D23, ADR-0039
 ComputeEngine = Literal["auto", "gpu", "cpu_kernel", "sandbox"]  # D23, ADR-0038
+StopKind = Literal["atr", "bollinger"]  # D25, ADR-0042
 DEFERRED_ENGINES = ("quantevolve", "simple_loop")  # engines A/B, deferred by D19 (arch v0.6)
 
 # Hard floors (§10.1): may only be tightened.
@@ -123,6 +124,8 @@ class Gates:
 class Exit:
     tp_sl_ratio: float = 1.1
     max_holding_bars: int = 100
+    # the stops a campaign's genomes may use (D25, ADR-0042): the Bollinger stop is off by default
+    stop_kinds: tuple[StopKind, ...] = ("atr",)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-# ADR-0042 — Short mark gaps are filled from the same minute's trade bar
+# ADR-0048 — Short mark gaps are filled from the same minute's trade bar
 
 - **Status:** Accepted
 - **Date:** 2026-10-04
@@ -33,7 +33,7 @@ That is at most 35 minutes per contract out of ~3.18 million. **Trade** minutes 
 ## Consequences
 
 - The real fetch can complete. On the measured window a liquidation test uses the trade price for at most 35 minutes per contract over five years.
-- The narrower INV-94 still holds: a missing mark or funding *series* fails closed and nothing is zero-filled. The exception has its own invariant, INV-116; settlement placement is INV-117.
+- The narrower INV-94 still holds: a missing mark or funding *series* fails closed and nothing is zero-filled. The exception has its own invariant, INV-122; settlement placement is INV-123.
 - A mark gap the API does not show today could appear later. It is either filled under the same cap and recorded, or refused.
 - No architecture edit is needed. §6.1 asks for mark and funding and does not specify gap handling.
 

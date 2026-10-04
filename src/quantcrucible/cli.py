@@ -171,7 +171,7 @@ def data_fetch_perp(config: Path, root: Path) -> int:
     sys.stdout.write(
         f"perp common window {common_start.date()}/{common_end.date()}; "
         f"{len(manifest.files)} IS files checksummed; holdout {summary.holdout_range} locked; "
-        f"IS mark minutes filled from trade (ADR-0042): {fills}\n"
+        f"IS mark minutes filled from trade (ADR-0048): {fills}\n"
     )
     return 0
 
@@ -180,7 +180,7 @@ def _write_mark_fills(
     directory: Path, coverage: Mapping[str, PerpCoverage], before: datetime
 ) -> dict[str, int]:
     """Record, beside the IS bundle and inside its manifest, which mark minutes were taken from
-    trade bars (ADR-0042). Only minutes before ``before``: nothing about the holdout window."""
+    trade bars (ADR-0048). Only minutes before ``before``: nothing about the holdout window."""
     cut = int(before.timestamp() * 1000)
     record = {
         symbol: [

@@ -112,7 +112,7 @@ class KernelBackend:
     def signals(self, prog: Program, bars: Bars) -> Signals:
         now, prev = run_features(
             prog.inst_op, prog.inst_period, bars.close, bars.high, bars.low, prog.lookback,
-            self.target, self.dtype,
+            self.target, self.dtype, prog.inst_aux,
         )  # fmt: skip
         entry, stop = run_signals(prog, now, prev, self.target, self.dtype)
         return Signals(entry, stop)

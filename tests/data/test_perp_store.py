@@ -310,7 +310,7 @@ def test_the_download_is_checksummed_and_a_changed_file_is_caught(tmp_path: Path
         verify_manifest(tmp_path / "manifest.json", tmp_path)
 
 
-# --- ADR-0042: a short mark gap is filled from the same minute's trade bar, and recorded ------
+# --- ADR-0048: a short mark gap is filled from the same minute's trade bar, and recorded ------
 
 
 class GappyExchange(MinuteExchange):

@@ -1,4 +1,4 @@
-# ADR-0042 — Lỗ mark ngắn được điền từ nến trade cùng phút
+# ADR-0048 — Lỗ mark ngắn được điền từ nến trade cùng phút
 
 - **Trạng thái:** Đã chấp nhận
 - **Ngày:** 2026-10-04
@@ -33,7 +33,7 @@ Tổng cộng tối đa 35 phút mỗi contract trên khoảng 3,18 triệu phú
 ## Hệ quả
 
 - Lần tải thật chạy hết được. Trên cửa sổ đã đo, việc xét thanh lý dùng giá trade tối đa 35 phút mỗi contract trong năm năm.
-- INV-94, sau khi thu hẹp, vẫn đứng: thiếu cả một *chuỗi* mark hay funding thì vẫn từ chối, và không có gì được điền bằng 0. Ngoại lệ này có bất biến riêng là INV-116; cách xếp lần tất toán là INV-117.
+- INV-94, sau khi thu hẹp, vẫn đứng: thiếu cả một *chuỗi* mark hay funding thì vẫn từ chối, và không có gì được điền bằng 0. Ngoại lệ này có bất biến riêng là INV-122; cách xếp lần tất toán là INV-123.
 - Một lỗ mark mà API hôm nay chưa cho thấy có thể xuất hiện sau này. Lỗ đó hoặc được điền theo cùng giới hạn và được ghi lại, hoặc bị từ chối.
 - Không cần sửa kiến trúc. §6.1 yêu cầu có mark và funding nhưng không quy định cách xử lý lỗ.
 

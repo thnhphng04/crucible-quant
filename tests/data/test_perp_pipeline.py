@@ -240,7 +240,7 @@ def test_prepare_refuses_minute_gaps(tmp_path: Path) -> None:
 
 
 def test_a_short_mark_gap_is_filled_and_reported_in_the_coverage(tmp_path: Path) -> None:
-    """ADR-0042: the 24-minute hole every contract has on 2020-12-17 must not block the fetch;
+    """ADR-0048: the 24-minute hole every contract has on 2020-12-17 must not block the fetch;
     the filled minutes travel with the coverage so the CLI can record them in the manifest."""
     prep = prepare_perpetual(
         source(AssemblyExchange(mark_gap=range(452, 476))),

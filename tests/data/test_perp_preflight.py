@@ -114,7 +114,7 @@ def test_the_common_window_starts_at_the_binding_listing() -> None:
 
 def test_the_earliest_start_is_the_first_funding_on_the_bar_grid() -> None:
     """The fetch refuses a first trade bar older than the first funding event. A settlement
-    stamped milliseconds late still belongs to its boundary minute (ADR-0042), so it does not
+    stamped milliseconds late still belongs to its boundary minute (ADR-0048), so it does not
     push the start a whole funding interval later."""
     report = run(FakeVenue(), start=datetime(2020, 9, 15, tzinfo=UTC))
     assert report.earliest_start == datetime(2020, 9, 14, 8, tzinfo=UTC)

@@ -350,3 +350,33 @@ def test_the_fixed_band_period_is_no_exception_under_a_stop_period_lock(ctx: Gat
     assert run(_bracket(ctx, stop_period=False), src).passed
     result = run(_bracket(ctx, stop_period=True), src)
     assert not result.passed and "undeclared constant 8" in result.reason, result.reason
+
+
+def _kinds(ctx: GateContext, kinds: list[str] | None) -> GateContext:
+    ctx = _bracket(ctx, stop_period=True)
+    if kinds is not None:
+        ctx.lock["research"]["exit"]["stop_kinds"] = kinds
+    return ctx
+
+
+@pytest.mark.parametrize("direction", ["long", "short"])
+def test_a_bollinger_stop_is_refused_where_the_lock_allows_only_atr(
+    ctx: GateContext, direction: ScopeDirection
+) -> None:
+    """INV-116 (ADR-0042): the gate holds the lock's stop kinds, not only the sampler."""
+    g = Genome(
+        Threshold(Indicator("rsi", Param("period", 2, 100, 14)), "<", Param("level", 10, 50, 30)),
+        Param("mult", 0.5, 5.0, 2.0), None, "bollinger", Param("period", 5, 50, 20),
+    )  # fmt: skip
+
+    def check(kinds: list[str] | None, genome: Genome) -> GateResult:
+        src = render_genome(genome, direction, tp_sl_ratio=1.1)[0]
+        candidate = dataclasses.replace(cand(src), direction=direction)
+        return StaticGuardrail().check(candidate, _kinds(ctx, kinds))
+
+    result = check(["atr"], g)
+    assert not result.passed and result.event == Event.AST_REJECT
+    assert "Bollinger" in result.reason, result.reason
+    assert check(["atr", "bollinger"], g).passed
+    assert check(None, g).passed  # a lock written before the key: both kinds
+    assert check(["atr"], dataclasses.replace(g, stop_kind="atr")).passed

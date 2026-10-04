@@ -19,7 +19,7 @@ from typing import Any, Literal
 import yaml
 
 from quantcrucible.config.loader import research_to_dict
-from quantcrucible.config.schema import UserConfig
+from quantcrucible.config.schema import Exit, UserConfig
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Campaign, utc_now
 
@@ -257,11 +257,22 @@ def open_campaign(
 LOCK_ADDITIONS: dict[str, Any] = {"backtest": {"precision": "float64"}}
 
 
-def _comparable(current: dict[str, Any], locked: Mapping[str, Any]) -> dict[str, Any]:
+def _comparable(current: dict[str, Any], lock: Mapping[str, Any]) -> dict[str, Any]:
+    locked = lock["research"]
     out = dict(current)
     for key, implied in LOCK_ADDITIONS.items():
         if key not in locked and out.get(key) == implied:
             del out[key]
+    # ``exit.stop_kinds`` (ADR-0042) came after campaigns were locked. Their stops are what the
+    # lock implies (``core.strategy.tunable.lock_stop_kinds``: both kinds under the bracket exit,
+    # the ATR stop alone before it), whatever user.yaml says; the config matches such a lock at
+    # the new default or at the kinds the campaign actually runs with, and nowhere else.
+    locked_exit, exit_cfg = locked.get("exit", {}), out.get("exit")
+    if isinstance(exit_cfg, dict) and "stop_kinds" not in locked_exit:
+        bracket = lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
+        accepted = (list(Exit().stop_kinds), ["atr", "bollinger"] if bracket else ["atr"])
+        if exit_cfg.get("stop_kinds") in accepted:
+            out["exit"] = {k: v for k, v in exit_cfg.items() if k != "stop_kinds"}
     return out
 
 
@@ -280,7 +291,7 @@ def assert_lock_matches(
     if lock["campaign_id"] != campaign_id:
         raise LockMismatchError(f"{lock_path} belongs to campaign {lock['campaign_id']!r}")
     locked = lock["research"]
-    current = _comparable(research_to_dict(cfg.research), locked)
+    current = _comparable(research_to_dict(cfg.research), lock)
     if current != locked:
         changed = sorted(k for k in set(current) | set(locked) if current.get(k) != locked.get(k))
         raise LockMismatchError(

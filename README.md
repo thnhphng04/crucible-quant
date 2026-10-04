@@ -2,7 +2,7 @@
 
 *An AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 
-> **Status:** phase-3 implementation. Fixed SL/TP and maximum holding exits are merged (P3-25); the local Studio UI for configuring, creating and running campaigns is implemented (P3-26); real-source perpetual data is fetched and its holdout carved (P3-24, ADR-0042). No strategy has been validated for live trading. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
+> **Status:** phase-3 implementation. Fixed SL/TP and maximum holding exits are merged (P3-25); the local Studio UI for configuring, creating and running campaigns is implemented (P3-26); real-source perpetual data is fetched and its holdout carved (P3-24, ADR-0048). No strategy has been validated for live trading. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
 
 ## What it is
 

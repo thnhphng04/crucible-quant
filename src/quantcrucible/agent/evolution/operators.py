@@ -25,6 +25,7 @@ import numpy as np
 from quantcrucible.agent.grammar import (
     OSC_OPS,
     PRICE_OPS,
+    Bandwidth,
     Breakout,
     Clause,
     Cmp,
@@ -39,6 +40,8 @@ from quantcrucible.agent.grammar import (
     Param,
     Slope,
     Threshold,
+    VolRatio,
+    period_range,
     sample_clause,
     sample_level,
 )
@@ -138,7 +141,7 @@ def mutate_param(g: Genome, rng: np.random.Generator) -> Genome:
 def _flip(c: Clause, rng: np.random.Generator) -> Clause:
     if isinstance(c, Compare):
         return dataclasses.replace(c, op="<" if c.op == ">" else ">")
-    if isinstance(c, Distance):
+    if isinstance(c, Distance | VolRatio | Bandwidth):  # a ratio's k range holds on both sides
         return dataclasses.replace(c, op="<" if c.op == ">" else ">")
     if isinstance(c, Threshold):
         op: Cmp = "<" if c.op == ">" else ">"
@@ -151,7 +154,7 @@ def _flip(c: Clause, rng: np.random.Generator) -> Clause:
     raise OperatorFailed(f"no point mutation for {type(c).__name__}")
 
 
-def _swap_indicator(c: Clause, rng: np.random.Generator) -> Clause:
+def _swap_indicator(c: Clause, rng: np.random.Generator, version: int = 1) -> Clause:
     indicators = [
         v for v in (getattr(c, f.name) for f in dataclasses.fields(c)) if isinstance(v, Indicator)
     ]
@@ -163,6 +166,10 @@ def _swap_indicator(c: Clause, rng: np.random.Generator) -> Clause:
     if not others:
         raise OperatorFailed("no other indicator of the same kind")
     new = dataclasses.replace(old, op=others[int(rng.integers(len(others)))])
+    if version >= 3:  # the period moves into the new indicator's range (ADR-0044)
+        lo, hi = period_range(new.op, version)
+        value = min(max(int(old.period.value), lo), hi)
+        new = dataclasses.replace(new, period=Param("period", lo, hi, value))
     child: Clause = _swap(c, old, new)
     if isinstance(child, Threshold | CrossLevel):  # a level belongs to its oscillator's scale
         op: Cmp = child.op if isinstance(child, Threshold) else (">" if child.up else "<")
@@ -184,7 +191,8 @@ def mutate_point(
             g, entry=Combine("or" if g.entry.op == "and" else "and", g.entry.items)
         )
     i = int(rng.integers(len(clauses)))
-    new = _flip(clauses[i], rng) if choice < 0.6 else _swap_indicator(clauses[i], rng)
+    version = config.version if config is not None else 1
+    new = _flip(clauses[i], rng) if choice < 0.6 else _swap_indicator(clauses[i], rng, version)
     return _with_clauses(g, (*clauses[:i], new, *clauses[i + 1 :]))
 
 
@@ -193,7 +201,9 @@ def mutate_subtree(g: Genome, rng: np.random.Generator, config: GrammarConfig) -
     for _ in range(20):
         i = int(rng.integers(len(clauses)))
         kind = config.clause_types[int(rng.integers(len(config.clause_types)))]
-        child = _with_clauses(g, (*clauses[:i], sample_clause(rng, kind), *clauses[i + 1 :]))
+        child = _with_clauses(
+            g, (*clauses[:i], sample_clause(rng, kind, config.version), *clauses[i + 1 :])
+        )
         if _fits(child, config):
             return child
     raise OperatorFailed("no subtree fits the TUNABLE budget")

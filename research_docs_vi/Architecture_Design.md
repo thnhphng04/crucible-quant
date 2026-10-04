@@ -3,7 +3,7 @@
 > *Crucible Quant — phòng nghiên cứu định lượng dùng AI để tiến hóa chiến lược giao dịch hệ thống, và bắt mọi chiến lược qua lửa thử trước khi được giao dịch thật.*
 >
 > Thiết kế hệ thống AI sinh & kiểm định chiến lược trading deterministic, đa thị trường.
-> Phiên bản: 0.11 (draft) · Ngày: 2026-10-02
+> Phiên bản: 0.12 (draft) · Ngày: 2026-10-04
 > Nền tảng nghiên cứu: [[00-TONG-HOP-NGHIEN-CUU]] · [[04-TRUONG-PHAI-B-HIEU-QUA]] · [[06-PLATFORM-DA-THI-TRUONG]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Thay đổi 0.1 → 0.2** (nguồn: khảo sát 22 hệ trong [[08-LLM-QUANT-RESEARCHER]]): kiến trúc QuantEvolve được xác nhận độc lập bởi MadEvolve (§3.1) · thêm thay đổi bắt buộc **#5 DSL đóng** và **#6 reviewer ngữ cảnh mới tinh** (§3.1.6) · **DSR tính trên danh mục hợp nhất, không phải từng cell** (§3.1.6 — điểm dễ sai nhất) · thêm **gate ⓪ chống trôi spec** (§3.1.7) · thay khuyến nghị "dùng model nhỏ" bằng **bảng định tuyến dị thể + cảnh báo tránh reasoning model** (§3.1.9) · ledger thêm `model_used`/`gen_attempts`/`gen_failures`/`drift_delta` + view `starved_cells` (§4.1) · **P6 nâng lên cấp OS, evaluator chạy process riêng** (§4.2) · loại bỏ meta-evolution và RFT khỏi phạm vi (§9) · cảnh báo không lấy con số paper làm mốc (§11)
@@ -25,6 +25,8 @@
 > **Thay đổi 0.9 → 0.10** (ADR-0038–0040, 30/9–1/10/2026): genome engine C chạy trên kernel numba của host, khớp bit với replay Python, precision khóa theo campaign (D23) · campaign mới khóa `derived.portfolio_protocol: shared_account_v1`: danh mục spot, như perpetual, là một tài khoản chung với mỗi slot `(instrument, direction)` một member, trần 10%, trên hợp các trục thời gian; lock cũ giữ luật ô + 1/σ (§3.2.1, D9)
 
 > **Thay đổi 0.10 → 0.11** (ADR-0041, 2/10/2026): campaign mới khóa `derived.stop_period: tunable_v1` — chu kỳ của stop (ATR hoặc dải Bollinger) thành gene `n_stop` (TUNABLE, [5, 50]) và trần TUNABLE thành **7**; ATR(14) vẫn là thước đo cho guard `ready` và clause `Distance`; lock cũ giữ trần 6 và chu kỳ 14/8 (§3.2, §3.3.1, D24)
+
+> **Thay đổi 0.11 → 0.12** (ADR-0042, 4/10/2026): khóa nhóm B `research.exit.stop_kinds` (mặc định `[atr]`) chọn các loại stop của campaign; stop Bollinger tắt cho campaign mới vì nó `<= 0` đúng lúc clause mean reversion kích hoạt; lock cũ thiếu khóa giữ loại stop mà exit của nó đã chạy (§3.3.1, D25)
 
 ---
 
@@ -636,7 +638,7 @@ class GeneratedStrategy(Strategy):
     # ═══ EVOLVE-BLOCK-START: regime ═══     bộ lọc chế độ thị trường (bật/tắt giao dịch)
 ```
 
-`evolve_scope` trong `user.yaml` chọn khối nào được sửa; khối còn lại bị khóa và tính vào phần cố định khi hash (luật 1). Với campaign mới, khối `exit` chỉ được thay cách đặt stop ATR/Bollinger, không thay TP/SL ratio, thứ tự trigger hay timeout. Module-wise vẫn là khả năng của template; engine C hiện sinh một block `joint` (O13). Sizing **không bao giờ** là khối tiến hóa — nó thuộc tầng Risk. Mọi trial của mọi phạm vi cộng vào `N`.
+`evolve_scope` trong `user.yaml` chọn khối nào được sửa; khối còn lại bị khóa và tính vào phần cố định khi hash (luật 1). Với campaign mới, khối `exit` chỉ được thay cách đặt stop trong các loại mà `research.exit.stop_kinds` của lock cho phép (mặc định chỉ ATR, D25), không thay TP/SL ratio, thứ tự trigger hay timeout. Module-wise vẫn là khả năng của template; engine C hiện sinh một block `joint` (O13). Sizing **không bao giờ** là khối tiến hóa — nó thuộc tầng Risk. Mọi trial của mọi phạm vi cộng vào `N`.
 
 #### 3.3.2. 🆕 Hợp đồng evaluator: metric public / private
 
@@ -1187,6 +1189,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D22 | Studio UI local | ✅ Đã triển khai | `cli studio` là mặt điều khiển local trên `127.0.0.1`: draft không ghi config/ledger; preview không có side effect; Create/Run dùng service chung với CLI, dataset v1 bất biến, job store riêng và một writer lock; `cli review` vẫn chỉ đọc | ADR-0037 kế tiếp ADR-0029. Không có remote access, live trading, tự freeze hoặc mở holdout qua Studio |
 | D23 | Engine backtest & precision | ✅ Đã chốt (30/9/2026) | Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit dự phòng), khớp từng bit với replay Python; precision `float64 \| float32` khóa theo campaign, ngang hàng (fp32 được mở holdout); campaign fp32 từ chối chiến lược không có genome; holdout tự kiểm GPU trước khi claim | ADR-0038, ADR-0039. Lock cũ thiếu khóa ⇒ float64 |
 | D24 | Chu kỳ stop là TUNABLE | ✅ Đã chốt (2/10/2026) | Campaign mới khóa `derived.stop_period: tunable_v1` và `derived.max_tunables: 7`: mỗi genome có gene `n_stop` ∈ [5, 50] — chu kỳ ATR của stop ATR (feature riêng `atr_stop`) hoặc chu kỳ dải của stop Bollinger (hệ số 2σ giữ nguyên); ATR(14) vẫn là thước đo cho guard `ready` và `Distance`; `n_stop` vào lưới PBO, phạt độ phức tạp và trần TUNABLE như mọi tham số khác | ADR-0041, thay phần Bollinger(8) của ADR-0036. Lock cũ thiếu khóa ⇒ trần 6, chu kỳ 14/8, render từng byte như cũ |
+| D25 | Loại stop | ✅ Đã chốt (4/10/2026) | Khóa nhóm B `research.exit.stop_kinds`, mặc định `[atr]`: stop Bollinger tắt cho campaign mới (nó `<= 0` đúng lúc clause mean reversion kích hoạt, P3-54); `[atr, bollinger]` bật lại cho campaign mới mà không sửa code; cổng ①a từ chối band Bollinger khi lock không cho phép | ADR-0042, sửa D21. Lock cũ thiếu khóa giữ loại stop mà exit của nó đã chạy (bracket: cả hai) |
 
 > ✅ **Mọi dòng 🟡 đều do người dùng tự cấu hình** (quyết định 21/9/2026) — con số trong bảng chỉ là giá trị mặc định khi người dùng không đặt. Cách cấu hình và giới hạn: §10.1.
 

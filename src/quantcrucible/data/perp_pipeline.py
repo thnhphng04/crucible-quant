@@ -56,7 +56,7 @@ class PerpCoverage:
     minute_rows: int
     funding_rows: int
     path_rows: int
-    mark_fills: tuple[int, ...] = ()  # mark minutes (open, ms) taken from trade bars, ADR-0042
+    mark_fills: tuple[int, ...] = ()  # mark minutes (open, ms) taken from trade bars, ADR-0048
 
 
 @dataclass(frozen=True, slots=True)

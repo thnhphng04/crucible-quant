@@ -36,7 +36,7 @@ from quantcrucible.data.source import timeframe_delta
 MINUTE_MS = 60_000
 FUNDING_HOURS = (0, 8, 16)  # UTC settlements; see ADR-0032 decision 6b
 COLUMNS = ("ts", "open", "high", "low", "close", "volume")
-# ADR-0042: the venue's mark history has short holes (24 minutes on 2020-12-17 on every
+# ADR-0048: the venue's mark history has short holes (24 minutes on 2020-12-17 on every
 # contract). A run up to this long is filled from the same minutes' trade bars and recorded;
 # a longer one, a trade gap, or a hole with no trade bar to fill it is still refused.
 MAX_MARK_FILL_MINUTES = 60
@@ -98,7 +98,7 @@ def _fresh_minutes(
 
 
 def fills_path(root: Path, symbol: str) -> Path:
-    """The record of every mark minute filled from a trade bar (ADR-0042)."""
+    """The record of every mark minute filled from a trade bar (ADR-0048)."""
     path = minute_path(root, symbol, "mark")
     return path.with_name(f"{path.stem}.fills.json")
 
@@ -152,7 +152,7 @@ def _fill_mark_gaps(
         if run_length > MAX_MARK_FILL_MINUTES:
             raise CoverageError(
                 f"{symbol} mark: missing minute run from {_at(run_start):%Y-%m-%d %H:%M} exceeds "
-                f"the {MAX_MARK_FILL_MINUTES}-minute fill cap (ADR-0042)"
+                f"the {MAX_MARK_FILL_MINUTES}-minute fill cap (ADR-0048)"
             )
     trade_ts = trade["ts"].to_numpy(dtype=np.int64)
     at = np.searchsorted(trade_ts, missing)
@@ -161,7 +161,7 @@ def _fill_mark_gaps(
         if i >= len(trade_ts) or int(trade_ts[i]) != t:
             raise CoverageError(
                 f"{symbol} mark: missing minute {_at(t):%Y-%m-%d %H:%M} and no trade minute to "
-                "fill it from (ADR-0042) — download the trade series first"
+                "fill it from (ADR-0048) — download the trade series first"
             )
         row = trade.iloc[i]
         filled.append(

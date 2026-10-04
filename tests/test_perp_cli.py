@@ -95,7 +95,7 @@ def test_the_dryrun_previews_the_lock_a_real_open_writes(
 
 
 def test_mark_fills_are_recorded_for_the_in_sample_window_only(tmp_path: Path) -> None:
-    """ADR-0042: the record sits beside the IS bundle (and so inside its manifest) and says
+    """ADR-0048: the record sits beside the IS bundle (and so inside its manifest) and says
     nothing about the holdout window."""
     from datetime import UTC, datetime
 

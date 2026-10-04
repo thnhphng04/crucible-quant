@@ -44,21 +44,28 @@ def _with_stop_period(stop_kind: str) -> genome.Genome:
     return g
 
 
-def test_an_atr_stop_period_is_its_own_feature_and_tunable() -> None:
-    """INV-115: the stop reads ATR(n_stop); the guard and Distance keep ATR(14)."""
+def test_an_atr_stop_period_is_a_tunable_and_the_renders_only_atr() -> None:
+    """INV-115, as ADR-0047 amends it: the stop and the guard read ATR(n_stop), the only ATR;
+    an ATR-scaled Distance keeps its own ATR(14) beside the stop's ATR(n_stop)."""
     g = _with_stop_period("atr")
     src, params = genome.render_genome(g, "long", tp_sl_ratio=1.1)
     assert params == {"n1": 20, "k_stop": 2.0, "n_stop": 21}
     assert "# TUNABLE: n_stop = 21, bounds=(5, 50)" in src
     assert src.index("# TUNABLE: k_stop") < src.index("# TUNABLE: n_stop")
-    assert '"atr_stop": ind.atr(bars, self.p.n_stop),' in src
-    assert '"atr": ind.atr(bars, 14),' in src
-    assert 'stop = self.p.k_stop * x["atr_stop"]' in src
+    assert '"atr": ind.atr(bars, self.p.n_stop),' in src
+    assert "atr_stop" not in src and "ind.atr(bars, 14)" not in src
+    assert "stop = self.p.k_stop * atr\n" in src
     assert "ready = atr > 0 and atr - atr == 0 and stop > 0" in src
-    assert genome.feature_specs(g, "long", 1.1)[-2:] == [
+    assert genome.feature_specs(g, "long", 1.1)[-1:] == [("atr", "ind.atr(bars, self.p.n_stop)")]
+    sma = genome.Indicator("sma", genome.Param("period", 2, 300, 20))
+    dist = genome.Distance(genome.Close(), sma, ">", genome.Param("level", -3.0, 3.0, 1.0))
+    with_distance = dataclasses.replace(g, entry=dist)
+    assert genome.feature_specs(with_distance, "long", 1.1)[-2:] == [
         ("atr_stop", "ind.atr(bars, self.p.n_stop)"),
         ("atr", "ind.atr(bars, 14)"),
     ]
+    src2, _ = genome.render_genome(with_distance, "long", tp_sl_ratio=1.1)
+    assert 'stop = self.p.k_stop * x["atr_stop"]' in src2
 
 
 def test_a_bollinger_stop_period_is_the_band_period() -> None:
@@ -78,6 +85,46 @@ def test_a_genome_without_stop_period_serializes_as_before() -> None:
     assert genome.load_genome(d) == g
     g7 = _with_stop_period("bollinger")
     assert genome.load_genome(json.loads(json.dumps(genome.genome_to_dict(g7)))) == g7
+
+
+def _spread_distance(left: genome.Series, right: genome.Series) -> genome.Genome:
+    return genome.Genome(
+        genome.Distance(left, right, ">", genome.Param("level", -3.0, 3.0, 1.5), scale="spread"),
+        genome.Param("mult", 0.5, 5.0, 2.0),
+    )
+
+
+def test_a_spread_distance_divides_by_the_spreads_own_deviation() -> None:
+    """INV-119 (ADR-0045): (a − b) / stdev(a − b, n), n the period of b — of a when b is the
+    close — read from its existing TUNABLE: no new parameter."""
+    ema = genome.Indicator("ema", genome.Param("period", 2, 300, 10))
+    sma = genome.Indicator("sma", genome.Param("period", 2, 300, 50))
+    src, params = genome.render_genome(_spread_distance(ema, sma), "long")
+    assert params == {"n1": 10, "n2": 50, "lv1": 1.5, "k_stop": 2.0}
+    spec = (
+        "ind.spread_stdev(ind.ema(bars.close, self.p.n1), ind.sma(bars.close, self.p.n2), "
+        "self.p.n2)"
+    )
+    assert f'"f3": {spec},' in src
+    assert '(x["f1"] - x["f2"]) / x["f3"] > self.p.lv1' in src
+    src, _ = genome.render_genome(_spread_distance(sma, genome.Close()), "short")
+    assert '"f3": ind.spread_stdev(ind.sma(bars.close, self.p.n1), bars.close, self.p.n1),' in src
+
+
+def test_an_atr_distance_renders_and_serializes_as_before() -> None:
+    """Below grammar v4 the field keeps its default: the render and the JSON are unchanged."""
+    d = genome.Distance(
+        genome.Close(), genome.Indicator("sma", genome.Param("period", 2, 300, 20)), "<",
+        genome.Param("level", -3.0, 3.0, -1.0),
+    )  # fmt: skip
+    assert d.scale == "atr"
+    g = genome.Genome(d, genome.Param("mult", 0.5, 5.0, 2.0))
+    assert '/ x["atr"] < self.p.lv1' in genome.render_genome(g)[0]
+    as_dict = genome.genome_to_dict(g)
+    assert "scale" not in json.dumps(as_dict)
+    assert genome.load_genome(as_dict) == g
+    spread = dataclasses.replace(g, entry=dataclasses.replace(d, scale="spread"))
+    assert genome.load_genome(json.loads(json.dumps(genome.genome_to_dict(spread)))) == spread
 
 
 def test_the_agent_grammar_re_exports_the_same_objects() -> None:

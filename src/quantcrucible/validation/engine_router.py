@@ -546,10 +546,37 @@ def _evaluate(expr: str, params: Mapping[str, Any], bars: Bars) -> Any:
         return bars.close
     if expr.startswith("ind.atr(bars, "):  # ATR(14), or the stop's ATR(n_stop) (ADR-0041)
         return registry.atr(bars, period(expr.removeprefix("ind.atr(bars, ").removesuffix(")")))
+    if expr.startswith("ind.spread_stdev("):  # a grammar-v4 Distance yardstick (ADR-0045)
+        a, b, n = _split_args(expr.removeprefix("ind.spread_stdev(").removesuffix(")"))
+        return registry.spread_stdev(
+            _evaluate(a, params, bars), _evaluate(b, params, bars), period(n)
+        )
+    if expr.startswith(("ind.atr_ratio(bars, ", "ind.band_ratio(bars.close, ")):  # ADR-0047
+        name, _, args = expr.removeprefix("ind.").removesuffix(")").partition("(")
+        source, fast, slow = _split_args(args)
+        data = bars if source == "bars" else bars.close
+        return getattr(registry, name)(data, period(fast), period(slow))
     op, _, arg = expr.removeprefix("ind.").removesuffix(")").partition("(bars.close, ")
     if registry.INDICATORS.get(op) != "series":
         raise Unsupported(f"unknown feature {expr!r}")
     return getattr(registry, op)(bars.close, period(arg))
+
+
+def _split_args(text: str) -> list[str]:
+    """Top-level comma-separated arguments of a render's feature call."""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            out.append(text[start:i].strip())
+            start = i + 1
+    out.append(text[start:].strip())
+    if len(out) != 3:
+        raise Unsupported(f"unexpected feature arguments {text!r}")
+    return out
 
 
 def make_job_runner(
