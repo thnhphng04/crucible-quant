@@ -579,6 +579,9 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-58 Distance over the spread's own deviation
 **Goal:** a `Distance` clause that is live on every period ([ADR-0045](adr/0045-distance-over-the-spread-deviation.md)): under `grammar_version: 4` it divides `a − b` by `spread_stdev(a, b, n)`, operands ≤ 200 bars. **Accept when:** INV-119; the registry's values by hand; kernel ≡ registry on every window and kernel ≡ `generate_signals` on CPU, the CUDA simulator and the GPU; the router's report equals the sandbox's; an ATR `Distance` unchanged. **Evidence:** `core/strategy/registry.py::spread_stdev`, `core/strategy/genome.py` (`Distance.scale`), `core/strategy/genome_parse.py`, `agent/grammar.py` (`SPREAD_OPERAND_MAX`), `execution/kernels/program.py` (`OP_SPREAD`, `inst_aux`, the sixth clause column), `features.py` (`spread`), `signals.py`, `backend.py`, `validation/engine_router.py::_evaluate`; the tests listed under INV-119.
 
+### ✅ P3-59 A timeframe-free feature map
+**Goal:** one MAP-Elites map for any timeframe and IS length ([ADR-0046](adr/0046-timeframe-free-feature-map.md)): new locks bin trades per year on a log scale and use the annual return; bounds read against the 1d campaigns' trials. **Accept when:** INV-120; log bins by hand; the annual return is the compound rate; a v1 map reads as before. **Evidence:** `agent/evolution/feature_map.py` (`dimensions`, `log_dims`, `descriptors`), `validation/run.py::FEATURE_MAP_V2`; `tests/agent/evolution/test_feature_map_v2.py`.
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |

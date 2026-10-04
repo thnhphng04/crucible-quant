@@ -361,14 +361,18 @@ Một trial là entry hợp lệ khi: verdict `PASS`, **qua gate ③** (IS), và
 
 ### Ô (cell) = 1 chiều rời rạc + 5 chiều liên tục
 
-| Chiều | Bound (cố định khi mở campaign) |
-|---|---|
-| Danh mục — bitset trên 4 danh mục (16 tổ hợp) | — |
-| `trades_per_year` | `[0, 150]` |
-| `max_drawdown` | `[0, 1]` |
-| `sharpe_is` | `[-1, 3]` |
-| `sortino_is` | `[-1.5, 4.5]` |
-| `total_return` | `[-1, 4]` |
+| Chiều | Map v1 (lock cũ) | Map v2 (lock mới, P3-59, ADR-0046) |
+|---|---|---|
+| Danh mục — bitset trên 4 danh mục (16 tổ hợp) | — | — |
+| `trades_per_year` | `[0, 150]` tuyến tính | `[1, 10.000]` **thang log** (mỗi bin ×1,78) |
+| `max_drawdown` | `[0, 1]` | `[0, 0,5]` |
+| `sharpe_is` | `[-1, 3]` | `[-1, 3]` |
+| `sortino_is` | `[-1.5, 4.5]` | `[-1.5, 4.5]` |
+| lợi nhuận | `total_return` `[-1, 4]` | `annual_return` (CAGR) `[-0,1; 0,3]` |
+
+Map v2 không phụ thuộc timeframe hay độ dài IS: chiến lược 2 lệnh/năm và 2.000 lệnh/năm đều có
+bin riêng, và CAGR không lớn dần theo số năm IS. Bound đối chiếu với 2.473 trial gate ③ của các
+campaign 1d (98% drawdown < 0,36; CAGR trong `[-0,05; 0,11]`); sẽ hiệu chỉnh lại sau campaign 1h đầu.
 
 ### `bins` — `16`
 Mỗi chiều liên tục chia 16 bin đều. Bound **không bao giờ giãn** theo giá trị quan sát; giá trị

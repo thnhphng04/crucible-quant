@@ -579,6 +579,9 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-58 Distance chia độ lệch chuẩn của chính spread
 **Mục tiêu:** clause `Distance` sống ở mọi period ([ADR-0045](adr/0045-distance-chia-do-lech-cua-spread.md)): dưới `grammar_version: 4`, nó chia `a − b` cho `spread_stdev(a, b, n)`, toán hạng ≤ 200 bar. **Chấp nhận khi:** INV-119; giá trị registry tính tay; kernel ≡ registry trên mọi cửa sổ và kernel ≡ `generate_signals` trên CPU, giả lập CUDA và GPU; báo cáo của router bằng báo cáo của sandbox; `Distance` dạng ATR không đổi. **Bằng chứng:** `core/strategy/registry.py::spread_stdev`, `core/strategy/genome.py` (`Distance.scale`), `core/strategy/genome_parse.py`, `agent/grammar.py` (`SPREAD_OPERAND_MAX`), `execution/kernels/program.py` (`OP_SPREAD`, `inst_aux`, cột clause thứ sáu), `features.py` (`spread`), `signals.py`, `backend.py`, `validation/engine_router.py::_evaluate`; các test liệt kê ở INV-119.
 
+### ✅ P3-59 Feature map không phụ thuộc timeframe
+**Mục tiêu:** một map MAP-Elites cho mọi timeframe và độ dài IS ([ADR-0046](adr/0046-feature-map-khong-phu-thuoc-timeframe.md)): lock mới chia bin số lệnh mỗi năm theo thang log và dùng lợi nhuận năm; bound đối chiếu với trial của các campaign 1d. **Chấp nhận khi:** INV-120; bin log tính tay; lợi nhuận năm là lãi kép; map v1 đọc như trước. **Bằng chứng:** `agent/evolution/feature_map.py` (`dimensions`, `log_dims`, `descriptors`), `validation/run.py::FEATURE_MAP_V2`; `tests/agent/evolution/test_feature_map_v2.py`.
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

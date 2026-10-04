@@ -65,6 +65,22 @@ FEATURE_MAP: dict[str, Any] = {
     },
     "categories": ["trend", "momentum", "mean_reversion", "breakout"],
 }
+# v2 (ADR-0046), what new locks record: trades per year on a log scale and the annual return,
+# so the same map fits any timeframe and IS length. Bounds from the 2,473 gate-③ trials of the
+# 1d campaigns (98% of drawdowns < 0.36, annual returns in [−0.05, 0.11]) with room for 1h.
+FEATURE_MAP_V2: dict[str, Any] = {
+    "bins": 16,
+    "dimensions": ["trades_per_year", "max_drawdown", "sharpe_is", "sortino_is", "annual_return"],
+    "log": ["trades_per_year"],
+    "bounds": {
+        "trades_per_year": [1.0, 10_000.0],
+        "max_drawdown": [0.0, 0.5],
+        "sharpe_is": [-1.0, 3.0],
+        "sortino_is": [-1.5, 4.5],
+        "annual_return": [-0.1, 0.3],
+    },
+    "categories": ["trend", "momentum", "mean_reversion", "breakout"],
+}
 
 
 def phase0_pipeline() -> GatePipeline:
@@ -88,7 +104,7 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
         "sizing": {"rule": "risk_over_stop"},  # ADR-0031: Q = R/d, no vol-targeting knobs
         "pbo": {"n_splits": DEFAULT_SPLITS},
         "robustness": {"cost_multiplier": COST_MULTIPLIER, "max_sharpe_drop": MAX_SHARPE_DROP},
-        "feature_map": FEATURE_MAP,
+        "feature_map": FEATURE_MAP_V2,
     }
 
 
