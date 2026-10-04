@@ -57,9 +57,8 @@ def test_an_atr_stop_period_is_a_tunable_and_the_renders_only_atr() -> None:
     assert "stop = self.p.k_stop * atr\n" in src
     assert "ready = atr > 0 and atr - atr == 0 and stop > 0" in src
     assert genome.feature_specs(g, "long", 1.1)[-1:] == [("atr", "ind.atr(bars, self.p.n_stop)")]
-    k = genome.Param("level", -3.0, 3.0, 1.0)
-    dist = genome.Distance(genome.Close(), genome.Indicator("sma", genome.Param("period", 2, 300, 20)),
-                           ">", k)  # fmt: skip
+    sma = genome.Indicator("sma", genome.Param("period", 2, 300, 20))
+    dist = genome.Distance(genome.Close(), sma, ">", genome.Param("level", -3.0, 3.0, 1.0))
     with_distance = dataclasses.replace(g, entry=dist)
     assert genome.feature_specs(with_distance, "long", 1.1)[-2:] == [
         ("atr_stop", "ind.atr(bars, self.p.n_stop)"),
