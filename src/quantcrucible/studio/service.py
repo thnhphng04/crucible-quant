@@ -24,7 +24,7 @@ from quantcrucible.config.lock import (
     sha256_file,
 )
 from quantcrucible.config.schema import UserConfig
-from quantcrucible.core.strategy.tunable import GRAMMAR_VERSION, MAX_TUNABLES, STOP_PERIOD_TUNABLE
+from quantcrucible.core.strategy.tunable import GRAMMAR_VERSION, STOP_PERIOD_TUNABLE
 from quantcrucible.data.registry import DatasetRegistry, read_dataset_manifest, resolve_dataset
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.studio.store import DraftStore, StudioConflict
@@ -36,7 +36,7 @@ from quantcrucible.validation.campaign_service import (
 from quantcrucible.validation.campaign_service import DatasetDescriptor as CampaignDataset
 from quantcrucible.validation.numerics import numerics_tag
 from quantcrucible.validation.portfolio import SHARED_ACCOUNT
-from quantcrucible.validation.run import _check_trial_budget, derived_settings
+from quantcrucible.validation.run import _check_trial_budget, new_campaign_derived
 
 
 @contextmanager
@@ -101,14 +101,7 @@ class StudioService:
         return draft, parse_user_config(draft["config"])
 
     def _derived(self, cfg: UserConfig) -> dict[str, Any]:
-        derived = derived_settings(cfg.research.evolve_scope)
-        derived["exit_protocol"] = "bracket_timeout_v1"
-        derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
-        derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
-        derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041
-        derived["max_tunables"] = MAX_TUNABLES
-        derived["grammar_version"] = GRAMMAR_VERSION  # ADR-0043
-        return derived
+        return new_campaign_derived(cfg)
 
     def assert_runnable(self, campaign_id: str, *, purpose: str | None = None) -> dict[str, Any]:
         active_path = self.root / "config" / "evaluation.lock.yaml"

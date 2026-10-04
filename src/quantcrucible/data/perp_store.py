@@ -18,6 +18,8 @@ a daily bar (ADR-0032 decision 6b).
 
 from __future__ import annotations
 
+import itertools
+import json
 import os
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -34,6 +36,10 @@ from quantcrucible.data.source import timeframe_delta
 MINUTE_MS = 60_000
 FUNDING_HOURS = (0, 8, 16)  # UTC settlements; see ADR-0032 decision 6b
 COLUMNS = ("ts", "open", "high", "low", "close", "volume")
+# ADR-0048: the venue's mark history has short holes (24 minutes on 2020-12-17 on every
+# contract). A run up to this long is filled from the same minutes' trade bars and recorded;
+# a longer one, a trade gap, or a hole with no trade bar to fill it is still refused.
+MAX_MARK_FILL_MINUTES = 60
 
 
 def minute_path(root: Path, symbol: str, kind: str) -> Path:
@@ -91,6 +97,80 @@ def _fresh_minutes(
     return fresh
 
 
+def fills_path(root: Path, symbol: str) -> Path:
+    """The record of every mark minute filled from a trade bar (ADR-0048)."""
+    path = minute_path(root, symbol, "mark")
+    return path.with_name(f"{path.stem}.fills.json")
+
+
+def read_mark_fills(root: Path, symbol: str) -> tuple[int, ...]:
+    """Open times (ms) of the mark minutes taken from the trade series, ascending."""
+    path = fills_path(root, symbol)
+    if not path.is_file():
+        return ()
+    return tuple(sorted(int(t) for t in json.loads(path.read_text(encoding="utf-8"))))
+
+
+def _record_fills(root: Path, symbol: str, minutes: Iterable[int]) -> None:
+    """Written before the page that holds the fills, so a crash between the two leaves a record
+    of a fill that a resume repeats — never a filled minute with no record."""
+    merged = sorted(set(read_mark_fills(root, symbol)) | set(minutes))
+    path = fills_path(root, symbol)
+    temporary = path.with_suffix(".partial")
+    temporary.write_text(json.dumps(merged), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _fill_mark_gaps(
+    rows: list[list[float]], symbol: str, expected_first: int, trade: pd.DataFrame
+) -> tuple[list[list[float]], list[int]]:
+    """Fill each short hole in one mark page from the trade bars of the same minutes.
+
+    Only holes *on the minute grid* are filled: a duplicate, a step back or an off-grid stamp is
+    left for :func:`_fresh_minutes` to refuse, because those are a broken page, not a missing
+    minute. The filled bar is the trade bar's OHLC with zero volume.
+    """
+    ts = [int(r[0]) for r in rows]
+    if (
+        not ts
+        or ts[0] < expected_first
+        or any(b <= a for a, b in itertools.pairwise(ts))
+        or any((t - expected_first) % MINUTE_MS for t in ts)
+    ):
+        return rows, []
+    present = set(ts)
+    missing = [t for t in range(expected_first, ts[-1], MINUTE_MS) if t not in present]
+    if not missing:
+        return rows, []
+    run_start, run_length, previous = missing[0], 0, missing[0] - MINUTE_MS
+    for t in missing:
+        if t == previous + MINUTE_MS:
+            run_length += 1
+        else:
+            run_start, run_length = t, 1
+        previous = t
+        if run_length > MAX_MARK_FILL_MINUTES:
+            raise CoverageError(
+                f"{symbol} mark: missing minute run from {_at(run_start):%Y-%m-%d %H:%M} exceeds "
+                f"the {MAX_MARK_FILL_MINUTES}-minute fill cap (ADR-0048)"
+            )
+    trade_ts = trade["ts"].to_numpy(dtype=np.int64)
+    at = np.searchsorted(trade_ts, missing)
+    filled: list[list[float]] = []
+    for t, i in zip(missing, at.tolist(), strict=True):
+        if i >= len(trade_ts) or int(trade_ts[i]) != t:
+            raise CoverageError(
+                f"{symbol} mark: missing minute {_at(t):%Y-%m-%d %H:%M} and no trade minute to "
+                "fill it from (ADR-0048) — download the trade series first"
+            )
+        row = trade.iloc[i]
+        filled.append(
+            [float(t), float(row["open"]), float(row["high"]), float(row["low"]),
+             float(row["close"]), 0.0]
+        )  # fmt: skip
+    return sorted([*rows, *filled], key=lambda r: int(r[0])), missing
+
+
 def download_minutes(
     source: PerpSource,
     root: Path,
@@ -126,7 +206,14 @@ def download_minutes(
     until = int(end.timestamp() * 1000)
     parts = sorted(path.parent.glob(f"{path.stem}.part-*.parquet"))
     next_part = len(parts) + 1
+    trade: pd.DataFrame | None = None
     for rows in source.iter_raw_pages(symbol, "1m", since, end, kind=kind):
+        if kind == "mark":
+            if trade is None:  # read once, and only for marks: trade gaps are never filled
+                trade = read_minutes(minute_path(root, symbol, "trade"))
+            rows, filled = _fill_mark_gaps(rows, symbol, expected, trade)
+            if filled:
+                _record_fills(root, symbol, filled)
         fresh = _fresh_minutes(rows, symbol, kind, expected_first=expected)
         if not len(fresh):
             continue
@@ -182,15 +269,19 @@ def _timestamp_ms(at: datetime | int) -> int:
 def _cuts(
     bar_open: datetime, minutes: int, funding_times: Iterable[datetime | int] | None = None
 ) -> list[int]:
-    """Minute offsets inside one bar at which a funding settlement falls."""
+    """Minute offsets inside one bar at which a funding settlement falls.
+
+    A settlement is placed at its *nearest* minute, the rule the replay and the kernel use to find
+    its segment: Binance stamps settlements a few milliseconds off the boundary (08:00:00.005),
+    and a cut that required an exact minute dropped every one of them.
+    """
     if funding_times is not None:
         start = int(bar_open.timestamp() * 1000)
-        end = start + minutes * MINUTE_MS
         offsets = set()
         for at in funding_times:
-            ts = _timestamp_ms(at)
-            if start <= ts < end and (ts - start) % MINUTE_MS == 0:
-                offsets.add((ts - start) // MINUTE_MS)
+            offset = round((_timestamp_ms(at) - start) / MINUTE_MS)
+            if 0 <= offset < minutes:
+                offsets.add(offset)
         return sorted(offsets)
     return [
         offset

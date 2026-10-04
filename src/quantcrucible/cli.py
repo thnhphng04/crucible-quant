@@ -21,7 +21,7 @@ import argparse
 import json
 import sqlite3
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,6 +32,7 @@ from quantcrucible.config.lock import CampaignNotOpened
 if TYPE_CHECKING:
     from quantcrucible.config.schema import Data
     from quantcrucible.core.strategy.base import Bars
+    from quantcrucible.data.perp_pipeline import PerpCoverage
     from quantcrucible.data.perp_preflight import PerpPreflight
     from quantcrucible.validation.gates import GateResult
     from quantcrucible.validation.research_run import ResearchSession
@@ -161,15 +162,39 @@ def data_fetch_perp(config: Path, root: Path) -> int:
         symbol: f"{item.start.date().isoformat()}/{item.end.date().isoformat()}"
         for symbol, item in prepared.coverage.items()
     }
+    holdout_cut = datetime.combine(add_months(end_day, -cfg.holdout_months), time(), tzinfo=UTC)
+    fills = _write_mark_fills(directory, prepared.coverage, holdout_cut)
     files = list(directory.glob("*.parquet")) + [
         path for path in directory.glob("*.json") if path.name != "manifest.json"
     ]
     manifest = write_manifest(directory / "manifest.json", files, "binanceusdm", coverage)
     sys.stdout.write(
         f"perp common window {common_start.date()}/{common_end.date()}; "
-        f"{len(manifest.files)} IS files checksummed; holdout {summary.holdout_range} locked\n"
+        f"{len(manifest.files)} IS files checksummed; holdout {summary.holdout_range} locked; "
+        f"IS mark minutes filled from trade (ADR-0048): {fills}\n"
     )
     return 0
+
+
+def _write_mark_fills(
+    directory: Path, coverage: Mapping[str, PerpCoverage], before: datetime
+) -> dict[str, int]:
+    """Record, beside the IS bundle and inside its manifest, which mark minutes were taken from
+    trade bars (ADR-0048). Only minutes before ``before``: nothing about the holdout window."""
+    cut = int(before.timestamp() * 1000)
+    record = {
+        symbol: [
+            datetime.fromtimestamp(t / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M")
+            for t in item.mark_fills
+            if t < cut
+        ]
+        for symbol, item in coverage.items()
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "mark_fills.json").write_text(
+        json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return {symbol: len(minutes) for symbol, minutes in record.items()}
 
 
 def second_source_dir(root: Path, exchange: str) -> Path:
@@ -230,6 +255,7 @@ def data_fetch_second_perp(config: Path, root: Path) -> int:
     for symbol, (trade, bundle) in prepared.data.items():
         write_bars(directory / file_name(symbol, cfg.timeframe), trade)
         write_bundle(directory, bundle)
+    _write_mark_fills(directory, prepared.coverage, end)
     files = list(directory.glob("*.parquet")) + [
         path for path in directory.glob("*.json") if path.name != "manifest.json"
     ]
@@ -512,13 +538,19 @@ def campaign_dryrun(config: Path, root: Path) -> int:
     from quantcrucible.data.holdout_split import read_holdout_lock
     from quantcrucible.data.manifest import verify_manifest
     from quantcrucible.ledger.db import Ledger
-    from quantcrucible.validation.run import _check_trial_budget, derived_settings
+    from quantcrucible.validation.run import _check_trial_budget, new_campaign_derived
 
     cfg = load_user_config(config)
     perpetual = cfg.research.data.market == "usdt_m_perpetual"
     holdout_lock = root / "holdout" / "perp.lock" if perpetual else root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # manifest only; never holdout prices
-    derived = derived_settings(cfg.research.evolve_scope)
+    derived = new_campaign_derived(cfg)  # the same tags the real open writes
+    problems: list[str] = []
+    # As the real open does: the manifest records the window actually fetched.
+    fetched_end = date.fromisoformat(str(manifest["range"]).split("/")[1]) - timedelta(days=1)
+    if cfg.research.data.end is not None and fetched_end != cfg.research.data.end:
+        problems.append("data manifest does not match research.data.end")
+    derived["resolved_data_end"] = fetched_end.isoformat()
     if perpetual:
         is_dir = root / "data" / "perp"
         data_manifest_path = is_dir / "manifest.json"
@@ -560,7 +592,7 @@ def campaign_dryrun(config: Path, root: Path) -> int:
             sha256_file(holdout_lock),
             derived,
         )
-        problems = list(preview.problems)
+        problems.extend(preview.problems)
         if cfg.research.holdout_pass is None:
             problems.append("research.holdout_pass must be set before a campaign opens")
         try:
