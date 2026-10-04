@@ -3,9 +3,13 @@
 A genome is a small typed tree — the entry rule built from clauses over price series and
 oscillators, plus an ATR stop — rendered into the template's evolvable block. The grammar only
 builds scale-invariant rules (price series are compared with price series, oscillators with
-levels, price distances are divided by ATR), declares every number as a TUNABLE (≤ 6), and
-always emits the readiness guard on ATR and the stop, so a sampled strategy passes gate ①a by
-construction. C-random samples genomes i.i.d.; C-gp (P2-11) breeds them with the same types.
+levels, price distances are divided by ATR — from grammar v4 by the spread's own deviation),
+declares every number as a TUNABLE (within the lock's cap), and always emits the readiness
+guard on ATR and the stop, so a sampled strategy passes gate ①a by construction. C-random
+samples genomes i.i.d.; C-gp (P2-11) breeds them with the same types. The lock's
+``grammar_version`` selects the rules: 2 categories by side (ADR-0043), 3 log-uniform periods
+and oscillator caps (ADR-0044), 4 the spread-scaled ``Distance`` (ADR-0045), 5 the volatility
+clauses ``VolRatio`` and ``Bandwidth`` and their ``volatility`` category (ADR-0047).
 
 Only the ``joint`` evolve scope is supported (named blocks: O13). The genome types, rendering and
 serialization live in :mod:`quantcrucible.core.strategy.genome`; this module samples and
@@ -23,6 +27,8 @@ import numpy as np
 # layers below the agent can read a genome; they are re-exported here for the engines.
 from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.core.strategy.genome import CLAUSE_TYPES as CLAUSE_TYPES
+from quantcrucible.core.strategy.genome import CLAUSE_TYPES_V5 as CLAUSE_TYPES_V5
+from quantcrucible.core.strategy.genome import Bandwidth as Bandwidth
 from quantcrucible.core.strategy.genome import Breakout as Breakout
 from quantcrucible.core.strategy.genome import Clause as Clause
 from quantcrucible.core.strategy.genome import Close as Close
@@ -40,6 +46,7 @@ from quantcrucible.core.strategy.genome import ParamKind as ParamKind
 from quantcrucible.core.strategy.genome import Series as Series
 from quantcrucible.core.strategy.genome import Slope as Slope
 from quantcrucible.core.strategy.genome import Threshold as Threshold
+from quantcrucible.core.strategy.genome import VolRatio as VolRatio
 from quantcrucible.core.strategy.genome import genome_from_dict as genome_from_dict
 from quantcrucible.core.strategy.genome import genome_to_dict as genome_to_dict
 from quantcrucible.core.strategy.genome import load_genome as load_genome
@@ -62,6 +69,17 @@ DISTANCE_RANGE = (-3.0, 3.0)  # (a - b) / ATR
 STOP_RANGE = (0.5, 5.0)  # stop = k × ATR
 TP_RANGE = (0.5, 10.0)  # take profit = k × ATR
 STOP_PERIOD_RANGE = (5, 50)  # n_stop: ATR period or band period of the stop (ADR-0041, provisional)
+# v5 (ADR-0047): the two windows of a volatility ratio are disjoint, so a ``param`` move never
+# makes the fast one the slower; k from the IS quantiles (q05–q95 at 1d and 1h, P3-61)
+VOL_FAST_RANGE = (5, 50)
+VOL_SLOW_RANGE = (60, 300)
+VOL_RATIO_K_RANGE = (0.6, 1.6)  # atr_ratio: 1h holds it tighter than 1d
+BANDWIDTH_K_RANGE = (0.3, 2.5)  # band_ratio, both widths per √bar
+
+
+def clause_types_for(version: int = 1) -> tuple[type, ...]:
+    """The clause types a campaign of this grammar version samples."""
+    return CLAUSE_TYPES_V5 if version >= 5 else CLAUSE_TYPES
 
 
 # ── sampling ────────────────────────────────────────────────────────────────────────────────
@@ -82,6 +100,10 @@ class GrammarConfig:
     stop_period: bool = False
     max_params: int = LEGACY_MAX_TUNABLES
     clause_types: tuple[type, ...] = field(default=CLAUSE_TYPES)
+    # the campaign's grammar version (``derived.grammar_version``; 1 for older locks)
+    version: int = 1
+    # v2 (ADR-0043): an island seeded with a category samples clauses of that category only
+    category: str | None = None
 
 
 def _uniform(rng: np.random.Generator, kind: ParamKind, lo: float, hi: float) -> Param:
@@ -90,14 +112,41 @@ def _uniform(rng: np.random.Generator, kind: ParamKind, lo: float, hi: float) ->
     return Param(kind, lo, hi, round(float(rng.uniform(lo, hi)), 4))
 
 
-def period_range(op: str) -> tuple[int, int]:
+# v3 (ADR-0044): a long RSI hugs 50 and never reaches its levels; a z-score of n values never
+# exceeds (n − 1)/√n — 1.79 at n = 5, 2.85 at n = 10 — so short ones never reach theirs (P3-54)
+PERIOD_CAPS_V3: dict[str, tuple[int, int]] = {"rsi": (2, 30), "zscore": (10, 300)}
+
+
+def period_range(op: str, version: int = 1) -> tuple[int, int]:
     low, high = OPS[op].period or PERIOD_RANGE
-    return max(low, PERIOD_RANGE[0]), min(high, PERIOD_RANGE[1])
+    low, high = max(low, PERIOD_RANGE[0]), min(high, PERIOD_RANGE[1])
+    if version >= 3 and op in PERIOD_CAPS_V3:
+        cap_low, cap_high = PERIOD_CAPS_V3[op]
+        low, high = max(low, cap_low), min(high, cap_high)
+    return low, high
 
 
-def sample_period(rng: np.random.Generator, op: str) -> Param:
-    lo, hi = period_range(op)
+def _log_uniform_period(rng: np.random.Generator, lo: int, hi: int) -> Param:
+    """An integer period, uniform in log(period): as many draws in [2, 20] as in [30, 300]."""
+    value = round(float(np.exp(rng.uniform(np.log(lo), np.log(hi)))))
+    return Param("period", lo, hi, min(max(value, lo), hi))
+
+
+def sample_period(
+    rng: np.random.Generator, op: str, version: int = 1, high: int | None = None
+) -> Param:
+    """A period of ``op`` within its range, below ``high`` when given."""
+    lo, hi = period_range(op, version)
+    if high is not None:
+        hi = min(hi, high)
+    if version >= 3:
+        return _log_uniform_period(rng, lo, hi)
     return _uniform(rng, "period", lo, hi)
+
+
+# v4 (ADR-0045): spread_stdev(a, b, n) is finite from bar max(n_a, n_b) + n − 1 of its window, so
+# Distance operands stay ≤ 200 bars — warm-up ≤ 399 — inside the locked 400-bar lookback
+SPREAD_OPERAND_MAX = 200
 
 
 def sample_level(rng: np.random.Generator, op: str, cmp: Cmp) -> Param:
@@ -105,53 +154,69 @@ def sample_level(rng: np.random.Generator, op: str, cmp: Cmp) -> Param:
     return _uniform(rng, "level", lo, hi)
 
 
-def sample_price_series(rng: np.random.Generator) -> Series:
+def sample_price_series(
+    rng: np.random.Generator, version: int = 1, high: int | None = None
+) -> Series:
     if rng.random() < 0.3:
         return Close()
     op = PRICE_OPS[int(rng.integers(len(PRICE_OPS)))]
-    return Indicator(op, sample_period(rng, op))
+    return Indicator(op, sample_period(rng, op, version, high))
 
 
-def _two_price_series(rng: np.random.Generator) -> tuple[Series, Series]:
+def _two_price_series(
+    rng: np.random.Generator, version: int, high: int | None = None
+) -> tuple[Series, Series]:
     while True:
-        a, b = sample_price_series(rng), sample_price_series(rng)
+        a, b = sample_price_series(rng, version, high), sample_price_series(rng, version, high)
         if a != b and not (isinstance(a, Close) and isinstance(b, Close)):
             return a, b
 
 
-def sample_oscillator(rng: np.random.Generator) -> Indicator:
+def sample_oscillator(rng: np.random.Generator, version: int = 1) -> Indicator:
     op = OSC_OPS[int(rng.integers(len(OSC_OPS)))]
-    return Indicator(op, sample_period(rng, op))
+    return Indicator(op, sample_period(rng, op, version))
 
 
 def _cmp(rng: np.random.Generator) -> Cmp:
     return ">" if rng.random() < 0.5 else "<"
 
 
-def sample_clause(rng: np.random.Generator, kind: type) -> Clause:
+def sample_clause(rng: np.random.Generator, kind: type, version: int = 1) -> Clause:
+    """A clause of ``kind``; ``version`` is the campaign's grammar version (periods from v3)."""
+    v = version
     if kind is Compare:
-        a, b = _two_price_series(rng)
+        a, b = _two_price_series(rng, v)
         return Compare(a, _cmp(rng), b)
     if kind is Cross:
-        a, b = _two_price_series(rng)
+        a, b = _two_price_series(rng, v)
         return Cross(a, bool(rng.random() < 0.5), b)
     if kind is Threshold:
-        osc, cmp = sample_oscillator(rng), _cmp(rng)
+        osc, cmp = sample_oscillator(rng, v), _cmp(rng)
         return Threshold(osc, cmp, sample_level(rng, osc.op, cmp))
     if kind is CrossLevel:
-        osc, up = sample_oscillator(rng), bool(rng.random() < 0.5)
+        osc, up = sample_oscillator(rng, v), bool(rng.random() < 0.5)
         return CrossLevel(osc, up, sample_level(rng, osc.op, ">" if up else "<"))
     if kind is Distance:
-        a, b = _two_price_series(rng)
-        return Distance(a, b, _cmp(rng), _uniform(rng, "level", *DISTANCE_RANGE))
+        a, b = _two_price_series(rng, v, SPREAD_OPERAND_MAX if v >= 4 else None)
+        cmp = _cmp(rng)  # drawn before k: the stream older versions sampled
+        k = _uniform(rng, "level", *DISTANCE_RANGE)
+        return Distance(a, b, cmp, k, "spread" if v >= 4 else "atr")  # ADR-0045
     if kind is Breakout:
         up = bool(rng.random() < 0.5)
-        return Breakout(up, sample_period(rng, "rolling_max" if up else "rolling_min"))
+        return Breakout(up, sample_period(rng, "rolling_max" if up else "rolling_min", v))
     if kind is Slope:
-        series: Series = sample_price_series(rng) if rng.random() < 0.6 else sample_oscillator(rng)
+        use_price = rng.random() < 0.6
+        series: Series = sample_price_series(rng, v) if use_price else sample_oscillator(rng, v)
         if isinstance(series, Close):
-            series = Indicator("ema", sample_period(rng, "ema"))
+            series = Indicator("ema", sample_period(rng, "ema", v))
         return Slope(series, bool(rng.random() < 0.5))
+    if kind is VolRatio or kind is Bandwidth:  # v5 only (ADR-0047)
+        fast = _log_uniform_period(rng, *VOL_FAST_RANGE)
+        slow = _log_uniform_period(rng, *VOL_SLOW_RANGE)
+        cmp = _cmp(rng)
+        if kind is VolRatio:
+            return VolRatio(fast, slow, cmp, _uniform(rng, "level", *VOL_RATIO_K_RANGE))
+        return Bandwidth(fast, slow, cmp, _uniform(rng, "level", *BANDWIDTH_K_RANGE))
     raise ValueError(f"unknown clause type {kind!r}")
 
 
@@ -162,7 +227,10 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
     while True:
         n = 1 + int(rng.choice(len(weights), p=weights / weights.sum()))
         kinds = [cfg.clause_types[int(rng.integers(len(cfg.clause_types)))] for _ in range(n)]
-        clauses = tuple(sample_clause(rng, k) for k in kinds)
+        if cfg.version >= 2 and cfg.category is not None:
+            clauses = tuple(sample_clause_in_category(rng, k, cfg) for k in kinds)
+        else:  # no island category: the version's own stream (v1: what older campaigns drew)
+            clauses = tuple(sample_clause(rng, k, cfg.version) for k in kinds)
         entry: Entry = clauses[0]
         if n > 1:
             entry = Combine("or" if rng.random() < cfg.or_probability else "and", clauses)
@@ -182,6 +250,15 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
 
 # ── behavioural category (feature-map dimension, arch §3.1.3) ─────────────────────────────
 CATEGORIES = ("trend", "momentum", "mean_reversion", "breakout")
+# v5 (ADR-0047): a volatility clause is a regime filter, on either side — its own category
+CATEGORIES_V5 = (*CATEGORIES, "volatility")
+
+
+def categories_for(version: int = 1) -> tuple[str, ...]:
+    """The strategy categories of this grammar version — one island each, plus the open one."""
+    return CATEGORIES_V5 if version >= 5 else CATEGORIES
+
+
 # clause types able to express each category — an island seeded with a category samples these
 CATEGORY_CLAUSES: dict[str, tuple[type, ...]] = {
     "trend": (Compare, Cross, Distance, Slope),
@@ -189,9 +266,68 @@ CATEGORY_CLAUSES: dict[str, tuple[type, ...]] = {
     "mean_reversion": (Threshold, CrossLevel, Distance, Breakout),
     "breakout": (Breakout,),
 }
+# v2: a family's clause types, and every type for mean reversion — any clause can fade a move
+CATEGORY_CLAUSES_V2: dict[str, tuple[type, ...]] = {
+    **CATEGORY_CLAUSES,
+    "mean_reversion": CLAUSE_TYPES,
+}
+CATEGORY_CLAUSES_V5: dict[str, tuple[type, ...]] = {
+    **CATEGORY_CLAUSES_V2,
+    "volatility": (VolRatio, Bandwidth),
+}
+MAX_CATEGORY_DRAWS = 50
 
 
-def clause_category(c: Clause) -> str:
+def category_clauses(category: str, version: int) -> tuple[type, ...]:
+    """The clause types an island seeded with ``category`` samples under this version."""
+    if version >= 5:
+        return CATEGORY_CLAUSES_V5[category]
+    if version >= 2:
+        return CATEGORY_CLAUSES_V2[category]
+    return CATEGORY_CLAUSES[category]
+
+
+def _speed(s: Series) -> tuple[int, int]:
+    """Smaller is faster: the close, then shorter periods; at one period, ema before sma."""
+    if isinstance(s, Close):
+        return (0, 0)
+    return (int(s.period.value), 0 if s.op == "ema" else 1)
+
+
+def _family(c: Clause) -> str:
+    if isinstance(c, Threshold | CrossLevel):
+        return "momentum"
+    if isinstance(c, Slope):
+        return "momentum" if isinstance(c.series, Indicator) and c.series.op in OSC_OPS else "trend"
+    if isinstance(c, Breakout):
+        return "breakout"
+    return "trend"
+
+
+def polarity(c: Clause) -> int:
+    """+1 when the clause holds as price rises, −1 when it holds as price falls. A clause on two
+    price series is read fast − slow, so ``a > b`` and ``b < a`` get the same polarity. A
+    volatility clause has none (0): it holds whichever way price moves."""
+    if isinstance(c, VolRatio | Bandwidth):
+        return 0
+    if isinstance(c, Compare | Cross | Distance):
+        rising = c.up if isinstance(c, Cross) else c.op == ">"
+        fast_left = _speed(c.left) <= _speed(c.right)
+        return 1 if rising == fast_left else -1
+    if isinstance(c, Threshold):
+        return 1 if c.op == ">" else -1
+    return 1 if c.up else -1
+
+
+def clause_category(c: Clause, direction: ScopeDirection = "long", version: int = 1) -> str:
+    """The clause's strategy category. v2 (ADR-0043): its family when it trades with the move on
+    this side — polarity × side > 0 — mean reversion otherwise. v1: the clause alone. A
+    volatility clause (v5, ADR-0047) is ``volatility`` on either side."""
+    if isinstance(c, VolRatio | Bandwidth):
+        return "volatility"
+    if version >= 2:
+        side = 1 if direction == "long" else -1
+        return _family(c) if polarity(c) * side > 0 else "mean_reversion"
     if isinstance(c, Compare | Cross):
         return "trend"
     if isinstance(c, Slope):
@@ -205,10 +341,24 @@ def clause_category(c: Clause) -> str:
     return "breakout" if c.up else "mean_reversion"
 
 
-def categories(genome: Genome) -> tuple[str, ...]:
-    """The strategy categories a genome's clauses belong to, in ``CATEGORIES`` order."""
-    found = {clause_category(c) for c in genome.clauses()}
-    return tuple(c for c in CATEGORIES if c in found)
+def categories(
+    genome: Genome, direction: ScopeDirection = "long", version: int = 1
+) -> tuple[str, ...]:
+    """The strategy categories a genome's clauses belong to, in ``CATEGORIES_V5`` order."""
+    found = {clause_category(c, direction, version) for c in genome.clauses()}
+    return tuple(c for c in CATEGORIES_V5 if c in found)
+
+
+def sample_clause_in_category(rng: np.random.Generator, kind: type, cfg: GrammarConfig) -> Clause:
+    """A clause of ``kind`` in the config's category on its side, drawn again until it is —
+    up to ``MAX_CATEGORY_DRAWS``, after which the last draw stands (a ``kind`` that cannot
+    express the category, such as a price ``Slope`` on the momentum island, only costs draws)."""
+    clause = sample_clause(rng, kind, cfg.version)
+    for _ in range(MAX_CATEGORY_DRAWS - 1):
+        if clause_category(clause, cfg.direction, cfg.version) == cfg.category:
+            break
+        clause = sample_clause(rng, kind, cfg.version)
+    return clause
 
 
 # ── structural signature (novelty in the ranking, arch §3.1.6 #1) ─────────────────────────────
@@ -229,6 +379,10 @@ def _clause_sig(c: Clause) -> str:
         return f"dist({_series_sig(c.left)}-{_series_sig(c.right)}{c.op})"
     if isinstance(c, Breakout):
         return f"brk({'up' if c.up else 'down'})"
+    if isinstance(c, VolRatio):
+        return f"volratio({c.op})"
+    if isinstance(c, Bandwidth):
+        return f"bandwidth({c.op})"
     return f"slope({_series_sig(c.series)},{'up' if c.up else 'down'})"
 
 

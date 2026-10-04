@@ -33,6 +33,7 @@ from quantcrucible.core.strategy.tunable import (
     Tunable,
     TunableError,
     lock_max_tunables,
+    lock_stop_kinds,
     lock_stop_period,
 )
 from quantcrucible.ledger.records import Event
@@ -304,6 +305,28 @@ def check_block(
     return [Violation(e.line, e.message) for e in check_units(tree)]
 
 
+BOLLINGER = frozenset({"boll_upper", "boll_lower"})
+
+
+def check_no_bollinger(body: str) -> list[Violation]:
+    """No Bollinger band in a campaign whose lock leaves the Bollinger stop out (ADR-0042).
+
+    The grammar uses the bands only as a stop, so refusing the band refuses the stop — and a
+    source that reaches the gate some other way cannot bring it back.
+    """
+    try:
+        tree = ast.parse(textwrap.dedent(body))
+    except SyntaxError:
+        return []  # check_block reports the syntax error
+    return [
+        Violation(node.lineno, f"ind.{node.func.attr}: the lock allows no Bollinger stop")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in BOLLINGER
+    ]
+
+
 def check_direction(body: str, direction: str) -> list[Violation]:
     """Every ``Signal(...)`` in the block emits this scope's side or ``flat`` (INV-91), at
     strength 1.0 (ADR-0031: strength must not become a second risk lever).
@@ -407,6 +430,8 @@ class StaticGuardrail:
             locked_numbers = frozenset({ratio} if lock_stop_period(ctx.lock) else {8, ratio})
         violations = [v for b in editable for v in check_block(b.body, names, locked_numbers)]
         violations += [v for b in editable for v in check_direction(b.body, candidate.direction)]
+        if "bollinger" not in lock_stop_kinds(ctx.lock):
+            violations += [v for b in editable for v in check_no_bollinger(b.body)]
         if violations:
             return GateResult(
                 False, self.id, float(len(violations)),

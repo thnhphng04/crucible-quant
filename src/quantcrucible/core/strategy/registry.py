@@ -20,7 +20,7 @@ from scipy.signal import lfilter
 
 from quantcrucible.core.strategy.base import Bars, FloatArray, SeriesView
 
-IndicatorKind = Literal["series", "bars", "predicate"]
+IndicatorKind = Literal["series", "bars", "pair", "series_ratio", "bars_ratio", "predicate"]
 
 
 def _check_period(n: int) -> None:
@@ -126,6 +126,34 @@ def boll_lower(x: FloatArray, n: int) -> FloatArray:
     return out
 
 
+def bandwidth(x: FloatArray, n: int) -> FloatArray:
+    """Bollinger band width per √bar: ``(boll_upper − boll_lower) / (sma · √n) = 4·std / (sma·√n)``.
+    A random walk's band widens as √n, so the ratio of two widths no longer depends on their
+    periods (``band_ratio``, ADR-0047). NaN where the sma or the std is not positive."""
+    _check_period(n)
+    x = _as_float(x)
+    out = np.full(len(x), np.nan)
+    if len(x) >= n:
+        windows = sliding_window_view(x, n)
+        mean, sd = windows.mean(axis=1), windows.std(axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            width = 4.0 * sd / (mean * np.sqrt(n))
+        out[n - 1 :] = np.where((mean > 0) & (sd > 0), width, np.nan)
+    return out
+
+
+def spread_stdev(x: FloatArray, y: FloatArray, n: int) -> FloatArray:
+    """Population standard deviation of the spread ``x − y`` over n bars; NaN where it is 0 or
+    a window holds a NaN — the yardstick of a grammar-v4 ``Distance`` (ADR-0045)."""
+    _check_period(n)
+    d = _as_float(x) - _as_float(y)
+    out = np.full(len(d), np.nan)
+    if len(d) >= n:
+        sd = sliding_window_view(d, n).std(axis=1)
+        out[n - 1 :] = np.where(sd > 0, sd, np.nan)
+    return out
+
+
 def atr(bars: Bars, n: int) -> FloatArray:
     """Wilder's average true range."""
     _check_period(n)
@@ -135,6 +163,27 @@ def atr(bars: Bars, n: int) -> FloatArray:
     prev_close = np.concatenate(([np.nan], c[:-1]))
     tr = np.fmax(h - lo, np.fmax(np.abs(h - prev_close), np.abs(lo - prev_close)))
     return _smooth(tr, n, 1.0 / n)
+
+
+def _ratio(a: FloatArray, b: FloatArray) -> FloatArray:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(b > 0, a / b, np.nan)
+
+
+def band_ratio(x: FloatArray, fast: int, slow: int) -> FloatArray:
+    """``bandwidth(x, fast) / bandwidth(x, slow)``: the band squeezed (< 1) or expanded (> 1)
+    against its longer self, both per √bar — one feature, so a gate-③ correlation test never
+    sets its two widths against each other (grammar v5's ``Bandwidth``, ADR-0047)."""
+    _check_period(slow)
+    return _ratio(bandwidth(x, fast), bandwidth(x, slow))
+
+
+def atr_ratio(bars: Bars, fast: int, slow: int) -> FloatArray:
+    """``atr(bars, fast) / atr(bars, slow)``: bar ranges expanding (> 1) or contracting (< 1)
+    against their longer average; NaN where the slow ATR is not positive (grammar v5's
+    ``VolRatio``, ADR-0047)."""
+    _check_period(slow)
+    return _ratio(atr(bars, fast), atr(bars, slow))
 
 
 def rsi(x: FloatArray, n: int) -> FloatArray:
@@ -188,7 +237,11 @@ class _Indicators:
     zscore = staticmethod(zscore)
     boll_upper = staticmethod(boll_upper)
     boll_lower = staticmethod(boll_lower)
+    bandwidth = staticmethod(bandwidth)
+    band_ratio = staticmethod(band_ratio)
+    spread_stdev = staticmethod(spread_stdev)
     atr = staticmethod(atr)
+    atr_ratio = staticmethod(atr_ratio)
     rsi = staticmethod(rsi)
     cross_up = staticmethod(cross_up)
     cross_down = staticmethod(cross_down)
@@ -207,7 +260,7 @@ class OpSpec:
     normalized), ``price`` (price units whatever the input) or ``bool`` (predicates).
     ``period`` is the default range of its period argument, ``value_range`` the typical range
     of a dimensionless output (where thresholds are drawn), ``warmup(n)`` the number of bars
-    until the first finite value.
+    until the first finite value — for a ratio, ``n`` is its slow period.
     """
 
     kind: IndicatorKind
@@ -228,11 +281,19 @@ OPS: dict[str, OpSpec] = {
     "zscore": OpSpec("series", "dimensionless", (5, 300), (-3.0, 3.0)),
     "boll_upper": OpSpec("series", "same", (8, 8)),
     "boll_lower": OpSpec("series", "same", (8, 8)),
+    # per √bar: q95 ≈ 0.14 on daily crypto, 0.03 hourly — the grammar only reads its ratios
+    "bandwidth": OpSpec("series", "dimensionless", (2, 300), (0.0, 0.2)),
     "rsi": OpSpec("series", "dimensionless", (2, 100), (0.0, 100.0), warmup_extra=1),
-    "atr": OpSpec("bars", "price", (2, 100)),
+    "atr": OpSpec("bars", "price", (2, 300)),
+    "spread_stdev": OpSpec("pair", "price", (2, 300)),
+    # fast/slow ratios, ≈ 1 on average: q05–q95 ≈ 0.3–2.7 (band), 0.4–2.4 (atr) on IS bars
+    "band_ratio": OpSpec("series_ratio", "dimensionless", (2, 300), (0.3, 2.5)),
+    "atr_ratio": OpSpec("bars_ratio", "dimensionless", (2, 300), (0.6, 1.6)),
     "cross_up": OpSpec("predicate", "bool"),
     "cross_down": OpSpec("predicate", "bool"),
 }
 
-# name → how it is called: "series" f(array, n), "bars" f(bars, n), "predicate" f(view, view|float)
+# name → how it is called: "series" f(array, n), "bars" f(bars, n), "pair" f(array, array, n),
+# "series_ratio" f(array, fast, slow), "bars_ratio" f(bars, fast, slow),
+# "predicate" f(view, view|float)
 INDICATORS: dict[str, IndicatorKind] = {name: spec.kind for name, spec in OPS.items()}

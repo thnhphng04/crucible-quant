@@ -155,6 +155,27 @@ def test_under_a_stop_period_lock_every_child_keeps_n_stop(ctx: GateContext) -> 
     assert made > 300
 
 
+def test_an_atr_only_grammar_never_breeds_a_bollinger_stop() -> None:
+    """INV-116 (ADR-0042): with the Bollinger stop out of the lock, neither sampling nor any
+    operator brings it back — ``point`` never flips the stop kind, crossover only copies stops
+    of the same population."""
+    cfg = GrammarConfig(boll_stop_probability=0.0, tp_sl_ratio=1.1, stop_period=True, max_params=7)
+    rng = np.random.default_rng(5)
+    pool = [sample_genome(rng, cfg) for _ in range(200)]
+    assert {g.stop_kind for g in pool} == {"atr"}
+    made = 0
+    for i in range(800):
+        kind: MutationKind = ("param", "point", "subtree", "crossover")[i % 4]
+        a, b = pool[int(rng.integers(len(pool)))], pool[int(rng.integers(len(pool)))]
+        try:
+            child = breed(kind, a, rng, cfg, other=b)
+        except OperatorFailed:
+            continue
+        assert child.stop_kind == "atr", kind
+        made += 1
+    assert made > 600
+
+
 def test_a_crossover_that_takes_the_mates_stop_takes_its_period_too() -> None:
     rng = np.random.default_rng(4)
     taken = 0

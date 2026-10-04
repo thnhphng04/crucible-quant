@@ -1,6 +1,6 @@
 # ADR-0041 — Chu kỳ stop là gene TUNABLE
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận; guard ATR(14) riêng được sửa bởi [ADR-0047](0047-clause-bien-dong-va-mot-thuoc-atr.md)
 - **Ngày:** 2026-10-02
 - **Task:** P3-53 · **Kiến trúc:** §3.2, §3.3.1 luật 2, §10 D24 · **Vấn đề mở:** —
 

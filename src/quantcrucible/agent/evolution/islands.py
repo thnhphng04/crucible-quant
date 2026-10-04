@@ -16,7 +16,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from quantcrucible.agent.evolution.archive import Archive, Entry, scope_args
-from quantcrucible.agent.grammar import CATEGORIES
+from quantcrucible.agent.grammar import categories_for
 from quantcrucible.agent.scheduler import Key
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
@@ -25,15 +25,17 @@ MIGRATION_INTERVAL = 10  # generations (arch §3.1.8)
 MIGRATION_FRACTION = 0.10  # top 10% (arch §3.1.5)
 
 
-def island_names() -> tuple[str, ...]:
-    """``i0``…: one island per grammar category, then the open island (``N = C + 1``)."""
-    return tuple(f"i{k}" for k in range(len(CATEGORIES) + 1))
+def island_names(version: int = 1) -> tuple[str, ...]:
+    """``i0``…: one island per category of the campaign's grammar, then the open island
+    (``N = C + 1``): five islands before grammar v5, six from it (ADR-0047)."""
+    return tuple(f"i{k}" for k in range(len(categories_for(version)) + 1))
 
 
-def island_category(island: str) -> str | None:
+def island_category(island: str, version: int = 1) -> str | None:
     """The category an island is seeded with; ``None`` for the open island."""
+    cats = categories_for(version)
     k = int(island[1:])
-    return CATEGORIES[k] if k < len(CATEGORIES) else None
+    return cats[k] if k < len(cats) else None
 
 
 @dataclass(frozen=True, slots=True)

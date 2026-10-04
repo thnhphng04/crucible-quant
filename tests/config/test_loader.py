@@ -1,6 +1,7 @@
 """config/user.yaml loading (Architecture §10.1) — INV-20."""
 
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,13 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     cfg = load_user_config(REPO_USER_YAML)
     # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
     # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
-    # and the phase-2 comparison campaign (ADR-0027): harness_test with a 600-trial budget
+    # and the phase-2 comparison campaign (ADR-0027): harness_test with a 600-trial budget;
+    # and D18's provisional start, which the user moved to 2020 (MinBTL room for the 1h runs)
     assert cfg.research == replace(
-        Research(), holdout_pass=1.3, campaign=Campaign("harness_test", 600)
+        Research(),
+        holdout_pass=1.3,
+        campaign=Campaign("harness_test", 600),
+        data=replace(Research().data, start=date(2020, 1, 1)),
     )
     assert Research().holdout_pass is None
     assert cfg.operational.models.research == "gpt-oss-120b"

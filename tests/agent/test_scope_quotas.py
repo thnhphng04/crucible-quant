@@ -172,6 +172,22 @@ def test_the_grammar_renders_the_side_its_scope_searches() -> None:
     assert grammar_config(lock, unit()).tp_sl_ratio == 1.1
 
 
+def test_the_lock_decides_the_stop_kinds() -> None:
+    """INV-116 (ADR-0042): a lock allowing only the ATR stop samples no Bollinger stop; a
+    bracket lock written before the key keeps both."""
+    derived = {"exit_protocol": "bracket_timeout_v1"}
+    exit_: dict[str, Any] = {"tp_sl_ratio": 1.1}
+    old = {"research": {"exit": exit_}, "derived": derived}
+    atr = {"research": {"exit": {**exit_, "stop_kinds": ["atr"]}}, "derived": derived}
+    both = {"research": {"exit": {**exit_, "stop_kinds": ["atr", "bollinger"]}}, "derived": derived}
+    key = unit(instrument="BTC/USDT")
+    assert grammar_config(old, key).boll_stop_probability == 0.5
+    assert grammar_config(atr, key).boll_stop_probability == 0.0
+    assert grammar_config(both, key).boll_stop_probability == 0.5
+    legacy = {"research": {"exit": exit_}, "derived": {}}
+    assert grammar_config(legacy, key).boll_stop_probability == 0.0
+
+
 def test_the_lock_decides_the_stop_period_gene_and_the_cap() -> None:
     """INV-114 / INV-115 (ADR-0041): both engines read the same grammar from the lock."""
     derived: dict[str, Any] = {"exit_protocol": "bracket_timeout_v1"}

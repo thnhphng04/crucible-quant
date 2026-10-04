@@ -19,6 +19,7 @@ from typing import Literal
 
 from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.core.strategy.genome import (
+    Bandwidth,
     Breakout,
     Clause,
     Close,
@@ -28,6 +29,7 @@ from quantcrucible.core.strategy.genome import (
     Cross,
     CrossLevel,
     Distance,
+    DistanceScale,
     Entry,
     Genome,
     Indicator,
@@ -36,6 +38,7 @@ from quantcrucible.core.strategy.genome import (
     Series,
     Slope,
     Threshold,
+    VolRatio,
     render_genome,
 )
 from quantcrucible.core.strategy.registry import OPS
@@ -51,6 +54,7 @@ _KIND = (
     (re.compile(r"k\d+"), "mult"),
 )
 _SERIES_OPS = frozenset(op for op, spec in OPS.items() if spec.kind == "series")
+_RATIO_INPUT = {"atr_ratio": "bars", "band_ratio": "bars.close"}  # ADR-0047
 
 
 class GenomeParseError(ValueError):
@@ -146,7 +150,8 @@ class _Reader:
     def __init__(self, tunables: Mapping[str, Tunable]) -> None:
         self.tunables = tunables
         self.params: dict[str, Param] = {}  # one object per TUNABLE name, as the renderer shares
-        # feature name → ("close",) | ("series", op, param name) | ("band", op)
+        # feature name → ("close",) | ("series", op, param name) | ("band", op) | ("spread",)
+        # | ("atr_ratio" or "band_ratio", fast param name, slow param name)
         self.features: dict[str, tuple[str, ...]] = {}
 
     # ── leaves ───────────────────────────────────────────────────────────────────────────
@@ -194,6 +199,23 @@ class _Reader:
     def _feature(self, v: ast.AST) -> tuple[str, ...]:
         if _attr(v, "bars", "close") is not None:
             return ("close",)
+        if (  # a grammar-v4 Distance yardstick (ADR-0045); the final comparison checks its args
+            isinstance(v, ast.Call)
+            and _attr(v.func, "ind") == "spread_stdev"
+            and len(v.args) == 3
+            and not v.keywords
+        ):
+            return ("spread",)
+        if (  # a grammar-v5 volatility ratio (ADR-0047): ind.<ratio>(<input>, fast, slow)
+            isinstance(v, ast.Call)
+            and _attr(v.func, "ind") in _RATIO_INPUT
+            and len(v.args) == 3
+            and not v.keywords
+        ):
+            ratio = str(_attr(v.func, "ind"))
+            if ast.unparse(v.args[0]) != _RATIO_INPUT[ratio]:
+                raise _fail("ratio input")
+            return (ratio, self._period_name(v.args[1]), self._period_name(v.args[2]))
         if not (isinstance(v, ast.Call) and len(v.args) == 2 and not v.keywords):
             raise _fail("feature")
         op = _attr(v.func, "ind")
@@ -201,10 +223,14 @@ class _Reader:
             raise _fail("feature call")
         if op in ("boll_lower", "boll_upper"):
             return ("band", op)
-        name = _param_name(v.args[1])
+        return ("series", op, self._period_name(v.args[1]))
+
+    @staticmethod
+    def _period_name(node: ast.AST) -> str:
+        name = _param_name(node)
         if name is None:
             raise _fail("feature period")
-        return ("series", op, name)
+        return name
 
     # ── signal() ─────────────────────────────────────────────────────────────────────────
     def read(self, tree: ast.Module) -> ParsedGenome:
@@ -264,12 +290,22 @@ class _Reader:
         if not (isinstance(node, ast.Compare) and len(node.ops) == 1):
             raise _fail("clause")
         op, left, right = _cmp(node.ops[0]), node.left, node.comparators[0]
-        if isinstance(left, ast.BinOp):  # (a - b) / x["atr"] op k
+        if isinstance(left, ast.BinOp):  # (a - b) / x["atr"] op k, or / x["fK"] (spread_stdev)
             if not (isinstance(left.op, ast.Div) and isinstance(left.left, ast.BinOp)):
                 raise _fail("distance")
-            diff = left.left
+            diff, den = left.left, _feature_key(left.right)
+            if den == "atr":
+                scale: DistanceScale = "atr"
+            elif den is not None and self.features.get(den) == ("spread",):
+                scale = "spread"
+            else:
+                raise _fail("distance scale")
             return Distance(
-                self.series(diff.left), self.series(diff.right), op, self.param(_param_name(right))
+                self.series(diff.left),
+                self.series(diff.right),
+                op,
+                self.param(_param_name(right)),
+                scale,
             )
         prev = _is_ago1(right)
         if prev is not None:
@@ -285,6 +321,10 @@ class _Reader:
             return Breakout(op == ">", self.param(feature[2]))
         level_name = _param_name(right)
         if level_name is not None:
+            ratio = self.features.get(_feature_key(left) or "")
+            if ratio is not None and ratio[0] in _RATIO_INPUT:  # a v5 volatility ratio (ADR-0047)
+                kind = VolRatio if ratio[0] == "atr_ratio" else Bandwidth
+                return kind(self.param(ratio[1]), self.param(ratio[2]), op, self.param(level_name))
             return Threshold(self.indicator(left), op, self.param(level_name))
         return Compare(self.series(left), op, self.series(right))
 
