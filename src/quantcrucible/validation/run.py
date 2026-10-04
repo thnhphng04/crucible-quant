@@ -87,6 +87,21 @@ def derived_settings(evolve_scope: str) -> dict[str, Any]:
     }
 
 
+def new_campaign_derived(cfg: UserConfig) -> dict[str, Any]:
+    """:func:`derived_settings` plus the protocol tags every *new* campaign is locked with.
+
+    One function, because opening a campaign, its dry run and Studio's preview must write the same
+    lock: the dry run used to leave these tags out, so its preview was not the lock it promised.
+    """
+    derived = derived_settings(cfg.research.evolve_scope)
+    derived["exit_protocol"] = "bracket_timeout_v1"
+    derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
+    derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
+    derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041: n_stop is a gene,
+    derived["max_tunables"] = MAX_TUNABLES  # inside a cap of 7
+    return derived
+
+
 def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Path) -> str:
     """The campaign behind ``lock_path`` (verified) while it is OPEN or FROZEN; otherwise —
     no lock yet, or its campaign BURNED or ABANDONED — a new one.
@@ -113,12 +128,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
         n += 1
         campaign_id = f"{base}-{n}"
-    derived = derived_settings(cfg.research.evolve_scope)
-    derived["exit_protocol"] = "bracket_timeout_v1"
-    derived["backtest_numerics"] = numerics_tag(cfg.research.backtest.precision)
-    derived["portfolio_protocol"] = SHARED_ACCOUNT  # ADR-0040
-    derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041: n_stop is a gene,
-    derived["max_tunables"] = MAX_TUNABLES  # inside a cap of 7
+    derived = new_campaign_derived(cfg)
     # The manifest records the exact fetched window even when user.yaml requested latest (null).
     fetched_end = date.fromisoformat(str(manifest["range"]).split("/")[1]) - timedelta(days=1)
     if cfg.research.data.end is not None and fetched_end != cfg.research.data.end:

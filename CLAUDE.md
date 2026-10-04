@@ -1,6 +1,6 @@
 # CLAUDE.md — Crucible Quant
 
-An AI quantitative research lab: engine C currently generates deterministic rule-based strategies, and a validation harness tries to reject them before any capital is at risk. The LLM engines A/B remain deferred. Package: `quantcrucible` (src layout). Status: phase-3 implementation; fixed bracket exits (P3-25) and local Studio campaign control (P3-26) are implemented, while real-source perpetual coverage remains open (P3-24). No live parity has been established.
+An AI quantitative research lab: engine C currently generates deterministic rule-based strategies, and a validation harness tries to reject them before any capital is at risk. The LLM engines A/B remain deferred. Package: `quantcrucible` (src layout). Status: phase-3 implementation; fixed bracket exits (P3-25) and local Studio campaign control (P3-26) are implemented, while real-source perpetual data is fetched and its holdout carved (P3-24, ADR-0042). No live parity has been established.
 
 **Talk to the user in Vietnamese.** Code, identifiers, commit messages, docstrings and `implement_docs/` are in English; `implement_docs_vi/` is its Vietnamese 1:1 mirror, for the user.
 

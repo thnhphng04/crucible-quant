@@ -25,11 +25,17 @@ import pandas as pd
 from quantcrucible.core.path_summary import SegmentedPath
 from quantcrucible.core.perp_inputs import Bracket, PerpBundle, brackets_of
 from quantcrucible.core.strategy.base import Bars
-from quantcrucible.data.perp_source import CoverageError, PerpData, PerpSource
+from quantcrucible.data.perp_source import (
+    CoverageError,
+    PerpData,
+    PerpSource,
+    settlement_minute_ms,
+)
 from quantcrucible.data.perp_store import (
     MINUTE_MS,
     download_minutes,
     minute_path,
+    read_mark_fills,
     read_minutes,
     rebuild_summaries,
 )
@@ -50,6 +56,7 @@ class PerpCoverage:
     minute_rows: int
     funding_rows: int
     path_rows: int
+    mark_fills: tuple[int, ...] = ()  # mark minutes (open, ms) taken from trade bars, ADR-0042
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +143,9 @@ def prepare_perpetual(
             minute_rows=len(mark_minutes),
             funding_rows=len(funding),
             path_rows=len(paths),
+            mark_fills=tuple(
+                t for t in read_mark_fills(root, symbol) if _ms(start_utc) <= t < _ms(end_utc)
+            ),
         )
 
     return PerpetualPreparation(data=data, coverage=coverage, brackets=brackets)
@@ -287,16 +297,20 @@ def _funding_rows(
     minute_ns = MINUTE_MS * 1_000_000
     for ts_ns_float, rate in funding:
         ts_ns = int(ts_ns_float)
+        # Binance stamps a settlement a few ms off the boundary (08:00:00.005). It belongs to
+        # its nearest minute — the rule the replay and the kernel use to find its path segment —
+        # so bar, cut and mark are all read from that minute; the row keeps the venue's stamp.
+        at_ns = settlement_minute_ms(ts_ns // 1_000_000) * 1_000_000
         # OHLCV timestamps name the minute OPEN. At settlement the 08:00 minute has not
         # closed yet, so its close would look one minute into the future. The last known
         # mark is the close of 07:59; the start-boundary event has no such minute in this
         # window and cannot affect a position opened after the boundary.
-        if ts_ns <= first_mark_ns:
+        if at_ns <= first_mark_ns:
             continue
-        bar_ix = int(np.searchsorted(close_ns, ts_ns, side="right"))
+        bar_ix = int(np.searchsorted(close_ns, at_ns, side="right"))
         if bar_ix >= len(trades):
             continue
-        mark_at = ts_ns - minute_ns
+        mark_at = at_ns - minute_ns
         if mark_at not in minute_mark:
             raise CoverageError(
                 f"{symbol}: no completed one-minute mark before funding settlement "

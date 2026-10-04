@@ -2,7 +2,7 @@
 
 *An AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 
-> **Status:** phase-3 implementation. Fixed SL/TP and maximum holding exits are merged (P3-25); the local Studio UI for configuring, creating and running campaigns is implemented (P3-26); real-source perpetual coverage remains open (P3-24). No strategy has been validated for live trading. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
+> **Status:** phase-3 implementation. Fixed SL/TP and maximum holding exits are merged (P3-25); the local Studio UI for configuring, creating and running campaigns is implemented (P3-26); real-source perpetual data is fetched and its holdout carved (P3-24, ADR-0042). No strategy has been validated for live trading. Build plan: [implement_docs/](implement_docs/README.md) · agent instructions: [CLAUDE.md](CLAUDE.md).
 
 ## What it is
 
@@ -32,7 +32,7 @@ Studio is the local control UI for the same project root ([ADR-0037](implement_d
 uv run python -m quantcrucible.cli studio             # http://127.0.0.1:8765
 ```
 
-Open **Campaign Studio**. Choose purpose, market, exchanges, symbols, timeframe and UTC date range; set the trial budget and bracket rules. Save a draft, choose **Chuẩn bị dữ liệu** to fetch and pin an immutable dataset, then **Xem trước** to check the lock, dataset and quota. Choose **Tạo campaign** only after the preview is valid. **Chạy campaign** starts or resumes search; **Đánh giá danh mục** is available for research campaigns after search. The job panel shows progress and supports stopping a job. Review screens remain available from Studio; `cli review` remains read-only. Studio binds to `127.0.0.1` and serializes project writes with one writer lock. Fetching real data requires access to the selected exchange; real-source perpetual coverage is still P3-24 work.
+Open **Campaign Studio**. Choose purpose, market, exchanges, symbols, timeframe and UTC date range; set the trial budget and bracket rules. Save a draft, choose **Chuẩn bị dữ liệu** to fetch and pin an immutable dataset, then **Xem trước** to check the lock, dataset and quota. Choose **Tạo campaign** only after the preview is valid. **Chạy campaign** starts or resumes search; **Đánh giá danh mục** is available for research campaigns after search. The job panel shows progress and supports stopping a job. Review screens remain available from Studio; `cli review` remains read-only. Studio binds to `127.0.0.1` and serializes project writes with one writer lock. Fetching real data requires access to the selected exchange; perpetual data needs a read-only Binance key in `.env` (run commands with `uv run --env-file .env`) for the leverage brackets, and `data-preflight` checks coverage before any download.
 
 ## Documentation
 

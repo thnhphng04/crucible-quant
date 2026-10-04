@@ -297,19 +297,29 @@ class PerpSource:
         symbol: str, funding_rows: list[dict[str, Any]], trade_rows: list[list[float]]
     ) -> None:
         """Funding must span the trade window. A short series is refused, never zero-filled:
-        a zero rate is a claim about the market, not an absence of data (INV-94)."""
+        a zero rate is a claim about the market, not an absence of data (INV-94).
+
+        Settlements are compared at their nearest minute: Binance stamps them a few ms off the
+        boundary, and a 00:00:00.005 settlement does cover a bar opening at 00:00.
+        """
         if not funding_rows:
             raise CoverageError(f"{symbol}: no funding history")
         last_trade_ms = int(trade_rows[-1][0])
-        last_funding_ms = int(funding_rows[-1]["timestamp"])
+        last_funding_ms = settlement_minute_ms(int(funding_rows[-1]["timestamp"]))
         first_trade_ms = int(trade_rows[0][0])
-        first_funding_ms = int(funding_rows[0]["timestamp"])
+        first_funding_ms = settlement_minute_ms(int(funding_rows[0]["timestamp"]))
         if first_funding_ms > first_trade_ms or last_funding_ms < last_trade_ms:
             raise CoverageError(
                 f"{symbol}: funding history covers "
                 f"{_day(first_funding_ms)}/{_day(last_funding_ms)} but the trade bars run "
                 f"{_day(first_trade_ms)}/{_day(last_trade_ms)} — refusing rather than filling"
             )
+
+
+def settlement_minute_ms(ms: int) -> int:
+    """The minute a funding settlement belongs to: its nearest one, as the replay and the kernel
+    place it (``round((ts - open) / 1 min)``). Binance stamps settlements a few ms late."""
+    return round(ms / 60_000) * 60_000
 
 
 def _day(ms: int) -> str:

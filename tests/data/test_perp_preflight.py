@@ -107,17 +107,17 @@ def run(venue: FakeVenue, *, start: datetime, timeframe: str = "1h") -> Any:
 
 def test_the_common_window_starts_at_the_binding_listing() -> None:
     report = run(FakeVenue(), start=datetime(2020, 9, 15, tzinfo=UTC))
-    assert report.common_start == datetime(2020, 9, 14, 8, 0, 0, 3000, tzinfo=UTC)
+    assert report.common_start == datetime(2020, 9, 14, 8, tzinfo=UTC)
     assert report.common_start.date().isoformat() == "2020-09-14"
     assert report.ok, report.problems
 
 
-def test_the_earliest_start_clears_the_late_stamped_first_funding_on_the_bar_grid() -> None:
-    """The fetch refuses a first trade bar older than the first funding event, and Binance
-    stamps settlements milliseconds late — so the earliest start is the next funding boundary
-    after it, never the listing instant."""
+def test_the_earliest_start_is_the_first_funding_on_the_bar_grid() -> None:
+    """The fetch refuses a first trade bar older than the first funding event. A settlement
+    stamped milliseconds late still belongs to its boundary minute (ADR-0042), so it does not
+    push the start a whole funding interval later."""
     report = run(FakeVenue(), start=datetime(2020, 9, 15, tzinfo=UTC))
-    assert report.earliest_start == datetime(2020, 9, 14, 16, tzinfo=UTC)
+    assert report.earliest_start == datetime(2020, 9, 14, 8, tzinfo=UTC)
     daily = run(FakeVenue(), start=datetime(2020, 9, 15, tzinfo=UTC), timeframe="1d")
     assert daily.earliest_start == datetime(2020, 9, 15, tzinfo=UTC)
 

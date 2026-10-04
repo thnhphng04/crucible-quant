@@ -24,8 +24,10 @@ import pytest
 from quantcrucible.data.manifest import verify_manifest
 from quantcrucible.data.perp_source import CoverageError, PerpSource
 from quantcrucible.data.perp_store import (
+    MAX_MARK_FILL_MINUTES,
     download_minutes,
     minute_path,
+    read_mark_fills,
     read_minutes,
     rebuild_summaries,
     write_perp_manifest,
@@ -239,6 +241,21 @@ def test_summaries_can_cut_from_actual_funding_timestamps(tmp_path: Path) -> Non
     assert daily[0].starts == (0, 360, 1080)
 
 
+def test_a_settlement_stamped_milliseconds_off_the_minute_still_cuts_the_path(
+    tmp_path: Path,
+) -> None:
+    """Binance stamps settlements a few ms late (08:00:00.005). The cut rounds to the nearest
+    minute, as the replay and the kernel do — a dropped cut would make the replay refuse the bar
+    or, worse, apply funding to the wrong segment."""
+    ex = MinuteExchange(minutes=1_440)
+    end = START + timedelta(minutes=1_440)
+    download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, end, kind="mark")
+    base = int(START.timestamp() * 1000)
+    late = [base + 6 * 3_600_000 + 5, base + 18 * 3_600_000 - 3]
+    daily = rebuild_summaries(tmp_path, "BTC/USDT:USDT", "1d", kind="mark", funding_times=late)
+    assert daily[0].starts == (0, 360, 1080)
+
+
 def test_funding_iterator_is_applied_to_every_bar(tmp_path: Path) -> None:
     ex = MinuteExchange(minutes=2_880)
     end = START + timedelta(minutes=2_880)
@@ -291,3 +308,100 @@ def test_the_download_is_checksummed_and_a_changed_file_is_caught(tmp_path: Path
     frame.head(999).to_parquet(path, index=False)  # a truncated checkpoint page
     with pytest.raises(CoverageError, match="checksum"):
         verify_manifest(tmp_path / "manifest.json", tmp_path)
+
+
+# --- ADR-0042: a short mark gap is filled from the same minute's trade bar, and recorded ------
+
+
+class GappyExchange(MinuteExchange):
+    """Real Binance mark history has holes (24 minutes on 2020-12-17 on every contract). A page
+    skips the missing minutes and still returns ``limit`` rows; trade bars are complete and
+    priced apart from the marks, so a fill is visibly the trade bar."""
+
+    def __init__(self, minutes: int, *, mark_gap: range, trade_gap: range = range(0)) -> None:
+        super().__init__(minutes=minutes)
+        self.mark_gap = mark_gap
+        self.trade_gap = trade_gap
+
+    def _page(self, since: int, limit: int, skip: range, shift: float) -> list[list[float]]:
+        self.calls += 1
+        base = int(START.timestamp() * 1000)
+        i = max(0, -(-(since - base) // MINUTE_MS))
+        out: list[list[float]] = []
+        while i < self.minutes and len(out) < limit:
+            if i not in skip:
+                mid = 100.0 + (i % 60) * 0.01 + shift
+                out.append([base + i * MINUTE_MS, mid, mid + 0.05, mid - 0.05, mid, 1.0])
+            i += 1
+        return out
+
+    def fetch_mark_ohlcv(
+        self, symbol: str, timeframe: str, since: int, limit: int
+    ) -> list[list[float]]:
+        return self._page(since, limit, self.mark_gap, 0.0)
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str, since: int, limit: int) -> list[list[float]]:
+        return self._page(since, limit, self.trade_gap, 7.0)
+
+
+def _both(ex: MinuteExchange, root: Path, minutes: int) -> None:
+    end = START + timedelta(minutes=minutes)
+    download_minutes(source(ex), root, "BTC/USDT:USDT", START, end, kind="trade")
+    download_minutes(source(ex), root, "BTC/USDT:USDT", START, end, kind="mark")
+
+
+def test_a_short_mark_gap_is_filled_from_the_same_minutes_trade_bar(tmp_path: Path) -> None:
+    gap = range(500, 524)  # 24 minutes, as on 2020-12-17
+    _both(GappyExchange(3_000, mark_gap=gap), tmp_path, 3_000)
+    mark = read_minutes(minute_path(tmp_path, "BTC/USDT:USDT", "mark"))
+    trade = read_minutes(minute_path(tmp_path, "BTC/USDT:USDT", "trade"))
+    assert len(mark) == 3_000
+    assert (mark["ts"].diff().dropna() == MINUTE_MS).all()
+    filled = mark.iloc[gap.start : gap.stop].reset_index(drop=True)
+    source_rows = trade.iloc[gap.start : gap.stop].reset_index(drop=True)
+    for column in ("ts", "open", "high", "low", "close"):
+        assert filled[column].tolist() == source_rows[column].tolist()
+    assert mark.iloc[gap.stop]["close"] != trade.iloc[gap.stop]["close"]  # only the gap moved
+    base = int(START.timestamp() * 1000)
+    assert read_mark_fills(tmp_path, "BTC/USDT:USDT") == tuple(base + i * MINUTE_MS for i in gap)
+
+
+def test_a_gap_across_a_page_boundary_is_filled(tmp_path: Path) -> None:
+    gap = range(990, 1_010)
+    _both(GappyExchange(3_000, mark_gap=gap), tmp_path, 3_000)
+    assert len(read_minutes(minute_path(tmp_path, "BTC/USDT:USDT", "mark"))) == 3_000
+    assert len(read_mark_fills(tmp_path, "BTC/USDT:USDT")) == 20
+
+
+def test_a_mark_gap_longer_than_the_cap_is_refused(tmp_path: Path) -> None:
+    gap = range(500, 500 + MAX_MARK_FILL_MINUTES + 1)
+    with pytest.raises(CoverageError, match="missing minute"):
+        _both(GappyExchange(3_000, mark_gap=gap), tmp_path, 3_000)
+    assert read_mark_fills(tmp_path, "BTC/USDT:USDT") == ()
+
+
+def test_a_mark_gap_without_trade_minutes_is_refused(tmp_path: Path) -> None:
+    ex = GappyExchange(3_000, mark_gap=range(500, 510))
+    end = START + timedelta(minutes=3_000)
+    with pytest.raises(CoverageError, match="missing minute"):
+        download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, end, kind="mark")
+
+
+def test_a_trade_gap_is_never_filled(tmp_path: Path) -> None:
+    ex = GappyExchange(3_000, mark_gap=range(0), trade_gap=range(500, 502))
+    end = START + timedelta(minutes=3_000)
+    with pytest.raises(CoverageError, match="missing minute"):
+        download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, end, kind="trade")
+
+
+def test_fills_survive_a_resume_and_a_rerun_adds_none(tmp_path: Path) -> None:
+    ex = GappyExchange(3_000, mark_gap=range(500, 524))
+    half = START + timedelta(minutes=1_500)
+    end = START + timedelta(minutes=3_000)
+    download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, end, kind="trade")
+    download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, half, kind="mark")
+    download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, end, kind="mark")
+    ex.calls = 0
+    assert download_minutes(source(ex), tmp_path, "BTC/USDT:USDT", START, end, kind="mark") == 0
+    assert len(read_mark_fills(tmp_path, "BTC/USDT:USDT")) == 24
+    assert len(read_minutes(minute_path(tmp_path, "BTC/USDT:USDT", "mark"))) == 3_000

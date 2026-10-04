@@ -14,8 +14,9 @@ carve wastes a holdout. So before either, each contract is asked one cheap quest
 The **common start** is the latest first timestamp of any series of any contract: the binding
 listing (SOLUSDT at 2020-09-14 on the real venue, ADR-0031). The **earliest start** the fetch
 accepts is that instant rounded up to the coarser of the bar and funding grids, because the
-fetch refuses a first bar older than the first funding event, and Binance stamps settlements a
-few milliseconds after the boundary.
+fetch refuses a first bar older than the first funding event. Settlements are read at their
+nearest minute (:func:`~quantcrucible.data.perp_source.settlement_minute_ms`): Binance stamps
+them a few milliseconds off the boundary.
 
 Nothing here writes: no file, no manifest, no lock, no ledger row. It reports; the caller
 refuses.
@@ -27,7 +28,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from quantcrucible.data.perp_source import CoverageError, PerpSource, common_window
+from quantcrucible.data.perp_source import (
+    CoverageError,
+    PerpSource,
+    common_window,
+    settlement_minute_ms,
+)
 from quantcrucible.data.source import timeframe_delta
 
 __all__ = ["PerpPreflight", "PerpSource", "preflight_perpetual"]
@@ -201,6 +207,8 @@ def _span(
     # An empty tail means the series stopped earlier; the first row stands in, and fails the
     # caller's end check.
     last = max(tail) if tail else first[0]
+    if kind == "funding":  # a settlement belongs to its nearest minute
+        return Span(_at(settlement_minute_ms(first[0])), _at(settlement_minute_ms(last)))
     return Span(_at(first[0]), _at(last))
 
 

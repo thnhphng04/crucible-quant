@@ -440,20 +440,20 @@ trade bars alone. These tasks wire them in, fetch real data, and take the phase 
 **Files:** `review/repository.py`, `review/app.py`, `ui/src/lib/types.ts`, `ui/src/screens/Portfolios.tsx`.
 **Accept when:** starting equity plus the summed contributions equals account equity within rounding, including with positions open; absent data reads `Chưa có`, never `0`.
 
-### ☐ P3-24 Real fetch, preflight, dry-run lock
-**Goal:** the phase gate's fifth condition. **Arch:** §6.1, D18. **Needs:** P3-17
-**Files:** `cli.py` (`data-preflight`; `data-fetch --market perp` runs it first), new `data/perp_preflight.py`, `data/perp_source.py`.
-**Accept when:** perpetual OHLCV, mark, funding and brackets share enough coverage to lock; `common_window` returns 2020-09-14; a dry run changes no lock, opens no campaign and claims no holdout. **Evidence (2026-10-02, real Binance, read-only key):** `data-preflight` on the five contracts, 1h, 12-month holdout read 10–12 bracket tiers per contract and found the common window at **2020-09-14** (binding SOLUSDT; first bar every series covers 2020-09-14 08:00 UTC, so the config start is 2020-09-15) — 5.05 years of IS; `start: 2020-09-14` is refused, `2020-09-15` passes, and the run wrote nothing. Tests: `tests/data/test_perp_preflight.py`, `tests/test_perp_cli.py::test_dryrun_leaves_lock_ledger_and_holdout_claim_untouched`. **Open:** the real minute download and the write-once perpetual carve (`data-fetch --market perp`), then `campaign-dryrun` on that data — the carve fixes the holdout window, so it waits for the user.
+### ✅ P3-24 Real fetch, preflight, dry-run lock
+**Goal:** the phase gate's fifth condition. **Arch:** §6.1, D18. **Needs:** P3-17 · **Decision:** [ADR-0042](adr/0042-short-mark-gaps-are-filled-from-trade-bars.md)
+**Files:** `cli.py` (`data-preflight`; `data-fetch --market perp` runs it first; `campaign-dryrun` previews the real lock), new `data/perp_preflight.py`, `data/perp_source.py`, `data/perp_store.py`, `data/perp_pipeline.py`, `validation/run.py` (`new_campaign_derived`).
+**Accept when:** perpetual OHLCV, mark, funding and brackets share enough coverage to lock; `common_window` returns 2020-09-14; a dry run changes no lock, opens no campaign and claims no holdout. **Evidence (2026-10-02, real Binance, read-only key):** `data-preflight` on the five contracts, 1h, 12-month holdout read 10–12 bracket tiers per contract and found the common window at **2020-09-14** (binding SOLUSDT; first bar every series covers 2020-09-14 08:00 UTC, so the config start is 2020-09-15) — 5.05 years of IS; `start: 2020-09-14` is refused, `2020-09-15` passes, and the run wrote nothing. Tests: `tests/data/test_perp_preflight.py`, `tests/test_perp_cli.py::test_dryrun_leaves_lock_ledger_and_holdout_claim_untouched`. **Real fetch and carve (2026-10-04):** `data-fetch --market perp` (start 2020-09-15, end 2026-10-02, 1h) downloaded ~31.8k minute pages and stopped twice on the venue: (1) the mark history has holes — filled from same-minute trade bars under a 60-minute cap and recorded (ADR-0042, INV-116): BTC 24, ETH 35, SOL 32, BNB 28, XRP 31 minutes, exactly the holes an archive survey re-checked against the API had found; (2) settlements stamped milliseconds off the minute, which the path cuts had silently dropped — now placed at their nearest minute as the replay does (INV-117). The carve then locked the perpetual holdout 2025-10-02/2026-10-03 with 31 checksummed IS files. **Dry run on that data:** the lock preview carries every tag a real open writes (it had lacked them: `new_campaign_derived`, `tests/test_perp_cli.py::test_the_dryrun_previews_the_lock_a_real_open_writes`); lock and ledger byte-identical afterwards; its only refusal is the OPEN spot `harness_test` campaign `c-20260930-170212`, as it must be.
 
 **Phase-3 gate:** fixtures prove the joint-account path and the real-data preflight passes. **No real campaign opens inside this phase** — its shape is a separate decision, and the headroom is 1,185 trials.
 
 **Current status.** P3-16 through P3-23 are implemented and tested: the sandbox now receives
 mark, funding, paths and brackets; gates ③/④/⑥′, holdout replay and the account chart use them.
-P3-24's real-source preflight passed on 2026-10-02 (common window 2020-09-14, brackets read with a read-only key); the real minute download, the perpetual carve and a dry run on that data remain, and none of them opens a campaign. P3-25 adds
+P3-24 is done: the real-source preflight passed on 2026-10-02, and on 2026-10-04 the real data was fetched, the perpetual holdout carved and a dry run checked on it — no campaign opened. P3-25 adds
 the versioned bracket exit without reinterpreting any earlier campaign or result.
 
 The old sandbox-payload blocker is resolved. The phase gate's real-data preflight condition is
-met; P3-24 stays open until the carve and its dry run are verified on that window.
+met, and the carve and its dry run are verified on that window.
 
 **Five defects found in review, all fixed (INV-92c, INV-93, INV-93c, INV-95b).** Each was code
 whose tests passed while the path a campaign actually takes was broken. `RiskSizer` returned 0

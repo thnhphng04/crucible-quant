@@ -30,7 +30,11 @@ class AssemblyExchange:
         funding_offsets_hours: tuple[int, ...] = (0, 8, 16, 24, 32, 40),
         tiers: list[dict[str, Any]] | None = None,
         gap_minute: int | None = None,
+        mark_gap: range = range(0),
+        stamp_offset_ms: int = 0,
     ) -> None:
+        self.mark_gap = mark_gap
+        self.stamp_offset_ms = stamp_offset_ms
         self.funding_offsets_hours = funding_offsets_hours
         self.tiers = (
             tiers
@@ -60,7 +64,7 @@ class AssemblyExchange:
         base = int(START.timestamp() * 1000)
         rows = []
         for h in self.funding_offsets_hours:
-            ts = base + h * 60 * MINUTE_MS
+            ts = base + h * 60 * MINUTE_MS + self.stamp_offset_ms
             if ts >= since:
                 rows.append({"timestamp": ts, "fundingRate": 0.0001 + h / 1_000_000})
         return rows[:limit]
@@ -82,7 +86,10 @@ class AssemblyExchange:
         rows: list[list[float]] = []
         i = first
         while len(rows) < limit:
-            if timeframe == "1m" and self.gap_minute is not None and i == self.gap_minute:
+            if timeframe == "1m" and (
+                (self.gap_minute is not None and i == self.gap_minute)
+                or (kind == "mark" and i in self.mark_gap)
+            ):
                 i += 1
                 continue
             ts = base + i * step
@@ -230,6 +237,48 @@ def test_prepare_refuses_minute_gaps(tmp_path: Path) -> None:
             START,
             START + timedelta(days=1),
         )
+
+
+def test_a_short_mark_gap_is_filled_and_reported_in_the_coverage(tmp_path: Path) -> None:
+    """ADR-0042: the 24-minute hole every contract has on 2020-12-17 must not block the fetch;
+    the filled minutes travel with the coverage so the CLI can record them in the manifest."""
+    prep = prepare_perpetual(
+        source(AssemblyExchange(mark_gap=range(452, 476))),
+        tmp_path,
+        [SYMBOL],
+        "1h",
+        START,
+        START + timedelta(days=1),
+    )
+    base = int(START.timestamp() * 1000)
+    assert prep.coverage[SYMBOL].mark_fills == tuple(base + i * MINUTE_MS for i in range(452, 476))
+    assert prep.coverage[SYMBOL].minute_rows == 1_440
+    trades, bundle = prep.data[SYMBOL]
+    bundle.aligned_with(trades)
+
+
+@pytest.mark.parametrize("timeframe", ["1d", "1h"])
+def test_settlements_stamped_milliseconds_late_assemble_like_exact_ones(
+    tmp_path: Path, timeframe: str
+) -> None:
+    """The real venue stamps settlements a few ms after the boundary; the first real fetch
+    stopped on it. A late stamp lands in the same bar and cut, with the mark of the last
+    completed minute before it — exactly what an on-the-minute stamp gives."""
+
+    def prepared(offset: int, folder: str) -> Any:
+        return prepare_perpetual(
+            source(AssemblyExchange(stamp_offset_ms=offset)),
+            tmp_path / folder,
+            [SYMBOL],
+            timeframe,
+            START,
+            START + timedelta(days=1),
+        ).data[SYMBOL][1]
+
+    exact, late = prepared(0, "exact"), prepared(5, "late")
+    assert late.funding[:, [0, 2, 3]].tolist() == exact.funding[:, [0, 2, 3]].tolist()
+    assert [p.starts for p in late.paths] == [p.starts for p in exact.paths]
+    assert [p.starts for p in late.trade_paths] == [p.starts for p in exact.trade_paths]
 
 
 def test_prepare_refuses_missing_brackets(tmp_path: Path) -> None:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from quantcrucible.cli import campaign_dryrun, main
 from quantcrucible.data.manifest import write_manifest
 from quantcrucible.ledger.db import Ledger
@@ -71,6 +73,53 @@ def test_dryrun_leaves_lock_ledger_and_holdout_claim_untouched(tmp_path: Path) -
     assert ledger.campaigns() == []
     assert ledger.holdout_collision("2029-01-01/2030-01-01", None) is None
     ledger.close()
+
+
+def test_the_dryrun_previews_the_lock_a_real_open_writes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """P3-24 on real data found the preview without the protocol tags every new campaign is
+    locked with (exit, numerics, portfolio, stop period, resolved data end)."""
+    import yaml
+
+    from quantcrucible.config.loader import load_user_config
+    from quantcrucible.validation.run import new_campaign_derived
+
+    config = _project(tmp_path)
+    assert campaign_dryrun(config, tmp_path) == 0
+    preview = yaml.safe_load(capsys.readouterr().out)
+    expected = new_campaign_derived(load_user_config(config))
+    for key, value in expected.items():
+        assert preview["derived"][key] == value, key
+    assert preview["derived"]["resolved_data_end"] == "2029-12-31"
+
+
+def test_mark_fills_are_recorded_for_the_in_sample_window_only(tmp_path: Path) -> None:
+    """ADR-0042: the record sits beside the IS bundle (and so inside its manifest) and says
+    nothing about the holdout window."""
+    from datetime import UTC, datetime
+
+    from quantcrucible.cli import _write_mark_fills
+    from quantcrucible.data.perp_pipeline import PerpCoverage
+
+    def ms(text: str) -> int:
+        return int(datetime.fromisoformat(text).replace(tzinfo=UTC).timestamp() * 1000)
+
+    start, end = datetime(2020, 9, 15, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+    coverage = {
+        "BTC/USDT:USDT": PerpCoverage(
+            "BTC/USDT:USDT", "1h", start, end, 0, 0, 0, 0,
+            mark_fills=(ms("2020-12-17 07:32"), ms("2020-12-17 07:33"), ms("2026-01-05 10:00")),
+        ),
+        "ETH/USDT:USDT": PerpCoverage("ETH/USDT:USDT", "1h", start, end, 0, 0, 0, 0),
+    }  # fmt: skip
+    counts = _write_mark_fills(tmp_path, coverage, datetime(2025, 10, 2, tzinfo=UTC))
+    assert counts == {"BTC/USDT:USDT": 2, "ETH/USDT:USDT": 0}
+    record = json.loads((tmp_path / "mark_fills.json").read_text(encoding="utf-8"))
+    assert record == {
+        "BTC/USDT:USDT": ["2020-12-17 07:32", "2020-12-17 07:33"],
+        "ETH/USDT:USDT": [],
+    }
 
 
 def test_market_flag_must_match_locked_config(tmp_path: Path) -> None:
