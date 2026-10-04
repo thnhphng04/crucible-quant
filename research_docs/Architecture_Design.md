@@ -3,7 +3,7 @@
 > *Crucible Quant — an AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 >
 > Design for an AI system that generates and validates deterministic, multi-market trading strategies.
-> Version: 0.11 (draft) · Date: 2026-10-02
+> Version: 0.12 (draft) · Date: 2026-10-04
 > Research foundation: [[00-RESEARCH-SYNTHESIS]] · [[04-SCHOOL-B-EFFICACY]] · [[06-MULTI-MARKET-PLATFORM]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Changes 0.1 → 0.2** (source: the 22-system survey in [[08-LLM-QUANT-RESEARCHER]]): the QuantEvolve architecture was independently confirmed by MadEvolve (§3.1) · added mandatory deviations **#5 closed DSL** and **#6 fresh-context reviewer** (§3.1.6) · **DSR computed on the consolidated portfolio, not per cell** (§3.1.6 — the easiest thing to get wrong) · added **gate ⓪ spec-drift** (§3.1.7) · replaced the "use small models" recommendation with a **heterogeneous routing table + a warning against reasoning models** (§3.1.9) · ledger gained `model_used` / `gen_attempts` / `gen_failures` / `drift_delta` plus the `starved_cells` view (§4.1) · **P6 raised to OS level, evaluator runs in its own process** (§4.2) · meta-evolution and RFT removed from scope (§9) · warning against using paper numbers as benchmarks (§11)
@@ -25,6 +25,8 @@
 > **Changes 0.9 → 0.10** (ADR-0038–0040, 30 Sep–1 Oct 2026): engine-C genomes run on host numba kernels, bit-exact with the Python replay, precision locked per campaign (D23) · new campaigns lock `derived.portfolio_protocol: shared_account_v1`: a spot portfolio, like a perpetual one, is one shared account with a member per `(instrument, direction)` slot, the 10% cap, on the union of the time axes; old locks keep the cell + 1/σ rule (§3.2.1, D9)
 
 > **Changes 0.10 → 0.11** (ADR-0041, 2 Oct 2026): new campaigns lock `derived.stop_period: tunable_v1` — the stop's period (ATR or Bollinger band) becomes the gene `n_stop` (a TUNABLE, [5, 50]) and the TUNABLE cap becomes **7**; ATR(14) stays the yardstick for the `ready` guard and the `Distance` clause; old locks keep the cap of 6 and the 14/8 periods (§3.2, §3.3.1, D24)
+
+> **Changes 0.11 → 0.12** (ADR-0042, 4 Oct 2026): the Group B key `research.exit.stop_kinds` (default `[atr]`) chooses a campaign's stop kinds; the Bollinger stop is off for new campaigns because it is `<= 0` exactly when mean-reversion clauses fire; old locks without the key keep the stop kinds their exit ran with (§3.3.1, D25)
 
 ---
 
@@ -636,7 +638,7 @@ class GeneratedStrategy(Strategy):
     # ═══ EVOLVE-BLOCK-START: regime ═══     market-regime filter (trading on/off)
 ```
 
-`evolve_scope` in `user.yaml` selects editable blocks; the others are locked and counted in the fixed-region hash (rule 1). For new campaigns, `exit` may change only the ATR/Bollinger stop method, not the TP/SL ratio, trigger order or timeout. Module-wise blocks remain a template capability; engine C currently emits one `joint` block (O13). Sizing is **never** evolvable — it belongs to Risk. Trials from every scope contribute to `N`.
+`evolve_scope` in `user.yaml` selects editable blocks; the others are locked and counted in the fixed-region hash (rule 1). For new campaigns, `exit` may change only the stop method, among the kinds the lock's `research.exit.stop_kinds` allows (ATR only by default, D25), not the TP/SL ratio, trigger order or timeout. Module-wise blocks remain a template capability; engine C currently emits one `joint` block (O13). Sizing is **never** evolvable — it belongs to Risk. Trials from every scope contribute to `N`.
 
 #### 3.3.2. 🆕 Evaluator contract: public / private metrics
 
@@ -1187,6 +1189,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D22 | Local Studio UI | ✅ Implemented | `cli studio` is the local control surface on `127.0.0.1`: drafts do not write config/ledger; preview has no side effect; Create/Run use the same services as CLI, immutable dataset v1, a separate job store and one writer lock; `cli review` remains read-only | ADR-0037 succeeds ADR-0029. No remote access, live trading, automatic freeze or holdout opening through Studio |
 | D23 | Backtest engine & precision | ✅ Decided (30 Sep 2026) | Engine-C genomes run on host numba kernels (CUDA primary, njit fallback), bit-exact with the Python replay; precision `float64 \| float32` locked per campaign, equal standing (fp32 may open the holdout); an fp32 campaign refuses strategies without a genome; the holdout self-tests the GPU before its claim | ADR-0038, ADR-0039. An old lock without the key ⇒ float64 |
 | D24 | Stop period as a TUNABLE | ✅ Decided (2 Oct 2026) | New campaigns lock `derived.stop_period: tunable_v1` and `derived.max_tunables: 7`: every genome carries a gene `n_stop` ∈ [5, 50] — the ATR period of an ATR stop (its own `atr_stop` feature) or the band period of a Bollinger stop (the 2σ multiplier stays); ATR(14) stays the yardstick for the `ready` guard and `Distance`; `n_stop` enters the PBO grid, the complexity penalty and the TUNABLE cap like any other parameter | ADR-0041, superseding ADR-0036's Bollinger(8). An old lock without the key ⇒ cap 6, periods 14/8, renders byte for byte as before |
+| D25 | Stop kinds | ✅ Decided (4 Oct 2026) | Group B key `research.exit.stop_kinds`, default `[atr]`: the Bollinger stop is off for new campaigns (it is `<= 0` exactly when mean-reversion clauses fire, P3-54); `[atr, bollinger]` brings it back for a new campaign without a code change; gate ①a refuses Bollinger bands where the lock does not allow them | ADR-0042, amending D21. An old lock without the key keeps the stop kinds its exit ran with (bracket: both) |
 
 > ✅ **Every 🟡 row is user-configurable** (decided 21 Sep 2026) — the numbers in the table are only the defaults used when the user sets nothing. How to configure, and the limits: §10.1.
 

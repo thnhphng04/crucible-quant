@@ -35,7 +35,11 @@ from quantcrucible.agent.pipeline import (
 )
 from quantcrucible.agent.runlock import RunLockError, campaign_run_lock
 from quantcrucible.agent.scheduler import Key, TrialScheduler, campaign_scopes, quotas
-from quantcrucible.core.strategy.tunable import lock_max_tunables, lock_stop_period
+from quantcrucible.core.strategy.tunable import (
+    lock_max_tunables,
+    lock_stop_kinds,
+    lock_stop_period,
+)
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.pbo_gate import periods_per_year
 from quantcrucible.validation.research_run import ResearchSession
@@ -72,12 +76,13 @@ def _submitted(session: ResearchSession, key: Key) -> int:
 
 
 def grammar_config(lock: Mapping[str, Any], key: Key) -> GrammarConfig:
-    """The grammar a unit of search samples from: the campaign's exit protocol, its stop-period
-    gene and TUNABLE cap (ADR-0041), and the side its scope searches (a legacy key is the
-    long-or-flat whole-basket search)."""
+    """The grammar a unit of search samples from: the campaign's exit protocol, its stop kinds
+    (ADR-0042), its stop-period gene and TUNABLE cap (ADR-0041), and the side its scope
+    searches (a legacy key is the long-or-flat whole-basket search)."""
     new_exit = lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
+    bollinger = new_exit and "bollinger" in lock_stop_kinds(lock)
     return GrammarConfig(
-        boll_stop_probability=0.5 if new_exit else 0.0,
+        boll_stop_probability=0.5 if bollinger else 0.0,
         tp_sl_ratio=float(lock["research"]["exit"]["tp_sl_ratio"]) if new_exit else None,
         direction="long" if key.is_legacy else key.direction,
         stop_period=lock_stop_period(lock),

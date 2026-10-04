@@ -76,6 +76,12 @@ Trần số trial của campaign. Bắt buộc phải có để chạy evolve.
 Khi campaign dùng exit protocol `bracket_timeout_v1`, take-profit luôn bằng
 `tp_sl_ratio × stop` (cố định cho cả campaign, **không** phải gene). Xem mục 2.
 
+### `research.exit.stop_kinds` — mặc định `[atr]` (D25, ADR-0042)
+Các loại stop genome được dùng. `[atr, bollinger]` bật lại stop Bollinger cho campaign mới. Tắt
+mặc định vì P3-54 đo được stop Bollinger `<= 0` (guard `ready` chặn tín hiệu) đúng lúc clause mean
+reversion kích hoạt. Gate ①a từ chối mọi `ind.boll_*` khi lock không cho phép. Lock cũ thiếu khoá
+giữ loại stop đã chạy (bracket: cả hai).
+
 ### `research.exit.max_holding_bars` — mặc định `100`
 Thoát theo thời gian của bracket. Không thuộc genome, GP không tiến hoá nó.
 
@@ -83,8 +89,9 @@ Thoát theo thời gian của bracket. Không thuộc genome, GP không tiến h
 
 ## 2. Tham số suy ra từ lock (`grammar_config` trong [run.py](src/quantcrucible/agent/run.py))
 
-### `boll_stop_probability` — `0.5` nếu exit protocol là `bracket_timeout_v1`, ngược lại `0.0`
-Xác suất genome mới dùng **stop Bollinger** thay cho **stop ATR**:
+### `boll_stop_probability` — `0.5` nếu exit là `bracket_timeout_v1` **và** lock cho phép `bollinger`, ngược lại `0.0`
+Xác suất genome mới dùng **stop Bollinger** thay cho **stop ATR**. Từ P3-55 (ADR-0042) campaign
+mới mặc định `stop_kinds: [atr]` ⇒ xác suất `0`; lock cũ thiếu khoá vẫn `0.5` (bracket).
 
 - ATR: `stop = k_stop × ATR(14)` — lock `stop_period: tunable_v1`: `k_stop × ATR(n_stop)`.
 - Bollinger: `stop = k_stop × (close − boll_lower(close, 8))` cho long,
@@ -117,7 +124,7 @@ lock khi mở campaign. Chi tiết ở mục 7.
 | `clause_count_weights` | `(0.5, 0.35, 0.15)` | Xác suất quy tắc vào lệnh có 1 / 2 / 3 clause. Thiên về quy tắc đơn giản |
 | `or_probability` | `0.3` | Khi ≥ 2 clause: xác suất ghép bằng `or` (ngược lại `and`). `and` làm tín hiệu thưa, `or` làm dày |
 | `take_profit_probability` | `0.0` | Xác suất sinh gene `k_tp`. Đang tắt: chế độ bracket dùng `tp_sl_ratio`, chế độ cũ thì execution bỏ qua TP (O19) — một `k_tp` khi đó là TUNABLE vô tác dụng |
-| `boll_stop_probability` | `0.0` (bracket: `0.5`) | Xem mục 2 |
+| `boll_stop_probability` | `0.0` (bracket + `bollinger` trong `stop_kinds`: `0.5`) | Xem mục 2 |
 | `tp_sl_ratio` | `None` | Xem mục 2 |
 | `direction` | `"long"` | Xem mục 2 |
 | `stop_period` | `False` (lock `tunable_v1`: `True`) | Mỗi genome có gene `n_stop` — period của stop (mục 3.3, 3.4) |
@@ -389,7 +396,8 @@ có gì mới ⇒ `RuntimeError`.
 | `gp.plateau_threshold` | 0.5 | `config/user.yaml` (dùng ở gate ④) |
 | `seeds` | 3 | `config/user.yaml` |
 | `exit.tp_sl_ratio` | 1.1 | `config/user.yaml` |
-| `boll_stop_probability` | 0.5 / 0 | Suy ra từ exit protocol |
+| `exit.stop_kinds` | [atr] | `config/user.yaml` |
+| `boll_stop_probability` | 0.5 / 0 | Suy ra từ exit protocol + `stop_kinds` |
 | `clause_count_weights` | 0.5 / 0.35 / 0.15 | `grammar.py` |
 | `or_probability` | 0.3 | `grammar.py` |
 | `take_profit_probability` | 0 | `grammar.py` |

@@ -47,7 +47,8 @@ def _build(tp: Any, value: Any, where: str) -> Any:
     if origin is tuple:
         if not isinstance(value, list | tuple) or not all(isinstance(v, str) for v in value):
             raise ConfigError(f"{where}: expected a list of strings")
-        return tuple(value)
+        item = get_args(tp)[0]
+        return tuple(value if item is str else (_build(item, v, where) for v in value))
     if tp is bool:
         if not isinstance(value, bool):
             raise ConfigError(f"{where}: expected true/false, got {value!r}")
@@ -156,6 +157,8 @@ def _validate(cfg: UserConfig) -> None:
         problems.append("research.exit.tp_sl_ratio must be finite and > 0")
     if r.exit.max_holding_bars <= 0:
         problems.append("research.exit.max_holding_bars must be > 0")
+    if not r.exit.stop_kinds or len(set(r.exit.stop_kinds)) != len(r.exit.stop_kinds):
+        problems.append("research.exit.stop_kinds must name at least one kind, each once")
     compute = cfg.operational.compute
     if not AUDIT_RATE_FLOOR <= compute.audit_rate <= 1:
         problems.append(

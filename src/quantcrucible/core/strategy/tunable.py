@@ -94,6 +94,20 @@ def lock_stop_period(lock: Mapping[str, Any]) -> bool:
     return bool(lock.get("derived", {}).get("stop_period") == STOP_PERIOD_TUNABLE)
 
 
+STOP_KINDS = ("atr", "bollinger")
+
+
+def lock_stop_kinds(lock: Mapping[str, Any]) -> tuple[str, ...]:
+    """The stops a campaign's genomes may use (ADR-0042): the locked ``research.exit.stop_kinds``
+    or, for a lock written before the key, what its exit protocol ran with — both kinds under
+    ``bracket_timeout_v1``, the ATR stop alone before it."""
+    exit_cfg = lock.get("research", {}).get("exit") or {}
+    if "stop_kinds" in exit_cfg:
+        return tuple(str(k) for k in exit_cfg["stop_kinds"])
+    bracket = lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
+    return STOP_KINDS if bracket else ("atr",)
+
+
 def default_params(tunables: list[Tunable]) -> dict[str, float | int]:
     return {t.name: t.value for t in tunables}
 
