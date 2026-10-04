@@ -1,6 +1,6 @@
 # ADR-0041 — Stop period as a TUNABLE gene
 
-- **Status:** Accepted
+- **Status:** Accepted; its separate ATR(14) guard amended by [ADR-0047](0047-volatility-clauses-and-one-atr.md)
 - **Date:** 2026-10-02
 - **Task:** P3-53 · **Arch:** §3.2, §3.3.1 r2, §10 D24 · **Open item:** —
 

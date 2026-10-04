@@ -551,6 +551,11 @@ def _evaluate(expr: str, params: Mapping[str, Any], bars: Bars) -> Any:
         return registry.spread_stdev(
             _evaluate(a, params, bars), _evaluate(b, params, bars), period(n)
         )
+    if expr.startswith(("ind.atr_ratio(bars, ", "ind.band_ratio(bars.close, ")):  # ADR-0047
+        name, _, args = expr.removeprefix("ind.").removesuffix(")").partition("(")
+        source, fast, slow = _split_args(args)
+        data = bars if source == "bars" else bars.close
+        return getattr(registry, name)(data, period(fast), period(slow))
     op, _, arg = expr.removeprefix("ind.").removesuffix(")").partition("(bars.close, ")
     if registry.INDICATORS.get(op) != "series":
         raise Unsupported(f"unknown feature {expr!r}")

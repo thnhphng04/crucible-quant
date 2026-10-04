@@ -17,6 +17,7 @@ pytest.importorskip("numba")
 from quantcrucible.config.schema import Compute
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.core.strategy.genome import (
+    Bandwidth,
     Close,
     Combine,
     Cross,
@@ -25,6 +26,7 @@ from quantcrucible.core.strategy.genome import (
     Indicator,
     Param,
     Slope,
+    VolRatio,
     render_genome,
 )
 from quantcrucible.core.strategy.template import load_strategy_class
@@ -184,6 +186,48 @@ def test_a_spread_distance_job_runs_on_the_kernel_and_reports_like_the_sandbox(k
     """INV-119: the kernel's report — signals, fills and indicator_corr — equals the sandbox's."""
     job = _spread_job(kind)
     assert "ind.spread_stdev(" in job.source
+    res = _router(FakeSandbox(), FP64).run(job)
+    assert res.ok and res.engine == "cpu_kernel" and res.report is not None
+    canonical = FakeSandbox().run(job).report
+    assert canonical is not None
+    assert _canon(res.report["result"]) == _canon(canonical["result"])
+    if kind == "backtest":
+        assert res.report["result"]["public"]["n_trades"] > 0
+
+
+def _volatility_job(kind: str, clause: type) -> SandboxJob:
+    """One of grammar v5's volatility ratios (ADR-0047) — two would pass the cap of 7."""
+    if clause is VolRatio:
+        c: VolRatio | Bandwidth = VolRatio(
+            Param("period", 5, 50, 10), Param("period", 60, 300, 60), ">",
+            Param("level", 0.6, 1.6, 1.0),
+        )  # fmt: skip
+    else:
+        c = Bandwidth(
+            Param("period", 5, 50, 8), Param("period", 60, 300, 80), "<",
+            Param("level", 0.3, 2.5, 0.9),
+        )  # fmt: skip
+    g = Genome(c, Param("mult", 0.5, 5.0, 1.5), stop_period=Param("period", 5, 50, 14))
+    src, params = render_genome(g, "long", 1.1)
+    options = dict(OPTIONS)
+    if kind == "grid_backtest":
+        options["grid"] = [
+            params,
+            {**params, "n2": 70},
+            {**params, "lv1": 1.2},
+            {**params, "n1": 6},
+        ]
+    return SandboxJob(kind, src, _bars(), params, options)
+
+
+@pytest.mark.parametrize("clause", [VolRatio, Bandwidth])
+@pytest.mark.parametrize("kind", ["backtest", "grid_backtest"])
+def test_a_volatility_job_runs_on_the_kernel_and_reports_like_the_sandbox(
+    kind: str, clause: type
+) -> None:
+    """INV-121: the kernel's report on a volatility ratio equals the sandbox's."""
+    job = _volatility_job(kind, clause)
+    assert ("ind.atr_ratio(" if clause is VolRatio else "ind.band_ratio(") in job.source
     res = _router(FakeSandbox(), FP64).run(job)
     assert res.ok and res.engine == "cpu_kernel" and res.report is not None
     canonical = FakeSandbox().run(job).report

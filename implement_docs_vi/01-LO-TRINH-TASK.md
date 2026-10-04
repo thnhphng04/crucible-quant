@@ -582,6 +582,12 @@ Genome engine C chạy bằng kernel numba trên host (CUDA chính, njit CPU d�
 ### ✅ P3-59 Feature map không phụ thuộc timeframe
 **Mục tiêu:** một map MAP-Elites cho mọi timeframe và độ dài IS ([ADR-0046](adr/0046-feature-map-khong-phu-thuoc-timeframe.md)): lock mới chia bin số lệnh mỗi năm theo thang log và dùng lợi nhuận năm; bound đối chiếu với trial của các campaign 1d. **Chấp nhận khi:** INV-120; bin log tính tay; lợi nhuận năm là lãi kép; map v1 đọc như trước. **Bằng chứng:** `agent/evolution/feature_map.py` (`dimensions`, `log_dims`, `descriptors`), `validation/run.py::FEATURE_MAP_V2`; `tests/agent/evolution/test_feature_map_v2.py`.
 
+### ⏸ P3-60 Đồng hồ đo theo ngày
+**Mục tiêu:** Sharpe, `N_eff`, `V[SR]`, DSR và danh mục tính trên lợi nhuận cộng theo ngày UTC, để campaign dưới 1 ngày được đo cùng đồng hồ với campaign ngày (TF-2). Người dùng hoãn ngày 2026-10-04; cần ADR riêng và sửa kiến trúc.
+
+### ✅ P3-61 Clause biến động và một thước ATR
+**Mục tiêu:** grammar diễn tả được chế độ biến động ([ADR-0047](adr/0047-clause-bien-dong-va-mot-thuoc-atr.md)): dưới `grammar_version: 5` có clause `VolRatio` (`atr_ratio(bars, fast, slow) op k`) và `Bandwidth` (`band_ratio(close, fast, slow) op k`, độ rộng tính trên √bar), danh mục thứ năm `volatility` và đảo thứ sáu; và, với mọi genome có stop ATR mang gen `n_stop`, ATR(n_stop) là ATR duy nhất của render — ATR(14) đứng cạnh nó làm 39/40 genome trượt ràng buộc tương quan chỉ báo của cổng ③. **Chấp nhận khi:** INV-121; giá trị registry tính tay; kernel ≡ registry trên mọi cửa sổ và kernel ≡ `generate_signals` trên CPU, giả lập CUDA và GPU; báo cáo của router bằng báo cáo của sandbox; lấy mẫu, đảo và render golden của v4 không đổi. **Bằng chứng:** `core/strategy/registry.py` (`bandwidth`, `band_ratio`, `atr_ratio`), `core/strategy/genome.py` (`VolRatio`, `Bandwidth`, `Genome.one_atr`), `core/strategy/genome_parse.py`, `agent/grammar.py` (`clause_types_for`, `categories_for`, `CATEGORY_CLAUSES_V5`), `agent/evolution/islands.py`, `agent/engines/gp_search.py::_seeding`, `agent/run.py::grammar_config`, `execution/kernels/program.py` (`OP_BANDWIDTH`, `OP_ATR_RATIO`, `OP_BAND_RATIO`), `features.py`, `validation/engine_router.py::_evaluate`, `validation/run.py::FEATURE_MAP_V2`, `scripts/grammar_diagnostics.py` (`fire_v5`); các test liệt kê ở INV-121.
+
 | Giai đoạn | Mốc | Kiến trúc |
 |---|---|---|
 | **3b** Mở rộng độ rộng (2–3 tuần) | 15–30 công cụ tương quan yếu; chế độ engine `collaborative`; không công cụ nào > 20% rủi ro | §3.1.11, §3.4 |

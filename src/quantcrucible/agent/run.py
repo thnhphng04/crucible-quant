@@ -24,7 +24,7 @@ from quantcrucible.agent.engines.gp_search import GpSearch
 from quantcrucible.agent.engines.random_search import RandomSearch
 from quantcrucible.agent.evolution.archive import scope_args
 from quantcrucible.agent.evolution.feature_map import FeatureMap
-from quantcrucible.agent.grammar import GrammarConfig
+from quantcrucible.agent.grammar import GrammarConfig, clause_types_for
 from quantcrucible.agent.monitor import EarlyStop, stopped_keys
 from quantcrucible.agent.pipeline import (
     DEFAULT_WORKERS,
@@ -82,13 +82,15 @@ def grammar_config(lock: Mapping[str, Any], key: Key) -> GrammarConfig:
     searches (a legacy key is the long-or-flat whole-basket search)."""
     new_exit = lock.get("derived", {}).get("exit_protocol") == "bracket_timeout_v1"
     bollinger = new_exit and "bollinger" in lock_stop_kinds(lock)
+    version = lock_grammar_version(lock)
     return GrammarConfig(
         boll_stop_probability=0.5 if bollinger else 0.0,
         tp_sl_ratio=float(lock["research"]["exit"]["tp_sl_ratio"]) if new_exit else None,
         direction="long" if key.is_legacy else key.direction,
         stop_period=lock_stop_period(lock),
-        version=lock_grammar_version(lock),
+        version=version,
         max_params=lock_max_tunables(lock),
+        clause_types=clause_types_for(version),  # v5 adds the volatility clauses (ADR-0047)
     )
 
 

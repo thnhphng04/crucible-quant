@@ -79,7 +79,8 @@ FEATURE_MAP_V2: dict[str, Any] = {
         "sortino_is": [-1.5, 4.5],
         "annual_return": [-0.1, 0.3],
     },
-    "categories": ["trend", "momentum", "mean_reversion", "breakout"],
+    # grammar v5's categories (ADR-0047): no campaign opened under v2 before they were added
+    "categories": ["trend", "momentum", "mean_reversion", "breakout", "volatility"],
 }
 
 

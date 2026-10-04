@@ -110,18 +110,24 @@ def test_every_clause_type_encodes() -> None:
 
 
 def test_the_stop_period_gene_binds_its_own_slot_per_configuration() -> None:
-    """ADR-0041: an ATR stop reads ATR(n_stop) while the guard keeps ATR(14); a Bollinger stop's
-    band period is n_stop. Both move with the configuration."""
+    """ADR-0041 as ADR-0047 amends it: an ATR stop reads ATR(n_stop), and so does the guard —
+    the only ATR — unless an ATR Distance keeps ATR(14); a Bollinger stop's band period is
+    n_stop. Both move with the configuration."""
     n_stop = Param("period", 5, 50, 21)
     g = dataclasses.replace(_g1(), stop_period=n_stop)
     base = _defaults(g)
     prog = compile_program(g, "long", 1.1, [base, {**base, "n_stop": 9}], 400)
     assert prog.names == ("n1", "n2", "n3", "k_stop", "n_stop")
-    atr = prog.slot_inst[:, prog.atr_slot]
+    assert prog.stop_slot == prog.atr_slot
     stop = prog.slot_inst[:, prog.stop_slot]
-    assert prog.inst_period[atr].tolist() == [14, 14]
     assert prog.inst_op[stop].tolist() == [P.OP_ATR, P.OP_ATR]
     assert prog.inst_period[stop].tolist() == [21, 9]
+    k = Param("level", -3.0, 3.0, 1.0)
+    two = dataclasses.replace(g, entry=Distance(Close(), Indicator("ema", _n(20)), ">", k))
+    base2 = _defaults(two)
+    prog2 = compile_program(two, "long", 1.1, [base2, {**base2, "n_stop": 9}], 400)
+    assert prog2.inst_period[prog2.slot_inst[:, prog2.atr_slot]].tolist() == [14, 14]
+    assert prog2.inst_period[prog2.slot_inst[:, prog2.stop_slot]].tolist() == [21, 9]
     boll = dataclasses.replace(g, stop_kind="bollinger")
     prog = compile_program(boll, "short", 1.1, [base, {**base, "n_stop": 9}], 400)
     band = prog.slot_inst[:, prog.band_slot]

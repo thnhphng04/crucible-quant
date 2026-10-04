@@ -30,6 +30,7 @@ ORACLES: dict[int, Oracle] = {
     P.OP_BOLL_UPPER: lambda b, n: R.boll_upper(b.close, n),
     P.OP_BOLL_LOWER: lambda b, n: R.boll_lower(b.close, n),
     P.OP_ATR: lambda b, n: R.atr(b, n),
+    P.OP_BANDWIDTH: lambda b, n: R.bandwidth(b.close, n),  # grammar v5 (ADR-0047)
 }
 
 
@@ -90,6 +91,61 @@ def _check(target: str, n_bars: int, lookbacks: tuple[int, ...], seed: int) -> N
 
 def test_cpu_kernel_matches_the_registry_on_every_window() -> None:
     _check("cpu", 700, (30, 300), seed=1)
+
+
+# (op, fast, slow): grammar v5's volatility ratios (ADR-0047), slow in inst_aux
+RATIOS = [
+    (P.OP_ATR_RATIO, 5, 60),
+    (P.OP_ATR_RATIO, 14, 129),
+    (P.OP_ATR_RATIO, 50, 300),
+    (P.OP_BAND_RATIO, 5, 60),
+    (P.OP_BAND_RATIO, 20, 257),
+    (P.OP_BAND_RATIO, 3, 8),
+]
+RATIO_ORACLES: dict[int, Callable[[Bars, int, int], npt.NDArray[np.float64]]] = {
+    P.OP_ATR_RATIO: lambda b, f, s: R.atr_ratio(b, f, s),
+    P.OP_BAND_RATIO: lambda b, f, s: R.band_ratio(b.close, f, s),
+}
+
+
+def _check_ratio(target: str, n_bars: int, lookbacks: tuple[int, ...], seed: int) -> None:
+    bars = _bars(n_bars, seed)
+    ops = [op for op, _f, _s in RATIOS]
+    pers = [f for _op, f, _s in RATIOS]
+    aux = [(s, 0, 0, 0) for _op, _f, s in RATIOS]
+    for lookback in lookbacks:
+        now, prev = run_features(
+            ops, pers, bars.close, bars.high, bars.low, lookback, target, inst_aux=aux,  # type: ignore[arg-type]
+        )  # fmt: skip
+        for t in range(n_bars):
+            window = bars.window(t, lookback)
+            for i, (op, fast, slow) in enumerate(RATIOS):
+                v = RATIO_ORACLES[op](window, fast, slow)
+                want_prev = v[-2] if len(v) >= 2 else np.nan
+                where = f"{target} ratio {RATIOS[i]} L {lookback} t {t}"
+                assert np.array_equal(now[i, t], v[-1], equal_nan=True), where
+                assert np.array_equal(prev[i, t], want_prev, equal_nan=True), where
+
+
+def test_cpu_ratio_kernel_matches_the_registry_on_every_window() -> None:
+    _check_ratio("cpu", 700, (30, 320), seed=7)
+
+
+@pytest.mark.cudasim
+def test_simulated_cuda_ratio_kernel_matches_the_registry() -> None:
+    _check_ratio("cuda", 40, (25,), seed=8)
+
+
+@pytest.mark.gpu
+def test_cuda_ratio_kernel_matches_the_registry_on_every_window() -> None:
+    _check_ratio("cuda", 1_000, (30, 400), seed=9)
+
+
+@pytest.mark.parametrize("aux", [(0, 0, 0, 0), (481, 0, 0, 0), (60, 1, 0, 0)])
+def test_a_ratio_with_a_bad_slow_period_is_caught_in_the_kernel(aux: tuple[int, ...]) -> None:
+    bars = _bars(50, 1)
+    with pytest.raises(KernelInputError):
+        run_features([P.OP_ATR_RATIO], [5], bars.close, bars.high, bars.low, 30, inst_aux=[aux])
 
 
 @pytest.mark.cudasim

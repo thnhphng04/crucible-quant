@@ -25,6 +25,7 @@ import numpy as np
 from quantcrucible.agent.grammar import (
     OSC_OPS,
     PRICE_OPS,
+    Bandwidth,
     Breakout,
     Clause,
     Cmp,
@@ -39,6 +40,7 @@ from quantcrucible.agent.grammar import (
     Param,
     Slope,
     Threshold,
+    VolRatio,
     period_range,
     sample_clause,
     sample_level,
@@ -139,7 +141,7 @@ def mutate_param(g: Genome, rng: np.random.Generator) -> Genome:
 def _flip(c: Clause, rng: np.random.Generator) -> Clause:
     if isinstance(c, Compare):
         return dataclasses.replace(c, op="<" if c.op == ">" else ">")
-    if isinstance(c, Distance):
+    if isinstance(c, Distance | VolRatio | Bandwidth):  # a ratio's k range holds on both sides
         return dataclasses.replace(c, op="<" if c.op == ">" else ">")
     if isinstance(c, Threshold):
         op: Cmp = "<" if c.op == ">" else ">"

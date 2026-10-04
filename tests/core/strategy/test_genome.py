@@ -44,21 +44,29 @@ def _with_stop_period(stop_kind: str) -> genome.Genome:
     return g
 
 
-def test_an_atr_stop_period_is_its_own_feature_and_tunable() -> None:
-    """INV-115: the stop reads ATR(n_stop); the guard and Distance keep ATR(14)."""
+def test_an_atr_stop_period_is_a_tunable_and_the_renders_only_atr() -> None:
+    """INV-115, as ADR-0047 amends it: the stop and the guard read ATR(n_stop), the only ATR;
+    an ATR-scaled Distance keeps its own ATR(14) beside the stop's ATR(n_stop)."""
     g = _with_stop_period("atr")
     src, params = genome.render_genome(g, "long", tp_sl_ratio=1.1)
     assert params == {"n1": 20, "k_stop": 2.0, "n_stop": 21}
     assert "# TUNABLE: n_stop = 21, bounds=(5, 50)" in src
     assert src.index("# TUNABLE: k_stop") < src.index("# TUNABLE: n_stop")
-    assert '"atr_stop": ind.atr(bars, self.p.n_stop),' in src
-    assert '"atr": ind.atr(bars, 14),' in src
-    assert 'stop = self.p.k_stop * x["atr_stop"]' in src
+    assert '"atr": ind.atr(bars, self.p.n_stop),' in src
+    assert "atr_stop" not in src and "ind.atr(bars, 14)" not in src
+    assert "stop = self.p.k_stop * atr\n" in src
     assert "ready = atr > 0 and atr - atr == 0 and stop > 0" in src
-    assert genome.feature_specs(g, "long", 1.1)[-2:] == [
+    assert genome.feature_specs(g, "long", 1.1)[-1:] == [("atr", "ind.atr(bars, self.p.n_stop)")]
+    k = genome.Param("level", -3.0, 3.0, 1.0)
+    dist = genome.Distance(genome.Close(), genome.Indicator("sma", genome.Param("period", 2, 300, 20)),
+                           ">", k)  # fmt: skip
+    with_distance = dataclasses.replace(g, entry=dist)
+    assert genome.feature_specs(with_distance, "long", 1.1)[-2:] == [
         ("atr_stop", "ind.atr(bars, self.p.n_stop)"),
         ("atr", "ind.atr(bars, 14)"),
     ]
+    src2, _ = genome.render_genome(with_distance, "long", tp_sl_ratio=1.1)
+    assert 'stop = self.p.k_stop * x["atr_stop"]' in src2
 
 
 def test_a_bollinger_stop_period_is_the_band_period() -> None:

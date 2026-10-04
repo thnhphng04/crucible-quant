@@ -14,8 +14,9 @@ Measures, per symbol of an in-sample folder:
                 denominator and for a ``stdev(close, n)`` one (P3-57).
 ``bollinger``   how often a Bollinger stop is ``<= 0`` (the ``ready`` guard then refuses the
                 signal), unconditionally and on the bars a mean-reversion trigger fires.
-``volatility``  quantiles of ``atr(n1) / atr(n2)`` and of the band width ``4·std / sma``, to set
-                the ``k`` ranges of the volatility clauses (P3-58).
+``volatility``  quantiles of ``atr(n1) / atr(n2)``, of the band width ``4·std / sma`` and of
+                grammar v5's ratio of widths per √bar, to set the volatility clauses' ``k``.
+``fire_v5``     ``fire`` for grammar v5's sampled ``VolRatio`` and ``Bandwidth`` (ADR-0047).
 ``corr``        Spearman correlation of dimensionless features, existing and candidate (P3-59).
 
 Indicators are computed once over the full series (the registry's functions are causal), not on
@@ -45,6 +46,7 @@ from quantcrucible.agent.grammar import (
     CLAUSE_TYPES,
     LEVEL_RANGES,
     OSC_OPS,
+    Bandwidth,
     Breakout,
     Clause,
     Close,
@@ -57,6 +59,7 @@ from quantcrucible.agent.grammar import (
     Series,
     Slope,
     Threshold,
+    VolRatio,
     period_range,
     sample_clause,
 )
@@ -234,6 +237,11 @@ class Evaluator:
         if isinstance(c, Slope):
             s = self.series(c.series)
             return _cmp(s, ">" if c.up else "<", _prev(s))
+        if isinstance(c, VolRatio | Bandwidth):
+            op = "atr" if isinstance(c, VolRatio) else "bandwidth"
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ratio = self.ind(op, int(c.fast.value)) / self.ind(op, int(c.slow.value))
+            return _cmp(ratio, c.op, float(c.k.value))
         raise DiagnosticsError(f"unknown clause {c!r}")
 
 
@@ -478,6 +486,10 @@ def volatility(ev: Evaluator) -> pd.DataFrame:
         rows.append(_quantiles(f"atr{n1}/atr{n2}", ratio))
     for n in BAND_WIDTHS:
         rows.append(_quantiles(f"bandwidth{n}", bandwidth(ev.bars.close, n)))
+    for n1, n2 in VOL_RATIOS:  # grammar v5's Bandwidth: widths per √bar (ADR-0047)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = ev.ind("bandwidth", n1) / ev.ind("bandwidth", n2)
+        rows.append(_quantiles(f"bw{n1}/bw{n2} per √bar", ratio))
     return pd.DataFrame(rows)
 
 
@@ -531,6 +543,14 @@ def sample_clauses(n_per_type: int, seed: int) -> list[Clause]:
     return [sample_clause(rng, kind) for kind in CLAUSE_TYPES for _ in range(n_per_type)]
 
 
+def sample_volatility_clauses(n_per_type: int, seed: int) -> list[Clause]:
+    """Grammar v5's volatility clauses as a v5 campaign samples them (ADR-0047)."""
+    rng = np.random.default_rng(seed)
+    return [
+        sample_clause(rng, kind, 5) for kind in (VolRatio, Bandwidth) for _ in range(n_per_type)
+    ]
+
+
 # ── report ────────────────────────────────────────────────────────────────────────────────────
 Measure = Callable[[Evaluator, list[Clause]], pd.DataFrame]
 
@@ -538,8 +558,10 @@ Measure = Callable[[Evaluator, list[Clause]], pd.DataFrame]
 def run(bars_list: list[Bars], clauses: list[Clause], seed: int = 0) -> dict[str, pd.DataFrame]:
     """Every measurement for every symbol, the symbol as the first column."""
     sets = scenario_clauses(clauses, seed)
+    vol_clauses = sample_volatility_clauses(max(1, len(clauses) // len(CLAUSE_TYPES)), seed)
     measures: dict[str, Measure] = {
         "fire": fire_rates,
+        "fire_v5": lambda ev, _: fire_rates(ev, vol_clauses),
         "grid": lambda ev, _: grid_rates(ev),
         "scenarios": lambda ev, _: scenario_rates(ev, sets),
         "distance": distance_saturation,
@@ -567,6 +589,11 @@ def summaries(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
         .groupby(["clause", "band"])
         .agg(rate_median=("rate", "median"), degenerate=("degenerate", "mean"), n=("rate", "size"))
     )
+    fire_v5 = (
+        tables["fire_v5"]
+        .groupby("clause")
+        .agg(rate_median=("rate", "median"), degenerate=("degenerate", "mean"), n=("rate", "size"))
+    )
     distance = (
         tables["distance"]
         .groupby(["band", "scale"])
@@ -583,6 +610,7 @@ def summaries(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     scenarios.loc["all"] = tables["scenarios"].groupby("scenario", sort=False)["degenerate"].mean()
     return {
         "fire": fire,
+        "fire, grammar v5 volatility clauses": fire_v5,
         **grid_summaries(tables["grid"]),
         "scenarios (share of sampled clauses degenerate)": scenarios,
         "distance": distance,

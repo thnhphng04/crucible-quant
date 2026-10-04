@@ -51,6 +51,7 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
     a = arith(target, dtype)
     T, add, sub, mul, div, sqrt, NAN, INF = a.T, a.add, a.sub, a.mul, a.div, a.sqrt, a.nan, a.inf
     ZERO, ONE, TWO, HUNDRED, NEG_ZERO = T(0.0), T(1.0), T(2.0), T(100.0), T(-0.0)
+    FOUR = T(4.0)
     dev = device(target)
 
     @dev
@@ -193,6 +194,10 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
         m, sd = mean_std(x, e - n + 1, n)
         if op == P.OP_ZSCORE:
             return div(sub(x[e], m), sd) if sd > ZERO else NAN
+        if op == P.OP_BANDWIDTH:  # 4·std / (sma·√n), NaN unless both are positive (ADR-0047)
+            if m > ZERO and sd > ZERO:
+                return div(mul(FOUR, sd), mul(m, sqrt(T(n))))
+            return NAN
         if op == P.OP_BOLL_UPPER:
             return add(m, mul(TWO, sd))
         return sub(m, mul(TWO, sd))  # OP_BOLL_LOWER
@@ -215,6 +220,21 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
         now = at(op, n, x, h, lo, t, wlo)
         prev = at(op, n, x, h, lo, t - 1, wlo) if w >= 2 else NAN
         return prev, now
+
+    @dev
+    def quotient(a: Any, b: Any) -> Any:
+        return div(a, b) if b > ZERO else NAN  # registry._ratio: NaN unless the slow side is > 0
+
+    @dev
+    def ratio(op: int, n: int, slow: int, x: Any, h: Any, lo: Any, t: int, lookback: int) -> Any:
+        """(prev, now) of atr_ratio / band_ratio(n, slow) on the window (ADR-0047)."""
+        if op == P.OP_ATR_RATIO:
+            fp, fn = feature(P.OP_ATR, n, x, h, lo, t, lookback)
+            sp, sn = feature(P.OP_ATR, slow, x, h, lo, t, lookback)
+        else:
+            fp, fn = feature(P.OP_BANDWIDTH, n, x, h, lo, t, lookback)
+            sp, sn = feature(P.OP_BANDWIDTH, slow, x, h, lo, t, lookback)
+        return quotient(fp, sp), quotient(fn, sn)
 
     # ── spread_stdev(a, b, n) on the window [wlo, t] (ADR-0045) ─────────────────────────
     @dev
@@ -292,10 +312,15 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
         t = k % n_bars
         op = ops[inst]
         n = pers[inst]
-        bad = op < P.OP_CLOSE or op > P.OP_SPREAD or n < 0 or n > P.MAX_PERIOD
+        bad = op < P.OP_CLOSE or op > P.OP_BAND_RATIO or n < 0 or n > P.MAX_PERIOD
         if op == P.OP_SPREAD:
             ok = n >= 1 and operand_ok(aux[inst, 0], aux[inst, 1])
             bad = bad or not (ok and operand_ok(aux[inst, 2], aux[inst, 3]))
+        is_ratio = op == P.OP_ATR_RATIO or op == P.OP_BAND_RATIO
+        if is_ratio:
+            slow = aux[inst, 0]
+            ok = n >= 1 and 1 <= slow <= P.MAX_PERIOD
+            bad = bad or not (ok and aux[inst, 1] == 0 and aux[inst, 2] == 0 and aux[inst, 3] == 0)
         if bad or (n == 0 and op != 0):
             err[0] = 1  # defence in depth (INV-107): the program never produces this
             prev[inst, t] = NAN
@@ -303,6 +328,8 @@ def _build(target: Target, dtype: Dtype) -> tuple[Any, Any]:
             return
         if op == P.OP_SPREAD:
             p, q = spread(n, aux[inst, 0], aux[inst, 1], aux[inst, 2], aux[inst, 3], x, h, lo, t, L)
+        elif is_ratio:
+            p, q = ratio(op, n, aux[inst, 0], x, h, lo, t, L)
         else:
             p, q = feature(op, n, x, h, lo, t, L)
         prev[inst, t] = p

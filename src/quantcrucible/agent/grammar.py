@@ -8,7 +8,8 @@ declares every number as a TUNABLE (within the lock's cap), and always emits the
 guard on ATR and the stop, so a sampled strategy passes gate ①a by construction. C-random
 samples genomes i.i.d.; C-gp (P2-11) breeds them with the same types. The lock's
 ``grammar_version`` selects the rules: 2 categories by side (ADR-0043), 3 log-uniform periods
-and oscillator caps (ADR-0044), 4 the spread-scaled ``Distance`` (ADR-0045).
+and oscillator caps (ADR-0044), 4 the spread-scaled ``Distance`` (ADR-0045), 5 the volatility
+clauses ``VolRatio`` and ``Bandwidth`` and their ``volatility`` category (ADR-0047).
 
 Only the ``joint`` evolve scope is supported (named blocks: O13). The genome types, rendering and
 serialization live in :mod:`quantcrucible.core.strategy.genome`; this module samples and
@@ -26,6 +27,8 @@ import numpy as np
 # layers below the agent can read a genome; they are re-exported here for the engines.
 from quantcrucible.core.strategy.base import ScopeDirection
 from quantcrucible.core.strategy.genome import CLAUSE_TYPES as CLAUSE_TYPES
+from quantcrucible.core.strategy.genome import CLAUSE_TYPES_V5 as CLAUSE_TYPES_V5
+from quantcrucible.core.strategy.genome import Bandwidth as Bandwidth
 from quantcrucible.core.strategy.genome import Breakout as Breakout
 from quantcrucible.core.strategy.genome import Clause as Clause
 from quantcrucible.core.strategy.genome import Close as Close
@@ -43,6 +46,7 @@ from quantcrucible.core.strategy.genome import ParamKind as ParamKind
 from quantcrucible.core.strategy.genome import Series as Series
 from quantcrucible.core.strategy.genome import Slope as Slope
 from quantcrucible.core.strategy.genome import Threshold as Threshold
+from quantcrucible.core.strategy.genome import VolRatio as VolRatio
 from quantcrucible.core.strategy.genome import genome_from_dict as genome_from_dict
 from quantcrucible.core.strategy.genome import genome_to_dict as genome_to_dict
 from quantcrucible.core.strategy.genome import load_genome as load_genome
@@ -65,6 +69,17 @@ DISTANCE_RANGE = (-3.0, 3.0)  # (a - b) / ATR
 STOP_RANGE = (0.5, 5.0)  # stop = k × ATR
 TP_RANGE = (0.5, 10.0)  # take profit = k × ATR
 STOP_PERIOD_RANGE = (5, 50)  # n_stop: ATR period or band period of the stop (ADR-0041, provisional)
+# v5 (ADR-0047): the two windows of a volatility ratio are disjoint, so a ``param`` move never
+# makes the fast one the slower; k from the IS quantiles (q05–q95 at 1d and 1h, P3-61)
+VOL_FAST_RANGE = (5, 50)
+VOL_SLOW_RANGE = (60, 300)
+VOL_RATIO_K_RANGE = (0.6, 1.6)  # atr_ratio: 1h holds it tighter than 1d
+BANDWIDTH_K_RANGE = (0.3, 2.5)  # band_ratio, both widths per √bar
+
+
+def clause_types_for(version: int = 1) -> tuple[type, ...]:
+    """The clause types a campaign of this grammar version samples."""
+    return CLAUSE_TYPES_V5 if version >= 5 else CLAUSE_TYPES
 
 
 # ── sampling ────────────────────────────────────────────────────────────────────────────────
@@ -195,6 +210,13 @@ def sample_clause(rng: np.random.Generator, kind: type, version: int = 1) -> Cla
         if isinstance(series, Close):
             series = Indicator("ema", sample_period(rng, "ema", v))
         return Slope(series, bool(rng.random() < 0.5))
+    if kind is VolRatio or kind is Bandwidth:  # v5 only (ADR-0047)
+        fast = _log_uniform_period(rng, *VOL_FAST_RANGE)
+        slow = _log_uniform_period(rng, *VOL_SLOW_RANGE)
+        cmp = _cmp(rng)
+        if kind is VolRatio:
+            return VolRatio(fast, slow, cmp, _uniform(rng, "level", *VOL_RATIO_K_RANGE))
+        return Bandwidth(fast, slow, cmp, _uniform(rng, "level", *BANDWIDTH_K_RANGE))
     raise ValueError(f"unknown clause type {kind!r}")
 
 
@@ -228,6 +250,15 @@ def sample_genome(rng: np.random.Generator, config: GrammarConfig | None = None)
 
 # ── behavioural category (feature-map dimension, arch §3.1.3) ─────────────────────────────
 CATEGORIES = ("trend", "momentum", "mean_reversion", "breakout")
+# v5 (ADR-0047): a volatility clause is a regime filter, on either side — its own category
+CATEGORIES_V5 = (*CATEGORIES, "volatility")
+
+
+def categories_for(version: int = 1) -> tuple[str, ...]:
+    """The strategy categories of this grammar version — one island each, plus the open one."""
+    return CATEGORIES_V5 if version >= 5 else CATEGORIES
+
+
 # clause types able to express each category — an island seeded with a category samples these
 CATEGORY_CLAUSES: dict[str, tuple[type, ...]] = {
     "trend": (Compare, Cross, Distance, Slope),
@@ -240,7 +271,20 @@ CATEGORY_CLAUSES_V2: dict[str, tuple[type, ...]] = {
     **CATEGORY_CLAUSES,
     "mean_reversion": CLAUSE_TYPES,
 }
+CATEGORY_CLAUSES_V5: dict[str, tuple[type, ...]] = {
+    **CATEGORY_CLAUSES_V2,
+    "volatility": (VolRatio, Bandwidth),
+}
 MAX_CATEGORY_DRAWS = 50
+
+
+def category_clauses(category: str, version: int) -> tuple[type, ...]:
+    """The clause types an island seeded with ``category`` samples under this version."""
+    if version >= 5:
+        return CATEGORY_CLAUSES_V5[category]
+    if version >= 2:
+        return CATEGORY_CLAUSES_V2[category]
+    return CATEGORY_CLAUSES[category]
 
 
 def _speed(s: Series) -> tuple[int, int]:
@@ -262,7 +306,10 @@ def _family(c: Clause) -> str:
 
 def polarity(c: Clause) -> int:
     """+1 when the clause holds as price rises, −1 when it holds as price falls. A clause on two
-    price series is read fast − slow, so ``a > b`` and ``b < a`` get the same polarity."""
+    price series is read fast − slow, so ``a > b`` and ``b < a`` get the same polarity. A
+    volatility clause has none (0): it holds whichever way price moves."""
+    if isinstance(c, VolRatio | Bandwidth):
+        return 0
     if isinstance(c, Compare | Cross | Distance):
         rising = c.up if isinstance(c, Cross) else c.op == ">"
         fast_left = _speed(c.left) <= _speed(c.right)
@@ -274,7 +321,10 @@ def polarity(c: Clause) -> int:
 
 def clause_category(c: Clause, direction: ScopeDirection = "long", version: int = 1) -> str:
     """The clause's strategy category. v2 (ADR-0043): its family when it trades with the move on
-    this side — polarity × side > 0 — mean reversion otherwise. v1: the clause alone."""
+    this side — polarity × side > 0 — mean reversion otherwise. v1: the clause alone. A
+    volatility clause (v5, ADR-0047) is ``volatility`` on either side."""
+    if isinstance(c, VolRatio | Bandwidth):
+        return "volatility"
     if version >= 2:
         side = 1 if direction == "long" else -1
         return _family(c) if polarity(c) * side > 0 else "mean_reversion"
@@ -294,9 +344,9 @@ def clause_category(c: Clause, direction: ScopeDirection = "long", version: int 
 def categories(
     genome: Genome, direction: ScopeDirection = "long", version: int = 1
 ) -> tuple[str, ...]:
-    """The strategy categories a genome's clauses belong to, in ``CATEGORIES`` order."""
+    """The strategy categories a genome's clauses belong to, in ``CATEGORIES_V5`` order."""
     found = {clause_category(c, direction, version) for c in genome.clauses()}
-    return tuple(c for c in CATEGORIES if c in found)
+    return tuple(c for c in CATEGORIES_V5 if c in found)
 
 
 def sample_clause_in_category(rng: np.random.Generator, kind: type, cfg: GrammarConfig) -> Clause:
@@ -329,6 +379,10 @@ def _clause_sig(c: Clause) -> str:
         return f"dist({_series_sig(c.left)}-{_series_sig(c.right)}{c.op})"
     if isinstance(c, Breakout):
         return f"brk({'up' if c.up else 'down'})"
+    if isinstance(c, VolRatio):
+        return f"volratio({c.op})"
+    if isinstance(c, Bandwidth):
+        return f"bandwidth({c.op})"
     return f"slope({_series_sig(c.series)},{'up' if c.up else 'down'})"
 
 

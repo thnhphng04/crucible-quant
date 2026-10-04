@@ -582,6 +582,12 @@ Engine-C genomes run on host numba kernels (CUDA primary, CPU njit fallback) tha
 ### ✅ P3-59 A timeframe-free feature map
 **Goal:** one MAP-Elites map for any timeframe and IS length ([ADR-0046](adr/0046-timeframe-free-feature-map.md)): new locks bin trades per year on a log scale and use the annual return; bounds read against the 1d campaigns' trials. **Accept when:** INV-120; log bins by hand; the annual return is the compound rate; a v1 map reads as before. **Evidence:** `agent/evolution/feature_map.py` (`dimensions`, `log_dims`, `descriptors`), `validation/run.py::FEATURE_MAP_V2`; `tests/agent/evolution/test_feature_map_v2.py`.
 
+### ⏸ P3-60 Daily evaluation clock
+**Goal:** Sharpe, `N_eff`, `V[SR]`, DSR and the portfolio on returns summed per UTC day, so a sub-daily campaign is judged on the same clock as a daily one (TF-2). Deferred by the user on 2026-10-04; needs its own ADR and an architecture edit.
+
+### ✅ P3-61 Volatility clauses and one ATR yardstick
+**Goal:** a volatility regime the grammar can express ([ADR-0047](adr/0047-volatility-clauses-and-one-atr.md)): under `grammar_version: 5` the clauses `VolRatio` (`atr_ratio(bars, fast, slow) op k`) and `Bandwidth` (`band_ratio(close, fast, slow) op k`, widths per √bar), a fifth category `volatility` and a sixth island; and, for every genome whose ATR stop has an `n_stop` gene, ATR(n_stop) as the render's only ATR — ATR(14) beside it failed gate ③'s indicator correlation for 39 of 40 genomes. **Accept when:** INV-121; the registry's values by hand; kernel ≡ registry on every window and kernel ≡ `generate_signals` on CPU, the CUDA simulator and the GPU; the router's report equals the sandbox's; v4 sampling, islands and the golden renders unchanged. **Evidence:** `core/strategy/registry.py` (`bandwidth`, `band_ratio`, `atr_ratio`), `core/strategy/genome.py` (`VolRatio`, `Bandwidth`, `Genome.one_atr`), `core/strategy/genome_parse.py`, `agent/grammar.py` (`clause_types_for`, `categories_for`, `CATEGORY_CLAUSES_V5`), `agent/evolution/islands.py`, `agent/engines/gp_search.py::_seeding`, `agent/run.py::grammar_config`, `execution/kernels/program.py` (`OP_BANDWIDTH`, `OP_ATR_RATIO`, `OP_BAND_RATIO`), `features.py`, `validation/engine_router.py::_evaluate`, `validation/run.py::FEATURE_MAP_V2`, `scripts/grammar_diagnostics.py` (`fire_v5`); the tests listed under INV-121.
+
 | Phase | Milestones | Arch |
 |---|---|---|
 | **3b** Breadth (2–3 wk) | 15–30 weakly-correlated instruments; `collaborative` engine mode; no instrument > 20% of risk | §3.1.11, §3.4 |

@@ -109,8 +109,35 @@ class Slope:
     up: bool
 
 
-Clause = Compare | Cross | Threshold | CrossLevel | Distance | Breakout | Slope
+@dataclass(frozen=True, slots=True)
+class VolRatio:
+    """``atr_ratio(fast, slow)  op  k``: bar ranges expanding (> k) or contracting (< k) against
+    their longer average — a volatility regime, not a direction (grammar v5, ADR-0047)."""
+
+    fast: Param
+    slow: Param
+    op: Cmp
+    k: Param
+
+
+@dataclass(frozen=True, slots=True)
+class Bandwidth:
+    """``band_ratio(fast, slow)  op  k``: the close's Bollinger band, per √bar, wider or narrower
+    than over the longer window — an expansion or a squeeze (grammar v5, ADR-0047)."""
+
+    fast: Param
+    slow: Param
+    op: Cmp
+    k: Param
+
+
+Clause = (
+    Compare | Cross | Threshold | CrossLevel | Distance | Breakout | Slope | VolRatio | Bandwidth
+)
+# what grammar v1–v4 sample: a new type is appended to ``CLAUSE_TYPES_V5`` only, so an older
+# campaign draws its clause kinds from the stream it always did
 CLAUSE_TYPES: tuple[type, ...] = (Compare, Cross, Threshold, CrossLevel, Distance, Breakout, Slope)
+CLAUSE_TYPES_V5: tuple[type, ...] = (*CLAUSE_TYPES, VolRatio, Bandwidth)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +160,17 @@ class Genome:
     # The stop's period (ADR-0041): ATR(n_stop) for an ATR stop, the band period for a Bollinger
     # one. ``None`` is the fixed ATR(14) / Bollinger(8) of a lock without ``stop_period``.
     stop_period: Param | None = None
+
+    @property
+    def one_atr(self) -> bool:
+        """Whether the stop's ATR(n_stop) is the render's only ATR, read by the ``ready`` guard
+        too (ADR-0047): ATR(14) beside it moves with it and fails gate ③'s indicator correlation.
+        An ATR-scaled ``Distance`` keeps ATR(14), so tuning the stop never rescales its ``k``."""
+        return (
+            self.stop_kind == "atr"
+            and self.stop_period is not None
+            and not any(isinstance(c, Distance) and c.scale == "atr" for c in self.clauses())
+        )
 
     def clauses(self) -> tuple[Clause, ...]:
         return self.entry.items if isinstance(self.entry, Combine) else (self.entry,)
@@ -168,6 +206,10 @@ def _clause_params(c: Clause) -> Iterator[Param]:
         yield c.k
     elif isinstance(c, Breakout):
         yield c.period
+    elif isinstance(c, VolRatio | Bandwidth):
+        yield c.fast
+        yield c.slow
+        yield c.k
     else:
         yield from _series_params(c.series)
 
@@ -235,6 +277,13 @@ class _Renderer:
         args = f"{self.expr(c.left)}, {self.expr(c.right)}, {self.p(ref.period)}"
         return self.feature(f"ind.spread_stdev({args})")
 
+    def ratio(self, c: VolRatio | Bandwidth) -> str:
+        """A volatility ratio as one feature: two would be two correlated series at gate ③."""
+        periods = f"{self.p(c.fast)}, {self.p(c.slow)}"
+        if isinstance(c, VolRatio):
+            return self.feature(f"ind.atr_ratio(bars, {periods})")
+        return self.feature(f"ind.band_ratio(bars.close, {periods})")
+
     def clause(self, c: Clause) -> str:
         if isinstance(c, Compare):
             return f"{self.series(c.left)} {c.op} {self.series(c.right)}"
@@ -254,6 +303,8 @@ class _Renderer:
             op = "rolling_max" if c.up else "rolling_min"
             level = self.feature(f"ind.{op}(bars.close, {self.p(c.period)})")
             return f"{self.series(Close())} {'>' if c.up else '<'} {level}.ago(1)"
+        if isinstance(c, VolRatio | Bandwidth):
+            return f"{self.ratio(c)} {c.op} {self.p(c.k)}"
         rel = ">" if c.up else "<"
         s = self.series(c.series)
         return f"{s} {rel} {s}.ago(1)"
@@ -266,9 +317,12 @@ class _Renderer:
 
     def tail(self) -> list[tuple[str, str]]:
         """The fixed features after the entry's: the stop's own ATR when it has a period gene,
-        then the ATR(14) yardstick of the guard and of ``Distance`` (ADR-0041)."""
+        then the ATR(14) yardstick of the guard and of ``Distance`` (ADR-0041) — or, when the
+        stop's ATR is the only one (ADR-0047), that ATR(n_stop) alone, named ``atr``."""
         period = self.genome.stop_period
         out: list[tuple[str, str]] = []
+        if self.genome.one_atr and period is not None:
+            return [("atr", f"ind.atr(bars, {self.p(period)})")]
         if period is not None and self.genome.stop_kind == "atr":
             out.append(("atr_stop", f"ind.atr(bars, {self.p(period)})"))
         out.append(("atr", "ind.atr(bars, 14)"))
@@ -284,7 +338,7 @@ class _Renderer:
             band = self.feature(f"ind.{band_name}(bars.close, {n})")
             distance = f"({close} - {band})" if self.direction == "long" else f"({band} - {close})"
         else:
-            distance = "atr" if period is None else 'x["atr_stop"]'
+            distance = "atr" if period is None or self.genome.one_atr else 'x["atr_stop"]'
         tunables = "".join(
             f"    # TUNABLE: {self.names[id(p)]} = {_fmt(p.value, p.is_int)}, "
             f"bounds=({_fmt(p.low, p.is_int)}, {_fmt(p.high, p.is_int)})\n"
@@ -349,7 +403,7 @@ def render_genome(
 
 # ── serialization: a genome is recorded with its submission (the ledger is the only state) ──
 _NODES: dict[str, type] = {
-    t.__name__: t for t in (Param, Close, Indicator, *CLAUSE_TYPES, Combine, Genome)
+    t.__name__: t for t in (Param, Close, Indicator, *CLAUSE_TYPES_V5, Combine, Genome)
 }
 
 

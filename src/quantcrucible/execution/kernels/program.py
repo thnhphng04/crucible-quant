@@ -19,6 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 from quantcrucible.core.strategy.genome import (
+    Bandwidth,
     Breakout,
     Close,
     Combine,
@@ -32,6 +33,7 @@ from quantcrucible.core.strategy.genome import (
     Series,
     Slope,
     Threshold,
+    VolRatio,
     named_params,
 )
 
@@ -43,13 +45,16 @@ MAX_PERIOD = 480  # the kernels' pairwise sum is unrolled for windows up to this
 MAX_LOOKBACK = 10_000
 MAX_CONFIGS = 4_096
 MAX_CLAUSES = 8
-ATR_PERIOD = 14  # the rendered guard and Distance always use ind.atr(bars, 14)
+ATR_PERIOD = 14  # the guard and an ATR Distance read ind.atr(bars, 14), unless one ATR (ADR-0047)
 BAND_PERIOD = 8  # and a Bollinger stop without its n_stop gene ind.boll_*(bars.close, 8)
 
 # ── opcodes ─────────────────────────────────────────────────────────────────────────────────
 OP_CLOSE, OP_SMA, OP_EMA, OP_RSI, OP_ZSCORE = 0, 1, 2, 3, 4
 OP_RMAX, OP_RMIN, OP_BOLL_UPPER, OP_BOLL_LOWER, OP_ATR = 5, 6, 7, 8, 9
 OP_SPREAD = 10  # spread_stdev(a, b, n): its operands are in ``inst_aux`` (ADR-0045)
+OP_BANDWIDTH = 11  # bandwidth(close, n), the band width per √bar (ADR-0047)
+# atr_ratio(bars, n, slow) and band_ratio(close, n, slow): ``slow`` is ``inst_aux[i, 0]``
+OP_ATR_RATIO, OP_BAND_RATIO = 12, 13
 SERIES_OPS = {
     "sma": OP_SMA, "ema": OP_EMA, "rsi": OP_RSI, "zscore": OP_ZSCORE,
     "rolling_max": OP_RMAX, "rolling_min": OP_RMIN,
@@ -74,7 +79,8 @@ class Program:
     ``CMP_*`` for a comparison and 1/0 for up/down; ``param_col`` indexes ``pvals``; ``den_slot``
     is a ``Distance``'s yardstick — ATR(14) or its ``spread_stdev`` (``NO_SLOT`` if unused).
     ``inst_aux`` rows are ``(a_op, a_period, b_op, b_period)`` for an ``OP_SPREAD`` instance,
-    zeros otherwise.
+    ``(slow, 0, 0, 0)`` for a volatility ratio's (ADR-0047), zeros otherwise. ``atr_slot`` is
+    ATR(14), or ATR(n_stop) — then also ``stop_slot`` — when the stop's ATR is the only one.
     """
 
     names: tuple[str, ...]
@@ -83,7 +89,7 @@ class Program:
     inst_period: IntArray  # [instances]
     inst_aux: IntArray  # [instances, 4]
     slot_inst: IntArray  # [configs, slots]
-    clauses: IntArray  # [clauses, 5]
+    clauses: IntArray  # [clauses, 6]
     combine: int
     close_slot: int
     atr_slot: int
@@ -157,9 +163,13 @@ def _compile(
                 raise ProgramError(f"{name} must be a finite number")
             pvals[m, j] = float(v)
 
+    period = genome.stop_period
+    if period is not None and not isinstance(period, Param):
+        raise ProgramError("stop period must be a parameter")
     b = _Builder(len(configs), pvals, column)
     close_slot = b.slot(("close",), OP_CLOSE, None)
-    atr_slot = b.slot(("atr",), OP_ATR, ATR_PERIOD)
+    # the render's only ATR is the stop's ATR(n_stop) when it has one (ADR-0047), else ATR(14)
+    atr_slot = b.slot(("atr",), OP_ATR, period if genome.one_atr else ATR_PERIOD)
     b.atr_slot = atr_slot
     clauses = genome.clauses()
     if not 1 <= len(clauses) <= MAX_CLAUSES:
@@ -171,16 +181,13 @@ def _compile(
         combine = COMBINE_AND if genome.entry.op == "and" else COMBINE_OR
     else:
         combine = COMBINE_SINGLE
-    period = genome.stop_period
-    if period is not None and not isinstance(period, Param):
-        raise ProgramError("stop period must be a parameter")
     stop_slot = atr_slot
     if genome.stop_kind == "bollinger":
         band_op = OP_BOLL_LOWER if direction == "long" else OP_BOLL_UPPER
         band_slot = b.slot(("band", band_op), band_op, BAND_PERIOD if period is None else period)
     elif genome.stop_kind == "atr":
         band_slot = NO_SLOT
-        if period is not None:
+        if period is not None and not genome.one_atr:
             stop_slot = b.slot(("atr_stop",), OP_ATR, period)
     else:
         raise ProgramError("stop kind must be atr or bollinger")
@@ -250,6 +257,20 @@ class _Builder:
         self.slot_cols.append(per_config)
         return self.slots[key]
 
+    def ratio(self, c: VolRatio | Bandwidth) -> int:
+        """The slot of ``atr_ratio`` / ``band_ratio`` (fast, slow), per configuration."""
+        op = OP_ATR_RATIO if isinstance(c, VolRatio) else OP_BAND_RATIO
+        key = ("ratio", op, id(c.fast), id(c.slow))
+        if key in self.slots:
+            return self.slots[key]
+        per_config = []
+        for m in range(self.n):
+            slow = self._period(c.slow, m)
+            per_config.append(self._instance(op, self._period(c.fast, m), (slow, 0, 0, 0)))
+        self.slots[key] = len(self.slot_cols)
+        self.slot_cols.append(per_config)
+        return self.slots[key]
+
     def slot(self, key: tuple[Any, ...], op: int, period: int | Param | None) -> int:
         """A feature slot; ``period`` is a constant, a TUNABLE (varies per config) or none."""
         if key in self.slots:
@@ -301,6 +322,8 @@ class _Builder:
             return [CL_BREAKOUT, close, level, NO_SLOT, int(c.up), NO_SLOT]
         if isinstance(c, Slope):
             return [CL_SLOPE, self.series(c.series), NO_SLOT, NO_SLOT, int(c.up), NO_SLOT]
+        if isinstance(c, VolRatio | Bandwidth):  # one feature against k, as a Threshold
+            return [CL_THRESHOLD, self.ratio(c), NO_SLOT, self.col(c.k), _cmp(c.op), NO_SLOT]
         raise ProgramError(f"unsupported clause {c!r}")
 
     def tables(self) -> tuple[IntArray, IntArray, IntArray, IntArray]:

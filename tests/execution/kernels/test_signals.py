@@ -13,7 +13,14 @@ pytest.importorskip("numba")
 
 from quantcrucible.agent.grammar import GrammarConfig, sample_genome
 from quantcrucible.core.strategy.base import Bars, generate_signals
-from quantcrucible.core.strategy.genome import Distance, Genome, render_genome
+from quantcrucible.core.strategy.genome import (
+    CLAUSE_TYPES_V5,
+    Bandwidth,
+    Distance,
+    Genome,
+    VolRatio,
+    render_genome,
+)
 from quantcrucible.core.strategy.template import load_strategy_class, parse
 from quantcrucible.core.strategy.tunable import pbo_grid
 from quantcrucible.execution.kernels.features import run_features
@@ -30,10 +37,16 @@ CFG_STOP = GrammarConfig(
 CFG_V4 = GrammarConfig(stop_period=True, max_params=7, version=4)
 # every clause a v4 Distance, so its spread yardstick is exercised on each genome (ADR-0045)
 CFG_DISTANCE = GrammarConfig(stop_period=True, max_params=7, version=4, clause_types=(Distance,))
+# grammar v5: the volatility clauses join the grammar (ADR-0047)
+CFG_V5 = GrammarConfig(stop_period=True, max_params=7, version=5, clause_types=CLAUSE_TYPES_V5)
 CFGS = pytest.mark.parametrize(
     "cfg",
-    [CFG, CFG_STOP, CFG_V4, CFG_DISTANCE],
-    ids=["fixed-stop", "stop-period", "grammar-v4", "v4-distance"],
+    [CFG, CFG_STOP, CFG_V4, CFG_DISTANCE, CFG_V5],
+    ids=["fixed-stop", "stop-period", "grammar-v4", "v4-distance", "grammar-v5"],
+)
+# every clause a volatility ratio, on a lookback that holds the slow side's 300 bars
+CFG_VOL = GrammarConfig(
+    stop_period=True, max_params=7, version=5, clause_types=(VolRatio, Bandwidth)
 )
 
 
@@ -102,3 +115,19 @@ def test_simulated_cuda_kernel_matches_generate_signals(cfg: GrammarConfig) -> N
 @pytest.mark.gpu
 def test_cuda_kernel_matches_generate_signals(cfg: GrammarConfig) -> None:
     assert _check("cuda", n_genomes=25, n_bars=400, lookback=120, n_configs=3, grammar=cfg) > 100
+
+
+def test_cpu_kernel_matches_generate_signals_on_volatility_clauses() -> None:
+    """VolRatio and Bandwidth (ADR-0047) once their slow side is warm: the ratio of two kernel
+    features against k, as the render divides x["fa"] / x["fb"]."""
+    assert _check("cpu", n_genomes=8, n_bars=480, lookback=330, n_configs=3, grammar=CFG_VOL) > 50
+
+
+@pytest.mark.cudasim
+def test_simulated_cuda_kernel_matches_generate_signals_on_volatility_clauses() -> None:
+    _check("cuda", n_genomes=2, n_bars=90, lookback=90, n_configs=1, grammar=CFG_VOL)
+
+
+@pytest.mark.gpu
+def test_cuda_kernel_matches_generate_signals_on_volatility_clauses() -> None:
+    assert _check("cuda", n_genomes=8, n_bars=480, lookback=330, n_configs=3, grammar=CFG_VOL) > 50

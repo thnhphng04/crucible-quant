@@ -16,9 +16,9 @@ import numpy as np
 import pytest
 
 from quantcrucible.agent.evolution.operators import OperatorFailed, breed
-from quantcrucible.agent.grammar import GrammarConfig, sample_genome
+from quantcrucible.agent.grammar import CLAUSE_TYPES_V5, GrammarConfig, sample_genome
 from quantcrucible.core.strategy import template
-from quantcrucible.core.strategy.genome import render_genome
+from quantcrucible.core.strategy.genome import Bandwidth, VolRatio, render_genome
 from quantcrucible.core.strategy.genome_parse import (
     MAX_SOURCE_BYTES,
     GenomeParseError,
@@ -33,8 +33,12 @@ CFG_STOP = GrammarConfig(
 )
 # grammar v4: Distance divides by the spread's own deviation (ADR-0045)
 CFG_V4 = GrammarConfig(stop_period=True, max_params=7, version=4)
+# grammar v5: the volatility ratios VolRatio and Bandwidth (ADR-0047)
+CFG_V5 = GrammarConfig(stop_period=True, max_params=7, version=5, clause_types=CLAUSE_TYPES_V5)
 CFGS = pytest.mark.parametrize(
-    "cfg", [CFG, CFG_STOP, CFG_V4], ids=["fixed-stop", "stop-period", "grammar-v4"]
+    "cfg",
+    [CFG, CFG_STOP, CFG_V4, CFG_V5],
+    ids=["fixed-stop", "stop-period", "grammar-v4", "grammar-v5"],
 )
 
 
@@ -120,6 +124,32 @@ def test_a_stop_period_render_edited_is_refused(old: str, new: str) -> None:
                 parse_genome(src.replace(old, new, 1))
             return
     pytest.fail("no ATR-stop genome sampled")
+
+
+CFG_VOL = GrammarConfig(
+    stop_period=True, max_params=7, version=5, clause_types=(VolRatio, Bandwidth)
+)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("ind.atr_ratio(bars, self.p.n1, self.p.n2)", "ind.atr_ratio(bars, self.p.n2, self.p.n1)"),
+        ("ind.atr_ratio(bars, self.p.n1, self.p.n2)", "ind.atr_ratio(bars, self.p.n1, 300)"),
+        ("ind.atr_ratio(bars,", "ind.atr_ratio(bars.close,"),  # the wrong input
+        ("ind.band_ratio(bars.close,", "ind.band_ratio(bars,"),
+        ("ind.band_ratio(bars.close, self.p.n1, self.p.n2)", "ind.zscore(bars.close, self.p.n1)"),
+    ],
+)
+def test_a_volatility_ratio_render_edited_is_refused(old: str, new: str) -> None:
+    """ADR-0047: only the exact render of a VolRatio / Bandwidth is read as one."""
+    for g, _d, _r, src in _sources(40, seed=17, cfg=CFG_VOL):
+        if old in src:
+            assert parse_genome(src).genome == g
+            with pytest.raises(GenomeParseError):
+                parse_genome(src.replace(old, new, 1))
+            return
+    pytest.fail(f"no render holds {old!r}")
 
 
 def test_a_swapped_parameter_reference_is_refused() -> None:

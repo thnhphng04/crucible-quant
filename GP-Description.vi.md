@@ -129,7 +129,7 @@ lock khi mở campaign. Chi tiết ở mục 7.
 | `direction` | `"long"` | Xem mục 2 |
 | `stop_period` | `False` (lock `tunable_v1`: `True`) | Mỗi genome có gene `n_stop` — period của stop (mục 3.3, 3.4) |
 | `max_params` | `6` (lock `tunable_v1`: `7`) | Trần số TUNABLE duy nhất. Genome vượt trần bị lấy mẫu lại; con vượt trần bị toán tử bỏ |
-| `clause_types` | cả 7 loại | Loại clause được phép lấy mẫu. Mỗi đảo có bản riêng khi seed (mục 6) |
+| `clause_types` | cả 7 loại (lock v5: 9) | Loại clause được phép lấy mẫu. Mỗi đảo có bản riêng khi seed (mục 6) |
 
 ### 3.2 Bảy loại clause
 
@@ -213,13 +213,37 @@ spread_stdev = √( (1/n) Σ (s_i − s̄)² ),  s = a − b   (= 0 ⇒ NaN ⇒ 
   trong lookback 400 bar.
 - Trên random walk: `Distance` suy biến 17,5% (v3) → 0%; trên dữ liệu IS (P3-54) 1,6%.
 
+**Grammar v5** (P3-61, ADR-0047, lock mới có `derived.grammar_version: 5`): thêm hai clause **chế độ
+biến động**, mỗi clause là **một** feature so với mức `k` (giống `Threshold`):
+
+| Clause | Dạng code | Số | Danh mục |
+|---|---|---|---|
+| `VolRatio(fast, slow, op, k)` | `atr_ratio(bars, fast, slow) > k` | `fast` ∈ `[5, 50]`, `slow` ∈ `[60, 300]`, `k` ∈ `[0.6, 1.6]` | `volatility` (cả long lẫn short) |
+| `Bandwidth(fast, slow, op, k)` | `band_ratio(close, fast, slow) > k` | `fast` ∈ `[5, 50]`, `slow` ∈ `[60, 300]`, `k` ∈ `[0.3, 2.5]` | `volatility` |
+
+- `> k`: biến động đang **giãn** so với nền dài; `< k`: đang **co** (squeeze).
+- Hai khoảng period rời nhau nên `fast` luôn nhỏ hơn `slow`, kể cả sau toán tử `param`. Period lấy
+  log-uniform. Mỗi clause tốn 3 TUNABLE.
+- Khoảng `k` lấy từ phân vị q05–q95 trên dữ liệu IS 1d và perp 1h. Tỷ lệ clause suy biến (đúng < 1%
+  hoặc > 99% số bar) ở 1d / 1h: `VolRatio` 2,7% / 7,9%, `Bandwidth` 4,1% / 3,5%.
+- **Một feature, không phải hai:** cổng ③ loại chiến lược có hai feature mà thay đổi từng bar tương
+  quan > `max_indicator_corr` 0,9. `atr(fast)` và `atr(slow)` tương quan 0,80–0,98, nên một tỷ lệ
+  viết thành hai feature gần như luôn trượt.
+- Danh mục thứ 5 `volatility` ⇒ **6 đảo** (mục 6). Toán tử `point` lật `>`/`<`, giữ nguyên `k`.
+
+**Một thước ATR** (ADR-0047, mọi genome có gene `n_stop` và stop ATR): ATR duy nhất trong code là
+`"atr": ind.atr(bars, self.p.n_stop)` — guard `ready`, stop và `k_tp` cùng đọc nó; không còn
+`atr_stop` và `ATR(14)`. Lý do: ATR(14) đứng cạnh ATR(n_stop) tương quan 0,94–0,996, làm 39/40 genome
+trượt cổng ③. Ngoại lệ: genome có `Distance` chia ATR (không còn được lấy mẫu từ v4) giữ cả hai.
+
 ### 3.4 Các chỉ báo (indicator) dùng trong grammar
 
 Mọi chỉ báo nằm trong whitelist `ind` ở [registry.py](src/quantcrucible/core/strategy/registry.py)
-(`OPS`). Gate ①a chỉ cho gọi `ind.<tên>` có trong `INDICATORS`. Grammar dùng **cả 11** mục của
-whitelist; ngoài ra có chuỗi thô `close` (không phải chỉ báo). Mọi chỉ báo chuỗi đều **nhân quả**
+(`OPS`). Gate ①a chỉ cho gọi `ind.<tên>` có trong `INDICATORS`. Whitelist có 15 mục (11 ban đầu,
+`spread_stdev` từ v4, `bandwidth`/`band_ratio`/`atr_ratio` từ v5); ngoài ra có chuỗi thô `close`
+(không phải chỉ báo). Mọi chỉ báo chuỗi đều **nhân quả**
 (giá trị tại bar t chỉ phụ thuộc bar ≤ t, kiểm bởi `tests/core/strategy/test_registry.py`), trả NaN
-trong giai đoạn warm-up. Tất cả tính trên `bars.close`, trừ `atr` dùng thêm `high`/`low`;
+trong giai đoạn warm-up. Tất cả tính trên `bars.close`, trừ `atr`/`atr_ratio` dùng thêm `high`/`low`;
 `open` và `volume` không được grammar dùng.
 
 **Chuỗi giá** (đơn vị giá — chỉ so với chuỗi giá khác hoặc chia ATR):
@@ -261,6 +285,18 @@ Chỉ báo thứ 12, từ grammar v4 (P3-58, ADR-0045):
 | Chỉ báo | Công thức | Period | Dùng ở |
 |---|---|---|---|
 | `spread_stdev(a, b, n)` | Độ lệch chuẩn tổng thể của `a − b` trên `n` bar; `= 0` ⇒ NaN | `n` = period của `b` (của `a` nếu `b` là close), không phải TUNABLE riêng | Mẫu số của `Distance` v4: `(a − b) / spread_stdev(a, b, n)` |
+
+Chỉ báo thứ 13–15, từ grammar v5 (P3-61, ADR-0047) — không thứ nguyên, quanh `1`:
+
+| Chỉ báo | Công thức | Period (TUNABLE) | Warm-up | Dùng ở |
+|---|---|---|---|---|
+| `bandwidth(close, n)` | `4 × std_n / (sma_n × √n)` — độ rộng dải Bollinger **trên √bar**; `sma ≤ 0` hoặc `std = 0` ⇒ NaN | — | `n` bar | Thành phần của `band_ratio` (grammar không dùng trực tiếp) |
+| `band_ratio(close, fast, slow)` | `bandwidth(fast) / bandwidth(slow)`; phía chậm ≤ 0 hoặc NaN ⇒ NaN | `fast`, `slow` | `slow` bar | `Bandwidth` |
+| `atr_ratio(bars, fast, slow)` | `atr(fast) / atr(slow)`; phía chậm ≤ 0 ⇒ NaN | `fast`, `slow` | `slow` bar | `VolRatio` |
+
+Vì sao chia √n: dải của random walk rộng ra theo `√n` (trung vị độ rộng thô 0,145 ở n = 10, 0,575 ở
+n = 100), nên tỷ lệ thô của hai độ rộng chỉ phản ánh `√(fast/slow)`. Chia √n thì tỷ lệ quanh 1 ở mọi
+cặp period và ở cả 1d lẫn 1h.
 
 **Vị từ** (trả `bool`, so bar hiện tại với bar trước):
 
@@ -340,6 +376,10 @@ Mate (cho crossover) bốc theo cùng quy tắc, trong cùng đảo, loại tr�
 
 Các đảo xoay vòng: đề xuất thứ `k` thuộc đảo `i(k mod 5)`. **Một thế hệ = 5 đề xuất** (mỗi đảo một).
 Con sinh ra thuộc về đảo nó được lai tạo trên.
+
+**Grammar v5** (ADR-0047): thêm danh mục `volatility` ⇒ `N = 6`. `i4` là đảo `volatility` (seed chỉ
+`VolRatio`, `Bandwidth`), `i5` là đảo mở (cả 9 loại); một thế hệ = 6 đề xuất. Lock v1–v4 giữ 5 đảo
+như bảng trên, nên campaign cũ resume đúng đảo của nó.
 
 ### `MIGRATION_INTERVAL` — `10` thế hệ (arch §3.1.8)
 Cứ 10 thế hệ (= 50 đề xuất của một đơn vị tìm kiếm), ngay đầu thế hệ, engine lên kế hoạch di cư.
@@ -456,7 +496,7 @@ có gì mới ⇒ `RuntimeError`.
 | `MAX_CLAUSES` | 3 | `operators.py` |
 | Ngưỡng nội bộ `point` | 0.15 / 0.2 / 0.6 | `operators.py` |
 | `ALPHA` | 0.5 | `sampling.py` |
-| Số đảo | 5 | Theo `CATEGORIES` |
+| Số đảo | 5 (lock v5: 6) | Theo `categories_for(version)` |
 | `MIGRATION_INTERVAL` | 10 thế hệ | `islands.py` |
 | `MIGRATION_FRACTION` | 0.10 | `islands.py` |
 | `bins` + bound feature map | 16, mục 7 | `validation/run.py` |

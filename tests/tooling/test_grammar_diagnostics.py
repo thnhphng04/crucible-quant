@@ -125,6 +125,7 @@ def test_end_to_end_on_a_synthetic_folder(
     assert D.main(["--data-dir", str(tmp_path / "is"), "--samples", "5", "--out", str(out)]) == 0
     assert {p.stem for p in out.glob("*.csv")} == {
         "fire",
+        "fire_v5",
         "grid",
         "scenarios",
         "distance",
@@ -138,6 +139,7 @@ def test_end_to_end_on_a_synthetic_folder(
     assert len(fire) == 2 * 7 * 5
     assert fire["rate"].between(0, 1).all()
     assert len(tables["scenarios"]) == 2 * len(D.SCENARIOS) * 7 * 5
+    assert set(tables["fire_v5"]["clause"]) == {"VolRatio", "Bandwidth"}  # grammar v5
     text = capsys.readouterr().out
     assert "== fire ==" in text and "== corr ==" in text and "== grid Cross" in text
 

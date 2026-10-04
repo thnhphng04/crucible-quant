@@ -5,13 +5,15 @@ It reproduces what the template's ``signal()`` computes from the features at bar
     atr = x["atr"] + 0
     stop = k_stop * atr                     # or k_stop * (close - boll_lower(8)), mirrored short
                                             # with n_stop (ADR-0041): x["atr_stop"], boll(n_stop)
+                                            # or, one ATR (ADR-0047): x["atr"] is ATR(n_stop)
     ready = atr > 0 and atr - atr == 0 and stop > 0 and stop - stop == 0
     if ready and (<entry clauses>):
         return Signal(direction, 1.0, stop, <tp>)
 
 The clauses are evaluated only when ``ready`` holds, as Python's ``and`` short-circuits — so a
 Distance clause never divides by a zero ATR, and its spread yardstick (ADR-0045) is NaN, never 0,
-where the spread does not move. Comparisons with NaN are false, as in Python, and
+where the spread does not move. A volatility ratio (ADR-0047) is one feature compared with its
+level, as a ``Threshold``. Comparisons with NaN are false, as in Python, and
 ``cross_up``/``cross_down`` are false whenever one of their four values is NaN. The output is an
 entry flag and the stop distance per bar and configuration, laid out ``[bar, config]`` so the
 replay threads read consecutive configurations together.
