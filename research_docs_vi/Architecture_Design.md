@@ -3,7 +3,7 @@
 > *Crucible Quant — phòng nghiên cứu định lượng dùng AI để tiến hóa chiến lược giao dịch hệ thống, và bắt mọi chiến lược qua lửa thử trước khi được giao dịch thật.*
 >
 > Thiết kế hệ thống AI sinh & kiểm định chiến lược trading deterministic, đa thị trường.
-> Phiên bản: 0.12 (draft) · Ngày: 2026-10-04
+> Phiên bản: 0.13 (draft) · Ngày: 2026-10-05
 > Nền tảng nghiên cứu: [[00-TONG-HOP-NGHIEN-CUU]] · [[04-TRUONG-PHAI-B-HIEU-QUA]] · [[06-PLATFORM-DA-THI-TRUONG]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Thay đổi 0.1 → 0.2** (nguồn: khảo sát 22 hệ trong [[08-LLM-QUANT-RESEARCHER]]): kiến trúc QuantEvolve được xác nhận độc lập bởi MadEvolve (§3.1) · thêm thay đổi bắt buộc **#5 DSL đóng** và **#6 reviewer ngữ cảnh mới tinh** (§3.1.6) · **DSR tính trên danh mục hợp nhất, không phải từng cell** (§3.1.6 — điểm dễ sai nhất) · thêm **gate ⓪ chống trôi spec** (§3.1.7) · thay khuyến nghị "dùng model nhỏ" bằng **bảng định tuyến dị thể + cảnh báo tránh reasoning model** (§3.1.9) · ledger thêm `model_used`/`gen_attempts`/`gen_failures`/`drift_delta` + view `starved_cells` (§4.1) · **P6 nâng lên cấp OS, evaluator chạy process riêng** (§4.2) · loại bỏ meta-evolution và RFT khỏi phạm vi (§9) · cảnh báo không lấy con số paper làm mốc (§11)
@@ -27,6 +27,8 @@
 > **Thay đổi 0.10 → 0.11** (ADR-0041, 2/10/2026): campaign mới khóa `derived.stop_period: tunable_v1` — chu kỳ của stop (ATR hoặc dải Bollinger) thành gene `n_stop` (TUNABLE, [5, 50]) và trần TUNABLE thành **7**; ATR(14) vẫn là thước đo cho guard `ready` và clause `Distance`; lock cũ giữ trần 6 và chu kỳ 14/8 (§3.2, §3.3.1, D24)
 
 > **Thay đổi 0.11 → 0.12** (ADR-0042, 4/10/2026): khóa nhóm B `research.exit.stop_kinds` (mặc định `[atr]`) chọn các loại stop của campaign; stop Bollinger tắt cho campaign mới vì nó `<= 0` đúng lúc clause mean reversion kích hoạt; lock cũ thiếu khóa giữ loại stop mà exit của nó đã chạy (§3.3.1, D25)
+
+> **Thay đổi 0.12 → 0.13** (ADR-0048, 4–5/10/2026): dữ liệu USDT-M perpetual thật đã được tải và holdout của nó đã được cắt (P3-24) — cửa sổ chung bắt đầu 2020-09-14 (SOLUSDT), IS 2020-09-15 → 2025-10-02, holdout 12 tháng khóa riêng; lỗ ngắn trong lịch sử mark 1 phút được điền từ nến trade cùng phút và được ghi lại (§6.1, D18)
 
 ---
 
@@ -1183,7 +1185,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D15 | Số lệnh / thời gian nắm giữ tối thiểu; tương quan indicator tối đa; số seed | 🟡 Mặc định tạm | 30 lệnh trên IS / 1 bar; 0.9; 3 seed | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Phạm vi tiến hóa | 🟡 Mặc định tạm | `joint` (cả entry + exit + regime) | §3.3.1 |
 | D17 | Sharpe mục tiêu của MinBTL (gate ②) | 🟡 Mặc định tạm | 1.5 năm hóa; chỉ được hạ | ADR-0002. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial |
-| D18 | Dữ liệu nghiên cứu | 🟡 Mặc định tạm | Binance spot, 5 cặp USDT từ 2018; timeframe mặc định **1h**, hỗ trợ **15m**; `end` tùy chọn, `null` lấy đến mốc UTC đã hoàn tất. USDT-M perpetual có ví dụ từ 2020-09-14; holdout 12 tháng, khóa riêng | ADR-0031, ADR-0036, §6.1. Coverage nguồn perpetual thật vẫn chờ P3-24; trần MinBTL phụ thuộc cửa sổ IS đã khóa |
+| D18 | Dữ liệu nghiên cứu | 🟡 Mặc định tạm | Binance spot, 5 cặp USDT từ 2018; timeframe mặc định **1h**, hỗ trợ **15m**; `end` tùy chọn, `null` lấy đến mốc UTC đã hoàn tất. USDT-M perpetual: cửa sổ chung từ 2020-09-14 (SOLUSDT), IS đã tải 2020-09-15 → 2025-10-02 (5,05 năm), holdout 12 tháng 2025-10-02 → 2026-10-02, khóa riêng | ADR-0031, ADR-0036, ADR-0048, §6.1. Coverage nguồn perpetual thật đã kiểm 2026-10-04 (P3-24): lỗ mark 1 phút ≤ 60 phút được điền từ nến trade cùng phút và được ghi lại; trần MinBTL phụ thuộc cửa sổ IS đã khóa |
 | D19 | Engine trọng tâm | ✅ Đã chốt (22/9/2026) | **Engine C không LLM**: C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; A/B hoãn, thiết kế giữ nguyên; bộ sinh không thiên lệch theo tần suất giao dịch | §3.1.11, §7, [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]. Mở lại A/B là quyết định của người dùng |
 | D20 | Tham số trong engine C | 🟡 Mặc định tạm | Con chỉ đổi tham số ≤ 30% số con C-gp; trung vị SPP + plateau (ngưỡng 50%) là thành phần phụ của điểm xếp hạng; calibration 5b giữ nguyên (một lần, trước freeze) | §3.1.11, §3.2, §3.2.1 5b |
 | D21 | Thoát lệnh campaign mới | ✅ Đã chốt (27/9/2026) | `bracket_timeout_v1`: stop ATR/Bollinger và TP cố định từ close nến tín hiệu; mặc định TP/SL = **1,1**, giữ tối đa **100 bar**, hết hạn khớp ở open nến kế; `flat` không đóng lệnh đang giữ | Tỷ lệ và giới hạn là Nhóm B; lock cũ thiếu phiên bản giữ `legacy_flat` (ADR-0036) |
