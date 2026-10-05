@@ -3,7 +3,7 @@
 > *Crucible Quant — an AI quantitative research lab that evolves systematic trading strategies and puts every one through the fire before it trades.*
 >
 > Design for an AI system that generates and validates deterministic, multi-market trading strategies.
-> Version: 0.12 (draft) · Date: 2026-10-04
+> Version: 0.13 (draft) · Date: 2026-10-05
 > Research foundation: [[00-RESEARCH-SYNTHESIS]] · [[04-SCHOOL-B-EFFICACY]] · [[06-MULTI-MARKET-PLATFORM]] · [[07-VALIDATION-LAYER]] · [[08-LLM-QUANT-RESEARCHER]]
 >
 > **Changes 0.1 → 0.2** (source: the 22-system survey in [[08-LLM-QUANT-RESEARCHER]]): the QuantEvolve architecture was independently confirmed by MadEvolve (§3.1) · added mandatory deviations **#5 closed DSL** and **#6 fresh-context reviewer** (§3.1.6) · **DSR computed on the consolidated portfolio, not per cell** (§3.1.6 — the easiest thing to get wrong) · added **gate ⓪ spec-drift** (§3.1.7) · replaced the "use small models" recommendation with a **heterogeneous routing table + a warning against reasoning models** (§3.1.9) · ledger gained `model_used` / `gen_attempts` / `gen_failures` / `drift_delta` plus the `starved_cells` view (§4.1) · **P6 raised to OS level, evaluator runs in its own process** (§4.2) · meta-evolution and RFT removed from scope (§9) · warning against using paper numbers as benchmarks (§11)
@@ -27,6 +27,8 @@
 > **Changes 0.10 → 0.11** (ADR-0041, 2 Oct 2026): new campaigns lock `derived.stop_period: tunable_v1` — the stop's period (ATR or Bollinger band) becomes the gene `n_stop` (a TUNABLE, [5, 50]) and the TUNABLE cap becomes **7**; ATR(14) stays the yardstick for the `ready` guard and the `Distance` clause; old locks keep the cap of 6 and the 14/8 periods (§3.2, §3.3.1, D24)
 
 > **Changes 0.11 → 0.12** (ADR-0042, 4 Oct 2026): the Group B key `research.exit.stop_kinds` (default `[atr]`) chooses a campaign's stop kinds; the Bollinger stop is off for new campaigns because it is `<= 0` exactly when mean-reversion clauses fire; old locks without the key keep the stop kinds their exit ran with (§3.3.1, D25)
+
+> **Changes 0.12 → 0.13** (ADR-0048, 4–5 Oct 2026): real USDT-M perpetual data is fetched and its holdout carved (P3-24) — the common window starts 2020-09-14 (SOLUSDT), IS 2020-09-15 → 2025-10-02, a 12-month holdout under its own lock; short holes in the one-minute mark history are filled from same-minute trade bars and recorded (§6.1, D18)
 
 ---
 
@@ -1183,7 +1185,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
 | D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
-| D18 | Research data | 🟡 Provisional default | Binance spot, 5 USDT pairs from 2018; **1h** default timeframe with **15m** support; optional `end`, where `null` uses the latest completed UTC boundary. USDT-M perpetual example starts 2020-09-14; 12-month holdout with its own lock | ADR-0031, ADR-0036, §6.1. Real-source perpetual coverage still awaits P3-24; the MinBTL ceiling depends on the locked IS window |
+| D18 | Research data | 🟡 Provisional default | Binance spot, 5 USDT pairs from 2018; **1h** default timeframe with **15m** support; optional `end`, where `null` uses the latest completed UTC boundary. USDT-M perpetual: common window from 2020-09-14 (SOLUSDT), fetched IS 2020-09-15 → 2025-10-02 (5.05 years), 12-month holdout 2025-10-02 → 2026-10-02 under its own lock | ADR-0031, ADR-0036, ADR-0048, §6.1. Real-source perpetual coverage checked 2026-10-04 (P3-24): one-minute mark holes of ≤ 60 minutes are filled from same-minute trade bars and recorded; the MinBTL ceiling depends on the locked IS window |
 | D19 | Focus engine | ✅ Decided (22 Sep 2026) | **No-LLM engine C**: C-gp (GP, typed grammar) main + C-random control; A/B deferred, design kept; the generator has no bias on trading frequency | §3.1.11, §7, [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only). Reopening A/B is the user's call |
 | D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
 | D21 | Exits for new campaigns | ✅ Decided (27 Sep 2026) | `bracket_timeout_v1`: ATR/Bollinger stop and TP fixed from signal close; default TP/SL **1.1**, maximum **100 held bars**, expiry fills at next open; `flat` does not close a held position | Ratio and limit are Group B; old locks lacking a version retain `legacy_flat` (ADR-0036) |
