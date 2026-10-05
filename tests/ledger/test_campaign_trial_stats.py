@@ -8,6 +8,7 @@ Without a campaign the ledger-wide figures are exactly what they were.
 
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 import statistics
 from importlib.resources import files
@@ -103,6 +104,16 @@ def test_a_campaign_snapshot_ignores_other_campaigns(ledger: Ledger) -> None:
     assert ledger.snapshot() == {"trials": 6, "portfolio_variants": 0}  # no scope key
     ledger.record_trial(_trial("c2", 0.7, "b9"))
     assert ledger.snapshot("c2") != before
+
+
+def test_latest_is_end_is_the_newest_searched_day_of_any_campaign(ledger: Ledger) -> None:
+    """D28 (ADR-0051): the newest IS day of any trial; a non-date timerange is skipped."""
+    assert ledger.latest_is_end() is None
+    ledger.record_trial(_trial("c1", 0.1, "a"))  # 2018-01-01/2025-09-21
+    other = _trial("c2", 0.1, "b")
+    ledger.record_trial(dataclasses.replace(other, timerange="2019-01-01/2024-01-01"))
+    ledger.record_trial(dataclasses.replace(other, candidate_id="z", timerange="t"))
+    assert ledger.latest_is_end() == "2025-09-21"
 
 
 def test_a_v9_ledger_keeps_its_figures_after_migrating(tmp_path: Path) -> None:

@@ -25,6 +25,7 @@ import numpy as np
 
 from quantcrucible.data.holdout_split import make_read_only, read_holdout_lock, verify_holdout
 from quantcrucible.data.manifest import sha256_file
+from quantcrucible.data.window import holdout_window, unclean_holdout
 
 DATASET_MANIFEST_VERSION = 1
 Section = Literal["is", "second"]
@@ -49,6 +50,8 @@ class DatasetSpec:
     resolved_end_utc: str
     holdout_months: int
     funding_interval_hours: int | None = None
+    # The IS/holdout cut (ADR-0051); None = the last ``holdout_months``. Hashed only when set.
+    holdout_start_utc: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", tuple(sorted(self.symbols)))
@@ -58,6 +61,8 @@ class DatasetSpec:
             raise ValueError("holdout_months must be positive")
         _parse_utc(self.start_utc, "start_utc")
         _parse_utc(self.resolved_end_utc, "resolved_end_utc")
+        if self.holdout_start_utc is not None:
+            _parse_utc(self.holdout_start_utc, "holdout_start_utc")
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +274,9 @@ class DatasetRegistry:
             start_utc=_date_start_utc(data.start),
             resolved_end_utc=resolved_end,
             holdout_months=int(data.holdout_months),
+            holdout_start_utc=(
+                _date_start_utc(data.holdout_start) if data.holdout_start is not None else None
+            ),
             funding_interval_hours=(
                 int(data.funding_interval_hours)
                 if getattr(data, "funding_interval_hours", None) is not None
@@ -297,8 +305,12 @@ class DatasetRegistry:
         second_source: Any | None = None,
         perp_source: Any | None = None,
         second_perp_source: Any | None = None,
+        latest_is_end: date | None = None,
     ) -> DatasetDescriptor:
         """Fetch into isolated staging paths, carve there, then publish immutably.
+
+        ``latest_is_end`` is the last day research has already searched (``Ledger.latest_is_end``):
+        a holdout reaching back into it is refused before anything is downloaded (D28).
 
         This is the studio prepare-data job entry point. It never writes ``data/is``,
         ``data/perp``, root ``holdout.lock``, or the legacy second-source directories.
@@ -309,8 +321,13 @@ class DatasetRegistry:
         end_day = _resolved_end_day(data.end)
         start = datetime.combine(data.start, time(), tzinfo=UTC)
         end = datetime.combine(end_day, time(), tzinfo=UTC)
-        holdout_start = _add_months(end_day, -int(data.holdout_months))
-        holdout_end = end_day + timedelta(days=1)
+        try:
+            holdout_start, holdout_end = holdout_window(data, end_day)
+        except ValueError as e:
+            raise DatasetRegistryError(str(e)) from None
+        problem = unclean_holdout(latest_is_end, holdout_start)
+        if problem is not None:
+            raise DatasetRegistryError(problem)
         token = uuid.uuid4().hex
         fetch_data = self.data_root / ".fetching" / token
         fetch_holdout = self.holdout_root / ".fetching" / token
@@ -351,6 +368,9 @@ class DatasetRegistry:
                 start_utc=_date_start_utc(data.start),
                 resolved_end_utc=_date_start_utc(end_day),
                 holdout_months=int(data.holdout_months),
+                holdout_start_utc=(
+                    _date_start_utc(data.holdout_start) if data.holdout_start is not None else None
+                ),
                 funding_interval_hours=(
                     int(data.funding_interval_hours)
                     if getattr(data, "funding_interval_hours", None) is not None
@@ -770,7 +790,10 @@ def resolve_legacy_dataset(project_root: Path, lock: Mapping[str, Any]) -> Datas
 
 
 def _spec_payload(spec: DatasetSpec) -> dict[str, Any]:
-    return asdict(spec)
+    payload = asdict(spec)
+    if payload["holdout_start_utc"] is None:  # a dataset published before the cut existed
+        del payload["holdout_start_utc"]
+    return payload
 
 
 def _bars_coverage(
@@ -833,18 +856,6 @@ def _resolved_end_day(value: Any) -> date:
     if end_day > today:
         raise DatasetRegistryError("research.data.end cannot be in the future")
     return end_day
-
-
-def _add_months(value: date, months: int) -> date:
-    month_index = value.year * 12 + (value.month - 1) + months
-    year, month = divmod(month_index, 12)
-    month += 1
-    for day in (value.day, 30, 29, 28):
-        try:
-            return date(year, month, day)
-        except ValueError:
-            continue
-    raise AssertionError("unreachable")
 
 
 def _inputs_from_directory(root: Path, section: Section) -> tuple[DatasetInput, ...]:

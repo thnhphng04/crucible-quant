@@ -366,3 +366,98 @@ def test_fetch_refuses_a_missing_bar_in_the_requested_window(tmp_path: Path) -> 
             cfg, primary_source=CcxtSource(exchange=exchange)
         )
     assert not list((tmp_path / "data" / "datasets").glob("[0-9a-f]*"))
+
+
+# ── the IS/holdout cut (P3-64, ADR-0051) — INV-126 ─────────────────────────────────────────
+
+
+def test_a_spec_without_a_cut_keeps_its_hash() -> None:
+    """Published datasets stay addressable: the cut enters the spec hash only when it is set."""
+    assert dataset_spec_hash(_spec()) == (
+        "11bcf74afedc4481bd4c2ab88faee57f2558457da12a0268a9e7f98866fc3d04"
+    )
+    cut = replace(_spec(), holdout_start_utc="2022-06-01T00:00:00+00:00")
+    assert dataset_spec_hash(cut) != dataset_spec_hash(_spec())
+
+
+def test_fetch_cuts_the_holdout_at_the_chosen_date(tmp_path: Path) -> None:
+    cfg = UserConfig(
+        research=replace(
+            Research(),
+            data=replace(
+                Data(),
+                symbols=("BTC/USDT",),
+                timeframe="1d",
+                start=date(2020, 1, 2),
+                end=date(2023, 1, 1),
+                holdout_start=date(2022, 6, 1),
+                second_exchange=None,
+            ),
+        )
+    )
+    descriptor = DatasetRegistry(tmp_path).fetch_and_publish(
+        cfg, primary_source=CcxtSource(exchange=FakeExchange())
+    )
+    manifest = read_dataset_manifest(descriptor.manifest_path)
+    assert descriptor.holdout_range == "2022-06-01/2023-01-02"
+    assert manifest.spec.holdout_start_utc == "2022-06-01T00:00:00+00:00"
+    is_file = next(descriptor.is_dir.glob("*.parquet"))
+    import pandas as pd
+
+    last = pd.read_parquet(is_file)["ts"].max()
+    assert last < pd.Timestamp("2022-06-01")  # nothing at or after the cut is IS
+
+
+def test_fetch_refuses_a_holdout_research_already_saw_before_downloading(tmp_path: Path) -> None:
+    """D28: the ledger searched up to 2022-08-01, so a cut at 2022-06-01 is refused — and no
+    request reaches the exchange."""
+
+    class NoCalls:
+        def __getattr__(self, name: str) -> object:
+            raise AssertionError(f"exchange called ({name}) before the holdout check")
+
+    cfg = UserConfig(
+        research=replace(
+            Research(),
+            data=replace(
+                Data(),
+                symbols=("BTC/USDT",),
+                timeframe="1d",
+                start=date(2020, 1, 2),
+                end=date(2023, 1, 1),
+                holdout_start=date(2022, 6, 1),
+                second_exchange=None,
+            ),
+        )
+    )
+    with pytest.raises(DatasetRegistryError, match="2022-08-02 or later"):
+        DatasetRegistry(tmp_path).fetch_and_publish(
+            cfg, primary_source=NoCalls(), latest_is_end=date(2022, 8, 1)
+        )
+    assert not list((tmp_path / "data" / "datasets").glob("[0-9a-f]*"))
+
+
+def test_fetch_refuses_a_holdout_shorter_than_a_month(tmp_path: Path) -> None:
+    cfg = UserConfig(
+        research=replace(
+            Research(),
+            data=replace(
+                Data(),
+                symbols=("BTC/USDT",),
+                timeframe="1d",
+                start=date(2020, 1, 2),
+                end=date(2023, 1, 1),
+                second_exchange=None,
+            ),
+        )
+    )
+    cfg = replace(
+        cfg,
+        research=replace(
+            cfg.research, data=replace(cfg.research.data, holdout_start=date(2022, 12, 20))
+        ),
+    )
+    with pytest.raises(DatasetRegistryError, match="at least one month"):
+        DatasetRegistry(tmp_path).fetch_and_publish(
+            cfg, primary_source=CcxtSource(exchange=FakeExchange())
+        )

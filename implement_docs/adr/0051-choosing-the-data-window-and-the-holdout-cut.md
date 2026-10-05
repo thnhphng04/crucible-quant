@@ -1,0 +1,31 @@
+# ADR-0051 — Choosing the data window and the IS/holdout cut
+
+- **Status:** Accepted
+- **Date:** 2026-10-05
+- **Task:** P3-64 · **Arch:** §4.2, §6.1, §10 D18, D28, §10.1 · **Open item:** —
+
+## Context
+
+The user wants to choose the backtest period: a data window holding IS and holdout, then the date that cuts it in two. The holdout was always the last `holdout_months` of the window. And the legacy stores (`data/is`, `data/perp`) are read whole, so `research.data.start` did not cut anything there. A lock could record `start: 2022-10-02` while every backtest ran from 2020-09-15. Moving the cut earlier also raises a risk the old rule never met: the ledger already holds trials searched on 2018-01-01 → 2025-09-20 of the same five coins, so a holdout reaching back into that period would test on data research has already seen.
+
+## Decision
+
+- `research.data.holdout_start` (date, default `null`) is the cut. When it is set, IS = `[start, holdout_start)` and holdout = `[holdout_start, end]`. When it is `null`, the holdout is the last `holdout_months` months, as before. A holdout lasts at least 28 days. `data/window.py::holdout_window` is the only place the cut is computed: the legacy fetch, the perpetual fetch and preflight, and the dataset registry all call it.
+- The dataset registry records the cut as `DatasetSpec.holdout_start_utc`. It enters the spec hash only when set, so every published dataset keeps its id. Studio refuses a dataset whose cut differs from the draft. Studio's data step has a cut-date field; while it is filled, the months field is disabled.
+- **A clean holdout (D28).** `Ledger.latest_is_end()` is the last IS day of any recorded trial, whatever its campaign, symbol or market (spot and perpetual of one coin move together). A holdout must start after that day. The check runs:
+  - before a dataset is downloaded (`fetch_and_publish(latest_is_end=…)`, from the Studio job);
+  - when a campaign opens (`validation/run.py::admission_problems`), on the CLI, in the dry run and in Studio.
+- **The legacy stores are checked, not cut.** A new lock carries `derived.data_window: v1`. The CLI open path refuses a legacy store whose first bar is not on `data.start` or the day after. Such a store would backtest on more history, or less, than the lock records. A window other than the stored one is prepared as a dataset in Studio.
+- A lock without `data.holdout_start` still matches a config that leaves the key `null` (`config/lock.py::_comparable`).
+
+## Consequences
+
+- With the ledger of 2026-10-05, a holdout may start on 2025-09-21 at the earliest. A cut earlier than that needs data no recorded trial has seen, which these five coins do not have.
+- The registry fetches a fresh window, including the minute paths of a perpetual. Choosing a window costs a download, not a re-cut of data already on disk: the holdout files are never read by research code.
+- Limit: the check looks at trials already recorded. A later campaign whose IS runs past another campaign's unclaimed holdout is not refused here. That holdout's claim remains guarded only by `holdout_collision` (overlap with *claimed* holdouts).
+- Arch: D18 says the window and the cut are chosen; D28 is the clean-holdout rule; the §10.1 example config shows `holdout_start`.
+
+## Alternatives considered
+
+- Cut the legacy stores at `data.start` in the session — the IS side works, but the holdout side cannot move without reading holdout files. One mechanism, the registry, is simpler.
+- Check overlap only per symbol and market — spot and perpetual BTC are close to one series; a per-market check would let a spot search contaminate a perpetual holdout.

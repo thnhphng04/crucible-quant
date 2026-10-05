@@ -19,6 +19,7 @@ from quantcrucible.config.schema import (
     AUDIT_RATE_FLOOR,
     DEFERRED_ENGINES,
     DSR_MIN_FLOOR,
+    MIN_HOLDOUT_DAYS,
     MINBTL_TARGET_SHARPE_CEILING,
     PBO_MAX_CEILING,
     Research,
@@ -169,6 +170,16 @@ def _validate(cfg: UserConfig) -> None:
         problems.append("operational.compute.engine sandbox cannot run a float32 campaign")
     if r.data.end is not None and r.data.start >= r.data.end:
         problems.append("research.data.start must be before research.data.end")
+    if r.data.holdout_start is not None:
+        if r.data.holdout_start <= r.data.start:
+            problems.append("research.data.holdout_start must be after research.data.start")
+        elif r.data.end is not None and (
+            (r.data.end - r.data.holdout_start).days + 1 < MIN_HOLDOUT_DAYS
+        ):
+            problems.append(
+                "research.data.holdout_start leaves a holdout shorter than at least one month "
+                "before research.data.end"
+            )
     if r.data.market == "usdt_m_perpetual":
         if r.data.exchange != "binance":
             problems.append("research.data.exchange must be binance for USDT-M perpetuals")

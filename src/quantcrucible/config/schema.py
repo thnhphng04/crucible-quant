@@ -24,6 +24,7 @@ DEFERRED_ENGINES = ("quantevolve", "simple_loop")  # engines A/B, deferred by D1
 DSR_MIN_FLOOR = 0.95
 PBO_MAX_CEILING = 0.5
 MINBTL_TARGET_SHARPE_CEILING = 1.5  # a lower target means a longer MinBTL, i.e. stricter
+MIN_HOLDOUT_DAYS = 28  # a holdout lasts at least one month (ADR-0051)
 AUDIT_RATE_FLOOR = 0.02  # share of kernel-engine jobs re-run on the canonical path; may only rise
 
 
@@ -142,6 +143,8 @@ class Data:
     start: date = date(2018, 1, 1)
     end: date | None = None  # exclusive UTC bar-open boundary; resolved at fetch time
     holdout_months: int = 12
+    # The IS/holdout cut (ADR-0051): set, it replaces ``holdout_months``; IS = [start, cut)
+    holdout_start: date | None = None
     second_exchange: str | None = "gate"  # gate ⑥′ data-source robustness (P1-09, ADR-0015)
     leverage: int = 5  # maximum allowed; execution chooses the lowest funded integer
     funding_interval_hours: int = 8  # expected settlement cadence, checked against real events

@@ -19,7 +19,6 @@ from typing import Any
 import yaml
 
 from quantcrucible.config.lock import (
-    CampaignNotOpened,
     DryRun,
     LockMismatchError,
     LockTamperedError,
@@ -33,7 +32,7 @@ from quantcrucible.config.lock import (
 from quantcrucible.config.schema import UserConfig
 from quantcrucible.ledger.db import Ledger, LedgerError
 from quantcrucible.ledger.records import Campaign, utc_now
-from quantcrucible.validation.run import _check_trial_budget
+from quantcrucible.validation.run import admission_problems
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,10 +333,7 @@ def _dry_run_canonical(
     problems: list[str] = []
     if cfg.research.holdout_pass is None:
         problems.append("research.holdout_pass (D4) is not set: it is locked with the campaign")
-    try:
-        _check_trial_budget(cfg, holdout_range)
-    except CampaignNotOpened as e:
-        problems.append(str(e))
+    problems.extend(admission_problems(cfg, ledger, holdout_range))
     used = ledger.holdout_collision(holdout_range, holdout_lock_hash)
     if used is not None:
         problems.append(f"holdout {holdout_range} was already used (claimed {used})")

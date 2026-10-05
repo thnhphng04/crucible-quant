@@ -5,12 +5,29 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
+from datetime import date
 from pathlib import Path
 
 from quantcrucible.config.loader import parse_user_config
 from quantcrucible.data.registry import DatasetRegistry
+from quantcrucible.ledger.db import Ledger
 from quantcrucible.studio.store import DraftStore
+
+
+def _latest_is_end(root: Path) -> date | None:
+    """The newest day any recorded trial searched (D28), read without migrating the ledger."""
+    path = root / "ledger" / "crucible.db"
+    if not path.exists():
+        return None
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        conn.execute("PRAGMA query_only = ON")
+        day = Ledger(conn, str(path)).latest_is_end()
+    finally:
+        conn.close()
+    return None if day is None else date.fromisoformat(day)
 
 
 def prepare_data(root: Path, draft_id: str, revision: int) -> int:
@@ -19,7 +36,7 @@ def prepare_data(root: Path, draft_id: str, revision: int) -> int:
     if draft["revision"] != revision or draft["state"] == "created":
         raise ValueError("draft changed before data preparation")
     cfg = parse_user_config(draft["config"])
-    descriptor = DatasetRegistry(root).fetch_and_publish(cfg)
+    descriptor = DatasetRegistry(root).fetch_and_publish(cfg, latest_is_end=_latest_is_end(root))
     drafts.set_dataset(draft_id, revision, descriptor.dataset_id)
     sys.stdout.write(json.dumps({"dataset_id": descriptor.dataset_id}) + "\n")
     return 0

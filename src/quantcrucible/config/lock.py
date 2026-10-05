@@ -273,6 +273,15 @@ def _comparable(current: dict[str, Any], lock: Mapping[str, Any]) -> dict[str, A
         accepted = (list(Exit().stop_kinds), ["atr", "bollinger"] if bracket else ["atr"])
         if exit_cfg.get("stop_kinds") in accepted:
             out["exit"] = {k: v for k, v in exit_cfg.items() if k != "stop_kinds"}
+    # ``data.holdout_start`` (ADR-0051) came after campaigns were locked: a lock without it cut
+    # its holdout by ``holdout_months``, which is what the key's default, null, still means.
+    locked_data, data_cfg = locked.get("data", {}), out.get("data")
+    if (
+        isinstance(data_cfg, dict)
+        and "holdout_start" not in locked_data
+        and data_cfg.get("holdout_start") is None
+    ):
+        out["data"] = {k: v for k, v in data_cfg.items() if k != "holdout_start"}
     return out
 
 

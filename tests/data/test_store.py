@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from quantcrucible.cli import add_months
 from quantcrucible.data.store import (
     HoldoutAccessError,
     ResearchStore,
@@ -15,6 +14,7 @@ from quantcrucible.data.store import (
     read_bars,
     write_bars,
 )
+from quantcrucible.data.window import add_months
 from tests.factories import make_bars
 
 HOLDOUT = parse_range("2021-01-01/2022-01-01")

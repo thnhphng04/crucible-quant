@@ -318,6 +318,18 @@ class Ledger:
         rows = self._conn.execute("SELECT holdout_range, holdout_lock_hash FROM holdout_claims")
         return [(r[0], r[1]) for r in rows]
 
+    def latest_is_end(self) -> str | None:
+        """The last day (``YYYY-MM-DD``) of any recorded trial's IS range — the newest data
+        research has already looked at, whatever the campaign, symbol or market (D28). A
+        ``timerange`` that is not ``YYYY-MM-DD/YYYY-MM-DD`` says nothing about dates and is skipped.
+        """
+        day = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
+        (last,) = self._conn.execute(
+            "SELECT MAX(substr(timerange, 12, 10)) FROM trials WHERE timerange GLOB ?",
+            (f"{day}/{day}",),
+        ).fetchone()
+        return None if last is None else str(last)
+
     def snapshot(self, campaign_id: str | None = None) -> dict[str, int | str]:
         """What the statistical gates depend on: the number of trials and of portfolio variants,
         ledger-wide or, under ``trial_scope: campaign_v1``, of one campaign (ADR-0050), which the
