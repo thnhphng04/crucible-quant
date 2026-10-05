@@ -3,6 +3,7 @@ real container path is covered by tests/e2e/test_phase0.py."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,24 @@ def test_g2_rejects_when_trials_outgrow_the_data(ledger: Ledger, tmp_path: Path)
     result = MinBtlGate().check(cand(), ctx(ledger, tmp_path, n_bars=800))
     assert not result.passed and "N=100" in result.reason
     assert MinBtlGate().check(cand(), ctx(ledger, tmp_path, n_bars=1_200)).passed
+
+
+def test_g2_under_the_campaign_scope_counts_only_this_campaign(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """INV-125 (ADR-0050): c1's 99 trials stay in the ledger, but a candidate of c2 locked with
+    ``trial_scope: campaign_v1`` is judged at N = 1; the same candidate without the tag at
+    N = 100, as before."""
+    add_trials(ledger, 99)
+    ledger.open_campaign("c2", "2030-01-01/2031-01-01", lock_hash="h2")
+    other = replace(cand(), campaign_id="c2")
+    scoped = {**LOCK, "derived": {**LOCK["derived"], "trial_scope": "campaign_v1"}}
+    c = ctx(ledger, tmp_path, n_bars=800)
+    result = MinBtlGate().check(other, GateContext(ledger, scoped, c.services))
+    assert result.passed and result.detail and result.detail["n_trials"] == 1
+    legacy = MinBtlGate().check(other, c)
+    assert not legacy.passed and "N=100" in legacy.reason
+    assert ledger.trial_stats().n_raw == 99  # nothing left the ledger
 
 
 # ── ③ ────────────────────────────────────────────────────────────────────

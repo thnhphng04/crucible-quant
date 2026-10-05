@@ -1,6 +1,6 @@
 # ADR-0019 — Campaign bị bỏ, và D4 trước một campaign mới
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận; dưới `trial_scope: campaign_v1`, trial của campaign bị bỏ vẫn nằm trong ledger nhưng chỉ được đếm trong campaign của chúng ([ADR-0050](0050-thong-ke-trial-theo-campaign.md))
 - **Ngày:** 2026-09-21
 - **Task:** review P1-12 · **Kiến trúc:** §4.2 (bước 5 của quy trình, thêm mới), §10 D4, §10.1 · **Vấn đề mở:** đóng O16
 

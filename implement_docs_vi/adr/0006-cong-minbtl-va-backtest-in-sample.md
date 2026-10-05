@@ -1,6 +1,6 @@
 # ADR-0006 — Gate ② MinBTL và ③ backtest in-sample
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận; dưới `trial_scope: campaign_v1`, `N` của gate ② chỉ đếm trial của chính campaign ([ADR-0050](0050-thong-ke-trial-theo-campaign.md))
 - **Ngày:** 2026-09-21
 - **Task:** P0-12 · **Kiến trúc:** §3.2 (②, ③), §3.3.1 quy tắc 4, §4.1, D15, D17 · **Vấn đề mở:** —
 

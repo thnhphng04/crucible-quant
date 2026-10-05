@@ -1,6 +1,6 @@
 # ADR-0014 — Gate ⑤: portfolio DSR and the portfolio pipeline
 
-- **Status:** Accepted
+- **Status:** Accepted; under `trial_scope: campaign_v1` `N`, `V[SR]` and the variants are the campaign's own ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-21
 - **Task:** P1-08 · **Arch:** §3.2 rows ⑤–⑥′, §3.1.6, §4.1 ("Inputs to gate ⑤ DSR", "Estimating `N_eff`") · **Open item:** —
 

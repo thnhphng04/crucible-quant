@@ -4,7 +4,9 @@ ADR-0016).
 Research-side half of the campaign state machine. It refuses unless the portfolio is a recorded
 variant of this campaign whose latest gate-⑤ and gate-⑥′ results are passes **computed on the
 ledger as it is now**: every trial or portfolio variant added since raises ``N`` and so lowers
-DSR, which makes those results stale (re-run ⑤ → ⑥′ first). A member the kernel engine measured
+DSR, which makes those results stale (re-run ⑤ → ⑥′ first). The comparison is made in the scope
+the results were computed in — the whole ledger, or under ``trial_scope: campaign_v1`` this
+campaign alone, whose snapshot names it (ADR-0050). A member the kernel engine measured
 must also have been re-produced on the canonical path (audit L3, :mod:`.reproduce`). The frozen
 ``portfolio_hash`` and the freeze time go to the audit log (``CAMPAIGN_FROZEN``); from then on
 the candidate pipeline and the portfolio builder refuse to add anything to the campaign. Opening
@@ -38,9 +40,16 @@ def _passed(ledger: Ledger, p_hash: str, gate: str) -> bool:
     return bool(results) and results[-1][1]
 
 
-def _current(ledger: Ledger, p_hash: str, gate: str) -> bool:
+def _scope(ledger: Ledger, p_hash: str) -> str | None:
+    """The campaign whose trials the latest gate-⑤ result counted; ``None`` for the ledger."""
+    details = ledger.gate_result_details(p_hash, G5_DSR)
+    snapshot = details[-1].get(SNAPSHOT_KEY) if details else None
+    return snapshot.get("scope") if isinstance(snapshot, dict) else None
+
+
+def _current(ledger: Ledger, p_hash: str, gate: str, scope: str | None) -> bool:
     details = ledger.gate_result_details(p_hash, gate)
-    return bool(details) and details[-1].get(SNAPSHOT_KEY) == ledger.snapshot()
+    return bool(details) and details[-1].get(SNAPSHOT_KEY) == ledger.snapshot(scope)
 
 
 def freeze_campaign(ledger: Ledger, campaign_id: str, portfolio_hash: str) -> Freeze:
@@ -54,11 +63,16 @@ def freeze_campaign(ledger: Ledger, campaign_id: str, portfolio_hash: str) -> Fr
     missing = [g for g in (G5_DSR, G6P_ROBUSTNESS) if not _passed(ledger, portfolio_hash, g)]
     if missing:
         raise FreezeError(f"the portfolio has not passed {', '.join(missing)}")
-    stale = [g for g in (G5_DSR, G6P_ROBUSTNESS) if not _current(ledger, portfolio_hash, g)]
+    scope = _scope(ledger, portfolio_hash)
+    if scope not in (None, campaign_id):
+        raise FreezeError(f"gate ⑤ counted the trials of {scope}, not of {campaign_id}")
+    stale = [g for g in (G5_DSR, G6P_ROBUSTNESS) if not _current(ledger, portfolio_hash, g, scope)]
     if stale:
+        where = "" if scope is None else f" to campaign {scope}"
         raise FreezeError(
-            f"{', '.join(stale)} ran on an older ledger (trials or variants were added since, "
-            f"now {ledger.snapshot()}): re-run ⑤ → ⑥′ on this portfolio before freezing"
+            f"{', '.join(stale)} ran on an older ledger (trials or variants were added{where} "
+            f"since, now {ledger.snapshot(scope)}): re-run ⑤ → ⑥′ on this portfolio before "
+            "freezing"
         )
     problem = reproduction_problem(ledger, campaign_id, portfolio_hash)
     if problem is not None:

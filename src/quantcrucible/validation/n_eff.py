@@ -184,22 +184,27 @@ class ClusteringResult:
 def _load_returns(path: str) -> pd.Series:
     """A trial's IS returns compounded per UTC day, whatever its campaign's clock (ADR-0049).
 
-    ``N_eff`` spans every campaign of the ledger, so its correlations need one clock: an hourly
-    and a daily series outer-joined bar by bar would meet only at midnight. A daily series comes
-    back bit for bit."""
+    ``N_eff`` can span several campaigns of the ledger, so its correlations need one clock: an
+    hourly and a daily series outer-joined bar by bar would meet only at midnight. A daily series
+    comes back bit for bit."""
     df = pd.read_parquet(path, columns=["ts", "ret"])
     bars = pd.Series(df["ret"].to_numpy(dtype=np.float64), index=pd.to_datetime(df["ts"]))
     return daily_returns(bars)
 
 
-def update_n_eff(ledger: Ledger, seed: int = 0, n_init: int = N_INIT) -> ClusteringResult:
-    """Cluster every trial in the ledger (all campaigns) and append the run (§4.1)."""
-    trials = ledger.trials()
+def update_n_eff(
+    ledger: Ledger, seed: int = 0, n_init: int = N_INIT, campaign_id: str | None = None
+) -> ClusteringResult:
+    """Cluster every trial in the ledger (all campaigns) and append the run (§4.1) — or, under
+    ``trial_scope: campaign_v1``, only ``campaign_id``'s trials, recorded as its run (ADR-0050)."""
+    trials = ledger.trials(campaign_id)
     if not trials:
         raise ValueError("no trials to cluster")
     corr, n_obs = correlation_matrix([_load_returns(t.returns_path) for t in trials])
     labels = onc_clusters(corr, n_obs, n_init=n_init, seed=seed)
     run = ledger.record_clustering(
-        ONC_METHOD, {t.id: int(label) for t, label in zip(trials, labels, strict=True)}
+        ONC_METHOD,
+        {t.id: int(label) for t, label in zip(trials, labels, strict=True)},
+        campaign_id,
     )
     return ClusteringResult(run, ONC_METHOD, len(trials), len(set(labels.tolist())))

@@ -1,6 +1,6 @@
 # ADR-0019 — Abandoned campaigns, and D4 before a new campaign
 
-- **Status:** Accepted
+- **Status:** Accepted; under `trial_scope: campaign_v1` an abandoned campaign's trials stay in the ledger but count only in their own campaign ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-21
 - **Task:** P1-12 review · **Arch:** §4.2 (procedure step 5, added), §10 D4, §10.1 · **Open item:** closes O16
 

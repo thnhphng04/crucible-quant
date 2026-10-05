@@ -1,6 +1,6 @@
 # ADR-0008 — DSR: đơn vị, moment và những gì được đếm vào `N`
 
-- **Trạng thái:** Đã chấp nhận; dưới lock `daily_v1` một quan sát là một ngày UTC ([ADR-0049](0049-dong-ho-danh-gia-theo-ngay.md))
+- **Trạng thái:** Đã chấp nhận; dưới lock `daily_v1` một quan sát là một ngày UTC ([ADR-0049](0049-dong-ho-danh-gia-theo-ngay.md)); dưới `trial_scope: campaign_v1`, số trial là của chính campaign ([ADR-0050](0050-thong-ke-trial-theo-campaign.md))
 - **Ngày:** 2026-09-21
 - **Task:** P1-02 · **Kiến trúc:** §3.1.6, §3.2 dòng ⑤, §4.1, 07-VALIDATION-LAYER §4.3 · **Vấn đề mở:** —
 

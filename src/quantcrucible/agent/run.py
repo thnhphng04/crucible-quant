@@ -44,6 +44,7 @@ from quantcrucible.core.strategy.tunable import (
 from quantcrucible.ledger.records import Event
 from quantcrucible.validation.clock import clock_ppy, evaluation_clock
 from quantcrucible.validation.research_run import ResearchSession
+from quantcrucible.validation.trial_scope import trial_scope
 
 ENGINE_SEED_BASE = {"random": 1, "gp": 2}  # distinct RNG streams per engine for the same seed
 RUNNABLE = ("random", "gp")
@@ -105,7 +106,7 @@ def _engine(session: ResearchSession, key: Key, run_label: str) -> Engine:
             FeatureMap.from_lock(session.lock),
             clock_ppy(session.timeframe, evaluation_clock(session.lock)),
             float(gp_settings.get("param_only_max", 0.30)), f"{run_label}-{key}",
-            config=grammar,
+            config=grammar, stats_scope=trial_scope(session.lock, session.campaign_id),
         )  # fmt: skip
     if key.engine == "random":
         e = RandomSearch(seed=rng_seed, config=grammar)

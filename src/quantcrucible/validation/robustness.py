@@ -47,6 +47,7 @@ from quantcrucible.validation.portfolio_dsr import (
 )
 from quantcrucible.validation.sandbox import JobRunner, SandboxJob
 from quantcrucible.validation.statistical import portfolio_dsr
+from quantcrucible.validation.trial_scope import trial_scope
 
 COST_MULTIPLIER = 2.0
 MAX_SHARPE_DROP = 0.30
@@ -247,14 +248,16 @@ class RobustnessGate:
             stressed_ret = combine(stressed[cols], weights, portfolio.rule.rebalance)
         stressed_ret, ppy = on_clock(stressed_ret, bar_ppy, clock)  # ADR-0049
         sharpe_stressed = annual_sharpe(stressed_ret, ppy)
-        stats, n_variants = ctx.ledger.trial_stats(), ctx.ledger.total_portfolio_variants()
+        scope = trial_scope(ctx.lock, portfolio.campaign_id)  # ADR-0050
+        stats = ctx.ledger.trial_stats(scope)
+        n_variants = ctx.ledger.total_portfolio_variants(scope)
         dsr = portfolio_dsr(stressed_ret.to_numpy(), stats, n_variants, ppy)
         sensitivity, note = unmeasured_sensitivity(
-            ctx.ledger, stressed_ret.to_numpy(), stats, n_variants, ppy
+            ctx.ledger, stressed_ret.to_numpy(), stats, n_variants, ppy, scope
         )
         if not sharpe_stressed > 0:
             problems.append(f"Sharpe {sharpe_stressed:.2f} with costs × {mult:g} is not > 0")
-        counts = n_breakdown(ctx.ledger, n_variants)
+        counts = n_breakdown(ctx.ledger, n_variants, scope)
         if not dsr.dsr_n_eff >= dsr_min:
             problems.append(f"costs × {mult:g}: {dsr_counts(dsr, counts)} — below {dsr_min:g}")
 

@@ -1,6 +1,6 @@
 # ADR-0006 — Gates ② MinBTL and ③ in-sample backtest
 
-- **Status:** Accepted
+- **Status:** Accepted; under `trial_scope: campaign_v1` gate ②'s `N` counts the campaign's own trials ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-21
 - **Task:** P0-12 · **Arch:** §3.2 (②, ③), §3.3.1 rule 4, §4.1, D15, D17 · **Open item:** —
 

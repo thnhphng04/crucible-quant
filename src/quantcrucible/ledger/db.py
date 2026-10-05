@@ -44,6 +44,7 @@ MIGRATIONS = (
     "migration_007_scope.sql",
     "migration_008_campaign_creation_requests.sql",
     "migration_009_backtest_engine.sql",
+    "migration_010_campaign_trial_stats.sql",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 # Columns a migration adds, applied only if missing (SQLite has no ADD COLUMN IF NOT EXISTS).
@@ -59,6 +60,7 @@ ADDED_COLUMNS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("trials", "direction", "TEXT"),
     ),
     "migration_009_backtest_engine.sql": (("trials", "backtest_engine", "TEXT"),),
+    "migration_010_campaign_trial_stats.sql": (("clustering_runs", "campaign_id", "TEXT"),),
 }
 RANGE = re.compile(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}")  # claim ranges, end exclusive
 
@@ -316,11 +318,19 @@ class Ledger:
         rows = self._conn.execute("SELECT holdout_range, holdout_lock_hash FROM holdout_claims")
         return [(r[0], r[1]) for r in rows]
 
-    def snapshot(self) -> dict[str, int]:
-        """What the statistical gates depend on: the number of trials and of portfolio variants
-        (both ledger-wide). A gate-⑤/⑥′ result is only current while this is unchanged."""
-        (n_trials,) = self._conn.execute("SELECT COUNT(*) FROM trials").fetchone()
-        return {"trials": int(n_trials), "portfolio_variants": self.total_portfolio_variants()}
+    def snapshot(self, campaign_id: str | None = None) -> dict[str, int | str]:
+        """What the statistical gates depend on: the number of trials and of portfolio variants,
+        ledger-wide or, under ``trial_scope: campaign_v1``, of one campaign (ADR-0050), which the
+        snapshot then names. A gate-⑤/⑥′ result is only current while this is unchanged."""
+        where, args = _filters(campaign_id=campaign_id)
+        (n_trials,) = self._conn.execute(f"SELECT COUNT(*) FROM trials{where}", args).fetchone()
+        out: dict[str, int | str] = {
+            "trials": int(n_trials),
+            "portfolio_variants": self.total_portfolio_variants(campaign_id),
+        }
+        if campaign_id is not None:
+            out["scope"] = campaign_id
+        return out
 
     # ── audit log + trials (§4.1) ───────────────────────────────────────────────────────
     def log_event(self, e: GenerationEvent) -> int:
@@ -362,13 +372,17 @@ class Ledger:
             ),
         )  # fmt: skip
 
-    def record_clustering(self, method: str, assignment: Mapping[int, int]) -> int:
-        """Append one N_eff clustering run: {trial_id: cluster_id} (ADR-0002)."""
+    def record_clustering(
+        self, method: str, assignment: Mapping[int, int], campaign_id: str | None = None
+    ) -> int:
+        """Append one N_eff clustering run: {trial_id: cluster_id} (ADR-0002), of the whole
+        ledger or of one campaign's trials (ADR-0050)."""
         try:
             self._conn.execute("BEGIN")
             run = self._conn.execute(
-                "INSERT INTO clustering_runs (ts, method, n_trials) VALUES (?, ?, ?)",
-                (_ts(utc_now()), method, len(assignment)),
+                "INSERT INTO clustering_runs (ts, method, n_trials, campaign_id)"
+                " VALUES (?, ?, ?, ?)",
+                (_ts(utc_now()), method, len(assignment), campaign_id),
             ).lastrowid
             self._conn.executemany(
                 "INSERT INTO trial_clusters VALUES (?, ?, ?)",
@@ -380,21 +394,25 @@ class Ledger:
             raise LedgerError(str(e)) from e
         return int(run or 0)
 
-    def unmeasured_attempts(self) -> int:
-        """Gate-③ runs that measured nothing (no trial row), every campaign — not trials (§4.1,
-        ADR-0022); counted only for the sensitivity check next to DSR."""
+    def unmeasured_attempts(self, campaign_id: str | None = None) -> int:
+        """Gate-③ runs that measured nothing (no trial row), every campaign or one — not trials
+        (§4.1, ADR-0022); counted only for the sensitivity check next to DSR."""
         (n,) = self._conn.execute(
             "SELECT COUNT(*) FROM gate_results WHERE gate = 'g3_is' AND passed = 0"
-            " AND trial_id IS NULL"
+            " AND trial_id IS NULL AND (? IS NULL OR campaign_id = ?)",
+            (campaign_id, campaign_id),
         ).fetchone()
         return int(n)
 
-    def latest_clustering(self) -> tuple[int, int] | None:
-        """(trials covered, distinct clusters) of the latest N_eff clustering run."""
+    def latest_clustering(self, campaign_id: str | None = None) -> tuple[int, int] | None:
+        """(trials covered, distinct clusters) of the latest N_eff clustering run, ledger-wide or
+        of one campaign."""
         row = self._conn.execute(
             "SELECT r.n_trials, COUNT(DISTINCT c.cluster_id) FROM clustering_runs r"
             " LEFT JOIN trial_clusters c ON c.clustering_run = r.id"
-            " WHERE r.id = (SELECT MAX(id) FROM clustering_runs) GROUP BY r.id"
+            " WHERE r.id = (SELECT MAX(id) FROM clustering_runs WHERE campaign_id IS ?)"
+            " GROUP BY r.id",
+            (campaign_id,),
         ).fetchone()
         return None if row is None else (int(row[0]), int(row[1]))
 
@@ -475,14 +493,36 @@ class Ledger:
         )  # fmt: skip
 
     # ── reads ───────────────────────────────────────────────────────────────────────────
-    def trial_stats(self) -> TrialStats:
-        n_raw, n_eff, var_sr = self._conn.execute(
-            "SELECT n_raw, n_eff, var_sr FROM trial_stats"
-        ).fetchone()
+    def trial_stats(self, campaign_id: str | None = None) -> TrialStats:
+        """DSR inputs of the whole ledger (the ``trial_stats`` view) or, under
+        ``trial_scope: campaign_v1``, of one campaign's trials and its own latest clustering
+        (ADR-0050). A trial its latest run did not cover counts as its own cluster."""
+        if campaign_id is None:
+            row = self._conn.execute("SELECT n_raw, n_eff, var_sr FROM trial_stats").fetchone()
+        else:
+            row = self._conn.execute(
+                "WITH scoped AS (SELECT id, sharpe_is FROM trials WHERE campaign_id = ?),"
+                " latest AS (SELECT MAX(id) AS run FROM clustering_runs WHERE campaign_id = ?),"
+                " covered AS (SELECT tc.trial_id, tc.cluster_id FROM trial_clusters tc"
+                "   JOIN latest ON tc.clustering_run = latest.run"
+                "   JOIN scoped ON scoped.id = tc.trial_id)"
+                " SELECT (SELECT COUNT(*) FROM scoped),"
+                "  (SELECT COUNT(DISTINCT cluster_id) FROM covered)"
+                "   + (SELECT COUNT(*) FROM scoped WHERE id NOT IN (SELECT trial_id FROM covered)),"
+                "  (SELECT AVG(sharpe_is * sharpe_is) - AVG(sharpe_is) * AVG(sharpe_is)"
+                "   FROM scoped)",
+                (campaign_id, campaign_id),
+            ).fetchone()
+        n_raw, n_eff, var_sr = row
         return TrialStats(int(n_raw), int(n_eff), None if var_sr is None else float(var_sr))
 
-    def total_portfolio_variants(self) -> int:
-        return int(self._conn.execute("SELECT n FROM total_portfolio_variants").fetchone()[0])
+    def total_portfolio_variants(self, campaign_id: str | None = None) -> int:
+        if campaign_id is None:
+            return int(self._conn.execute("SELECT n FROM total_portfolio_variants").fetchone()[0])
+        (n,) = self._conn.execute(
+            "SELECT COUNT(*) FROM portfolio_variants WHERE campaign_id = ?", (campaign_id,)
+        ).fetchone()
+        return int(n)
 
     def starved_cells(self) -> list[StarvedCell]:
         rows = self._conn.execute("SELECT cell_id, fail_rate, attempts FROM starved_cells")

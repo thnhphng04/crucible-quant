@@ -1,6 +1,6 @@
 # ADR-0022 — Counting convention: attempts that measured nothing
 
-- **Status:** Accepted (decided by the user)
+- **Status:** Accepted (decided by the user); under `trial_scope: campaign_v1` the attempts are the campaign's own ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-22
 - **Task:** after the first real-data run · **Arch:** §4.1 (trials = measured configurations), §3.2.1 5b · **Open item:** closes O17
 

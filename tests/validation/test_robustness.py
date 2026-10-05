@@ -12,7 +12,7 @@ import pytest
 
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.ledger.records import GateResultRecord, TrialRecord
+from quantcrucible.ledger.records import GateResultRecord, PortfolioVariant, TrialRecord
 from quantcrucible.validation.archive import StrategyArchive
 from quantcrucible.validation.gates import G4_PBO, GateContext
 from quantcrucible.validation.portfolio import PortfolioRule, build_and_record
@@ -166,3 +166,29 @@ def test_members_are_rerun_from_the_verified_archive(tmp_path: Path) -> None:
 
     with pytest.raises(ArchiveError):
         RobustnessGate().check(portfolio, GateContext(ledger, LOCK, services))
+
+
+def test_under_the_campaign_scope_the_stressed_dsr_counts_this_campaign(tmp_path: Path) -> None:
+    """INV-125 (ADR-0050): trials and variants of another campaign enter gate ⑥′'s DSR only
+    when the lock has no ``trial_scope``."""
+    ledger, portfolio, services = setup(tmp_path, [0.004, 0.004])
+    ledger.open_campaign("c0", "2030-01-01/2031-01-01", lock_hash="h0")
+    for i in range(30):
+        ledger.record_trial(
+            TrialRecord(
+                run_id="r", campaign_id="c0", candidate_id=f"o{i}", engine="manual", seed=0,
+                strategy_hash=f"o{i}", params={}, universe="BTC/USDT", timeframe="1d",
+                timerange="t", source="manual", sharpe_is=0.1 * i, returns_path="x.parquet",
+                verdict="PASS",
+            )
+        )  # fmt: skip
+    ledger.record_portfolio_variant(
+        PortfolioVariant(portfolio_hash="other", campaign_id="c0", rule_config={}, members=[])
+    )
+    scoped = {**LOCK, "derived": {**LOCK["derived"], "trial_scope": "campaign_v1"}}
+    mine = RobustnessGate().check(portfolio, GateContext(ledger, scoped, services)).detail
+    legacy = RobustnessGate().check(portfolio, GateContext(ledger, LOCK, services)).detail
+    assert mine is not None and legacy is not None
+    assert (mine["n_trials"], mine["n_variants"]) == (2, 1)
+    assert (legacy["n_trials"], legacy["n_variants"]) == (32, 2)
+    assert mine["dsr_stressed_n_eff"] > legacy["dsr_stressed_n_eff"]

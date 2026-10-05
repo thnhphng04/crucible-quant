@@ -58,6 +58,7 @@ from quantcrucible.validation.portfolio_dsr import DsrGate, PortfolioOutcome, Po
 from quantcrucible.validation.robustness import RobustnessGate
 from quantcrucible.validation.run import Provenance, candidate_pipeline, make_candidate
 from quantcrucible.validation.sandbox import JobRunner
+from quantcrucible.validation.trial_scope import trial_scope
 
 INITIAL_CASH = 100_000.0
 MAX_PORTFOLIO_RISK_PCT = 0.10  # D7: the summed commitment at the stop, as a share of equity
@@ -124,6 +125,7 @@ def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOu
         portfolio = build_and_record(
             session.ledger, session.campaign_id, rule, periods_per_year(session.timeframe),
             session.results_dir, evaluation_clock(session.lock),
+            trial_scope(session.lock, session.campaign_id),
         )  # fmt: skip
     pipeline = PortfolioPipeline([DsrGate(), RobustnessGate()])
     return portfolio, pipeline.run(portfolio, session.context())
@@ -145,9 +147,8 @@ def account_portfolio(session: ResearchSession, trials: Sequence[TrialRow]) -> P
     if perpetual and not session.perp_data:
         raise ValueError("perpetual portfolio needs aligned mark, funding, path and brackets")
     trial_returns = {t.id: load_returns(t.returns_path) for t in trials}
-    chosen = select_slots(
-        trials, trial_returns, session.ledger.trial_stats(), ppy, rule.max_strategies, clock=clock
-    )
+    stats = session.ledger.trial_stats(trial_scope(session.lock, session.campaign_id))
+    chosen = select_slots(trials, trial_returns, stats, ppy, rule.max_strategies, clock=clock)
     if not chosen:
         return None
     streams = {t.id: signals_path_for(Path(t.returns_path)) for t in chosen}

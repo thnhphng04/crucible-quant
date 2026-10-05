@@ -335,7 +335,7 @@ def _dry_run_canonical(
     if cfg.research.holdout_pass is None:
         problems.append("research.holdout_pass (D4) is not set: it is locked with the campaign")
     try:
-        _check_trial_budget(cfg, ledger, holdout_range)
+        _check_trial_budget(cfg, holdout_range)
     except CampaignNotOpened as e:
         problems.append(str(e))
     used = ledger.holdout_collision(holdout_range, holdout_lock_hash)

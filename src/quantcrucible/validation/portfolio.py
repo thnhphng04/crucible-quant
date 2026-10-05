@@ -414,11 +414,14 @@ def build_and_record(
     periods_per_year: float,
     results_dir: Path,
     clock: str | None = None,
+    scope: str | None = None,
 ) -> Portfolio:
+    """Build by the locked rule and record the variant. ``scope`` is the campaign whose trial
+    statistics rank the slots (``trial_scope``, ADR-0050); ``None`` for the whole ledger."""
     trials = eligible_trials(ledger, campaign_id)
     returns = {t.id: load_returns(t.returns_path) for t in trials}
     portfolio = build_portfolio(
-        trials, returns, rule, ledger.trial_stats(), periods_per_year, campaign_id, clock
+        trials, returns, rule, ledger.trial_stats(scope), periods_per_year, campaign_id, clock
     )
     record_variant(ledger, portfolio, results_dir)
     return portfolio
