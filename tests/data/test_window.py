@@ -9,7 +9,7 @@ import pytest
 
 from quantcrucible.config.loader import ConfigError, parse_user_config
 from quantcrucible.config.schema import Data
-from quantcrucible.data.window import add_months, holdout_window, unclean_holdout
+from quantcrucible.data.window import add_months, holdout_window, is_from, unclean_holdout
 
 
 def test_without_a_cut_the_holdout_is_the_last_months() -> None:
@@ -55,3 +55,27 @@ def test_a_holdout_inside_a_range_research_already_saw_is_unclean() -> None:
     assert unclean_holdout(None, date(2020, 1, 1)) is None  # an empty ledger saw nothing
     message = unclean_holdout(date(2025, 9, 20), date(2025, 6, 1))
     assert message is not None and "2025-09-21" in message
+
+
+def test_the_is_is_cut_at_the_start_with_its_perpetual_inputs() -> None:
+    """A legacy store is read whole; ``is_from`` keeps bars closing at or after ``start`` 00:00
+    and cuts the bundle at the same bar, funding renumbered (bars close 2021-01-02, -03, ...)."""
+    import numpy as np
+
+    from tests.validation.test_perp_portfolio import bars, bundle
+
+    series = bars([100.0, 101.0, 102.0, 103.0, 104.0], "A/USDT:USDT")
+    whole = replace(
+        bundle(series),
+        funding=np.array([[1.0, 0.0, 0.0001, 101.0], [3.0, 0.0, 0.0002, 103.0]]),
+    )
+    cut_bars, cut_bundles = is_from(date(2021, 1, 4), {"A/USDT:USDT": series},
+                                    {"A/USDT:USDT": whole})  # fmt: skip
+    kept = cut_bars["A/USDT:USDT"]
+    assert kept.close.tolist() == [102.0, 103.0, 104.0]
+    assert str(kept.ts[0].astype("datetime64[D]")) == "2021-01-04"
+    perp = cut_bundles["A/USDT:USDT"]
+    assert perp.marks.close.tolist() == [102.0, 103.0, 104.0] and len(perp.paths) == 3
+    assert perp.funding[:, 0].tolist() == [1.0]  # bar 3 of the whole store is bar 1 of the cut
+    later, _ = is_from(date(2020, 1, 1), {"A/USDT:USDT": series})
+    assert len(later["A/USDT:USDT"]) == 5  # a store starting after the start stays whole

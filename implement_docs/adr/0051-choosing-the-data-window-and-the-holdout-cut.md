@@ -15,17 +15,17 @@ The user wants to choose the backtest period: a data window holding IS and holdo
 - **A clean holdout (D28).** `Ledger.latest_is_end()` is the last IS day of any recorded trial, whatever its campaign, symbol or market (spot and perpetual of one coin move together). A holdout must start after that day. The check runs:
   - before a dataset is downloaded (`fetch_and_publish(latest_is_end=…)`, from the Studio job);
   - when a campaign opens (`validation/run.py::admission_problems`), on the CLI, in the dry run and in Studio.
-- **The legacy stores are checked, not cut.** A new lock carries `derived.data_window: v1`. The CLI open path refuses a legacy store whose first bar is not on `data.start` or the day after. Such a store would backtest on more history, or less, than the lock records. A window other than the stored one is prepared as a dataset in Studio.
+- **The legacy stores are cut at `data.start`.** A new lock carries `derived.data_window: v1`, and its session cuts the IS at `data.start` (`data/window.py::is_from`): trade bars and perpetual bundles at the same bar, both sources alike. A legacy store whose first bar comes after `data.start` is refused when the campaign opens, because the lock would record history the backtests never get. A holdout other than the stored one is prepared as a dataset in Studio.
 - A lock without `data.holdout_start` still matches a config that leaves the key `null` (`config/lock.py::_comparable`).
 
 ## Consequences
 
 - With the ledger of 2026-10-05, a holdout may start on 2025-09-21 at the earliest. A cut earlier than that needs data no recorded trial has seen, which these five coins do not have.
-- The registry fetches a fresh window, including the minute paths of a perpetual. Choosing a window costs a download, not a re-cut of data already on disk: the holdout files are never read by research code.
+- A later IS start on a stored window costs nothing: the session cuts it. A different holdout costs a download through the registry, including the minute paths of a perpetual, because research code never reads the holdout files.
 - Limit: the check looks at trials already recorded. A later campaign whose IS runs past another campaign's unclaimed holdout is not refused here. That holdout's claim remains guarded only by `holdout_collision` (overlap with *claimed* holdouts).
 - Arch: D18 says the window and the cut are chosen; D28 is the clean-holdout rule; the §10.1 example config shows `holdout_start`.
 
 ## Alternatives considered
 
-- Cut the legacy stores at `data.start` in the session — the IS side works, but the holdout side cannot move without reading holdout files. One mechanism, the registry, is simpler.
+- Refuse a legacy store longer than the window — this forces a full re-download of data already on disk just to start the IS later.
 - Check overlap only per symbol and market — spot and perpetual BTC are close to one series; a per-market check would let a spot search contaminate a perpetual holdout.

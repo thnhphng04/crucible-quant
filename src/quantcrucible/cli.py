@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from quantcrucible.config.loader import load_user_config
 from quantcrucible.config.lock import CampaignNotOpened
-from quantcrucible.data.window import holdout_window
+from quantcrucible.data.window import DATA_WINDOW_V1, holdout_window, is_from
 
 if TYPE_CHECKING:
     from quantcrucible.config.schema import Data
@@ -374,6 +374,12 @@ def _session(
                     bundle = read_bundle(second_dir, symbol, data.timeframe, names)
                     bundle.aligned_with(trade)
                     second_perps[symbol] = bundle
+    if lock.get("derived", {}).get("data_window") == DATA_WINDOW_V1:
+        # ADR-0051: the IS is [data.start, cut). A legacy store is read whole, so cut it here —
+        # trade bars and perpetual bundles at the same bar, both sources alike.
+        start = date.fromisoformat(str(lock["research"]["data"]["start"]))
+        bars, perps = is_from(start, bars, perps)
+        second, second_perps = is_from(start, second, second_perps)
     # Every gate job goes through the engine router: genome renders run on the kernel engine,
     # everything else in the Docker sandbox (ADR-0038); precision comes from the lock (ADR-0039).
     runner = make_job_runner(

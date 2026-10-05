@@ -227,17 +227,17 @@ def spot_is_starts(root: Path, cfg: UserConfig) -> dict[str, date]:
 
 
 def _check_is_window(cfg: UserConfig, first_days: Mapping[str, date]) -> None:
-    """Refuse a legacy IS store that does not start where ``research.data.start`` says
-    (ADR-0051). The legacy stores are read whole, so a store that starts earlier would backtest
-    on more history than the lock records, and one that starts later on less. The first bar
-    closes on the start day (intraday bars) or the day after (a daily bar)."""
+    """Refuse a legacy IS store that starts after ``research.data.start`` (ADR-0051): the lock
+    would record more history than the backtests get. A store that starts earlier is cut at
+    ``data.start`` when a ``data_window: v1`` session reads it. The first bar closes on the start
+    day (intraday bars) or the day after (a daily bar)."""
     start = cfg.research.data.start
-    off = {s: d for s, d in first_days.items() if not start <= d <= start + timedelta(days=1)}
-    if off:
-        found = ", ".join(f"{s} from {d}" for s, d in sorted(off.items()))
+    late = {s: d for s, d in first_days.items() if d > start + timedelta(days=1)}
+    if late:
+        found = ", ".join(f"{s} from {d}" for s, d in sorted(late.items()))
         raise CampaignNotOpened(
-            f"the IS data does not start at research.data.start {start} ({found}): set the "
-            "start to the data's, or prepare a dataset for this window in Studio (ADR-0051)"
+            f"the IS data starts after research.data.start {start} ({found}): set the start to "
+            "the data's, or prepare a dataset for this window in Studio (ADR-0051)"
         )
 
 

@@ -12,13 +12,19 @@ together, so the check ignores symbol and market.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from collections.abc import Mapping
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from quantcrucible.config.schema import MIN_HOLDOUT_DAYS
+import numpy as np
 
-# The lock tag of a campaign opened under ADR-0051: its IS is exactly [data.start, cut), checked
-# against the data when it opened. A lock without it may have read a legacy store whole.
+from quantcrucible.config.schema import MIN_HOLDOUT_DAYS
+from quantcrucible.core.perp_inputs import PerpBundle
+from quantcrucible.core.strategy.base import Bars
+
+# The lock tag of a campaign opened under ADR-0051: its IS is exactly [data.start, cut). A legacy
+# store that starts earlier is cut at data.start when read (:func:`is_from`); a lock without the
+# tag read the store whole, as before.
 DATA_WINDOW_V1 = "v1"
 
 
@@ -47,6 +53,23 @@ def holdout_window(data: Any, end_day: date) -> tuple[date, date]:
             "research.data.holdout_start earlier or research.data.end later"
         )
     return start, end_day + timedelta(days=1)
+
+
+def is_from(
+    start: date, bars: Mapping[str, Bars], bundles: Mapping[str, PerpBundle] | None = None
+) -> tuple[dict[str, Bars], dict[str, PerpBundle]]:
+    """The IS from ``start`` on: every bar whose close is at or after ``start`` 00:00 UTC (the
+    store's convention), and each perpetual bundle cut at the same bar, so trade, mark, funding
+    and paths stay aligned (:meth:`PerpBundle.slice`). A store starting later is left whole."""
+    lo = np.datetime64(datetime.combine(start, time()), "ns")
+    out_bars: dict[str, Bars] = {}
+    out_bundles: dict[str, PerpBundle] = {}
+    for symbol, series in bars.items():
+        k = int(np.searchsorted(series.ts, lo, side="left"))
+        out_bars[symbol] = series.slice(k, len(series))
+        if bundles is not None and symbol in bundles:
+            out_bundles[symbol] = bundles[symbol].slice(k, len(series))
+    return out_bars, out_bundles
 
 
 def unclean_holdout(latest_is_end: date | None, holdout_start: date) -> str | None:

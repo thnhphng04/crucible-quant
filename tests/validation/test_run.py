@@ -209,20 +209,20 @@ def _spot_store(root: Path, start: str) -> None:
         write_bars(root / "data" / "is" / file_name(symbol, "1h"), bars)
 
 
-def test_a_legacy_store_longer_than_the_window_is_refused(tmp_path: Path) -> None:
-    """The legacy store is read whole: one that starts before ``data.start`` would backtest on
-    more history than the lock records."""
+def test_a_legacy_store_starting_after_the_window_is_refused(tmp_path: Path) -> None:
+    """A legacy store that starts after ``data.start`` holds less history than the lock would
+    record; one that starts before is opened, and the session cuts it at ``data.start``."""
     ledger, lock_path = _project(tmp_path)
     _spot_store(tmp_path, "2018-01-01")
     cfg = _cfg()
-    late = replace(cfg.research.data, start=date(2027, 1, 1))
-    with pytest.raises(CampaignNotOpened, match=r"does not start at research.data.start"):
+    early = replace(cfg.research.data, start=date(2017, 6, 1))
+    with pytest.raises(CampaignNotOpened, match=r"starts after research\.data\.start"):
         current_campaign(
-            replace(cfg, research=replace(cfg.research, data=late)), ledger, lock_path, tmp_path
+            replace(cfg, research=replace(cfg.research, data=early)), ledger, lock_path, tmp_path
         )
-    early = replace(cfg.research.data, start=date(2018, 1, 1))
+    later = replace(cfg.research.data, start=date(2018, 1, 20))
     assert current_campaign(
-        replace(cfg, research=replace(cfg.research, data=early)), ledger, lock_path, tmp_path
+        replace(cfg, research=replace(cfg.research, data=later)), ledger, lock_path, tmp_path
     )
 
 
