@@ -42,7 +42,7 @@ from quantcrucible.core.strategy.tunable import (
     lock_stop_period,
 )
 from quantcrucible.ledger.records import Event
-from quantcrucible.validation.pbo_gate import periods_per_year
+from quantcrucible.validation.clock import clock_ppy, evaluation_clock
 from quantcrucible.validation.research_run import ResearchSession
 
 ENGINE_SEED_BASE = {"random": 1, "gp": 2}  # distinct RNG streams per engine for the same seed
@@ -101,7 +101,9 @@ def _engine(session: ResearchSession, key: Key, run_label: str) -> Engine:
         gp_settings = session.lock["research"].get("gp", {})
         return GpSearch(
             session.ledger, session.campaign_id, key, rng_seed,
-            FeatureMap.from_lock(session.lock), periods_per_year(session.timeframe),
+            # the ranking's PSR reads gate ③'s moments, which are on the campaign's clock
+            FeatureMap.from_lock(session.lock),
+            clock_ppy(session.timeframe, evaluation_clock(session.lock)),
             float(gp_settings.get("param_only_max", 0.30)), f"{run_label}-{key}",
             config=grammar,
         )  # fmt: skip

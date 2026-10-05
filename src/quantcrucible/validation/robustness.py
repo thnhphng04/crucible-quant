@@ -27,6 +27,7 @@ from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.execution.risk import RiskSettings
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.validation.archive import StrategyArchive
+from quantcrucible.validation.clock import annual_sharpe, on_clock
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.is_gates import backtest_options, write_signal_stream
 from quantcrucible.validation.portfolio import (
@@ -113,12 +114,6 @@ def rerun_portfolio(
 
 def weights_of(members: Sequence[Member]) -> np.ndarray:
     return np.array([m.weight for m in members], dtype=np.float64)
-
-
-def annual_sharpe(r: pd.Series, periods_per_year: float) -> float:
-    x = r.to_numpy(dtype=np.float64)
-    std = float(np.std(x, ddof=1)) if len(x) > 1 else 0.0
-    return float(np.mean(x) / std * np.sqrt(periods_per_year)) if std > 0 else 0.0
 
 
 def primary_member_returns(ledger: Ledger, members: Sequence[Member]) -> pd.DataFrame:
@@ -230,7 +225,7 @@ class RobustnessGate:
         mult = float(settings.get("cost_multiplier", COST_MULTIPLIER))
         max_drop = float(settings.get("max_sharpe_drop", MAX_SHARPE_DROP))
         base = account_options(ctx.lock, backtest_options(ctx.lock, seed=0))
-        ppy = portfolio.periods_per_year
+        bar_ppy, clock = portfolio.periods_per_year, portfolio.clock
         weights = weights_of(portfolio.members)
         cols = [m.trial_id for m in portfolio.members]
         problems: list[str] = []
@@ -250,6 +245,7 @@ class RobustnessGate:
                 portfolio, archive, ctx.services["is_data"], stressed_options, runner, perp
             )
             stressed_ret = combine(stressed[cols], weights, portfolio.rule.rebalance)
+        stressed_ret, ppy = on_clock(stressed_ret, bar_ppy, clock)  # ADR-0049
         sharpe_stressed = annual_sharpe(stressed_ret, ppy)
         stats, n_variants = ctx.ledger.trial_stats(), ctx.ledger.total_portfolio_variants()
         dsr = portfolio_dsr(stressed_ret.to_numpy(), stats, n_variants, ppy)
@@ -286,12 +282,18 @@ class RobustnessGate:
                 primary = primary_member_returns(ctx.ledger, portfolio.members)
                 alt_ret = combine(alt[cols], weights, portfolio.rule.rebalance)
                 primary_ret = combine(primary[cols], weights, portfolio.rule.rebalance)
-            common = alt_ret.index.intersection(primary_ret.dropna().index)
+            # the same bars on both sides, then the same clock: a day is compounded from the
+            # bars both sources have, never from one side's extra hours
+            common_bars = alt_ret.index.intersection(primary_ret.dropna().index)
+            alt_on, _ = on_clock(alt_ret.loc[common_bars], bar_ppy, clock)
+            pri_on, _ = on_clock(primary_ret.loc[common_bars], bar_ppy, clock)
+            common = alt_on.index
+            unit = "days" if clock is not None else "bars"
             if len(common) < 60:
-                problems.append(f"only {len(common)} common bars with the second source")
+                problems.append(f"only {len(common)} common {unit} with the second source")
             else:
-                s_alt = annual_sharpe(alt_ret.loc[common], ppy)
-                s_pri = annual_sharpe(primary_ret.loc[common], ppy)
+                s_alt = annual_sharpe(alt_on, ppy)
+                s_pri = annual_sharpe(pri_on, ppy)
                 drop = 1.0 - s_alt / s_pri if s_pri > 0 else float("inf")
                 detail.update({
                     "sharpe_primary_common": s_pri, "sharpe_second": s_alt, "sharpe_drop": drop,

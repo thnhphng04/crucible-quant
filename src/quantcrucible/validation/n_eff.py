@@ -28,9 +28,10 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples
 
 from quantcrucible.ledger.db import Ledger
+from quantcrucible.validation.clock import daily_returns
 
-ONC_METHOD = "onc-v1"
-MIN_OVERLAP = 30  # fewer common observations than this ⇒ correlation treated as 0
+ONC_METHOD = "onc-v2"  # v2: on daily returns (ADR-0049); identical to v1 on a 1d-only ledger
+MIN_OVERLAP = 30  # fewer common days than this ⇒ correlation treated as 0
 SIGNIFICANCE_Z = 3.0  # cluster membership needs mean ρ > z/√T (ADR-0009)
 MAX_CLUSTERS = 50  # k-means search bound per ONC level; the guard can only split further
 N_INIT = 3
@@ -181,8 +182,14 @@ class ClusteringResult:
 
 
 def _load_returns(path: str) -> pd.Series:
+    """A trial's IS returns compounded per UTC day, whatever its campaign's clock (ADR-0049).
+
+    ``N_eff`` spans every campaign of the ledger, so its correlations need one clock: an hourly
+    and a daily series outer-joined bar by bar would meet only at midnight. A daily series comes
+    back bit for bit."""
     df = pd.read_parquet(path, columns=["ts", "ret"])
-    return pd.Series(df["ret"].to_numpy(dtype=np.float64), index=pd.to_datetime(df["ts"]))
+    bars = pd.Series(df["ret"].to_numpy(dtype=np.float64), index=pd.to_datetime(df["ts"]))
+    return daily_returns(bars)
 
 
 def update_n_eff(ledger: Ledger, seed: int = 0, n_init: int = N_INIT) -> ClusteringResult:

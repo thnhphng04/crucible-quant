@@ -47,6 +47,7 @@ from quantcrucible.holdout.campaign import (
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import utc_now
 from quantcrucible.validation.archive import StrategyArchive
+from quantcrucible.validation.clock import annual_sharpe, evaluation_clock, on_clock
 from quantcrucible.validation.is_gates import backtest_options
 from quantcrucible.validation.pbo_gate import periods_per_year
 from quantcrucible.validation.portfolio import (
@@ -58,7 +59,6 @@ from quantcrucible.validation.portfolio import (
 )
 from quantcrucible.validation.robustness import (
     account_options,
-    annual_sharpe,
     rerun_member,
     weights_of,
 )
@@ -428,6 +428,7 @@ def evaluate(
         archive = StrategyArchive(paths.archive)
         sources = {m.strategy_hash: archive.get(m.strategy_hash) for m in members}
         threshold = float(lock["research"]["holdout_pass"])
+        clock = evaluation_clock(lock)  # the verified lock's; read before the holdout is claimed
         if runner is None:
             runner = engine_runner(
                 paths.ledger, lock, members, sources, options,
@@ -457,7 +458,7 @@ def evaluate(
                 oos = _evaluate_spot_portfolio(
                     members, sources, bars, options, runner, start, rebalance
                 )
-            sharpe = annual_sharpe(oos, periods_per_year(timeframe))
+            sharpe = annual_sharpe(*on_clock(oos, periods_per_year(timeframe), clock))
             verdict = "PASS" if sharpe >= threshold else "FAIL"
         except BaseException as e:
             burn_after_error(ledger, campaign, freeze, now, e)

@@ -1,6 +1,6 @@
 # ADR-0020 — D4: what `holdout_pass` measures, and its value
 
-- **Status:** Accepted (decided by the user)
+- **Status:** Accepted (decided by the user); under a `daily_v1` lock the Sharpe is on UTC-day returns ([ADR-0049](0049-daily-evaluation-clock.md))
 - **Date:** 2026-09-21
 - **Task:** before the next campaign · **Arch:** §10 D4, §4.2 step 3, §10.1 · **Open item:** closes O1 (the holdout part of D4)
 

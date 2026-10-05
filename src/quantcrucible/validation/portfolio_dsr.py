@@ -146,13 +146,11 @@ class DsrGate:
         clustering = update_n_eff(ctx.ledger, seed=0)
         stats = ctx.ledger.trial_stats()
         n_variants = ctx.ledger.total_portfolio_variants()
-        report = portfolio_dsr(
-            portfolio.returns.to_numpy(), stats, n_variants, portfolio.periods_per_year
-        )
+        returns, ppy = portfolio.evaluation  # on the campaign's clock (ADR-0049)
+        report = portfolio_dsr(returns.to_numpy(), stats, n_variants, ppy)
         sensitivity, note = unmeasured_sensitivity(
-            ctx.ledger, portfolio.returns.to_numpy(), stats, n_variants,
-            portfolio.periods_per_year,
-        )  # fmt: skip
+            ctx.ledger, returns.to_numpy(), stats, n_variants, ppy
+        )
         counts = n_breakdown(ctx.ledger, n_variants)
         reason = f"{dsr_counts(report, counts)}; min {dsr_min:g} (at N_eff){note}"
         return GateResult(

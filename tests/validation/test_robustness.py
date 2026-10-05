@@ -50,22 +50,30 @@ class FakeBacktester:
         return SandboxResult(True, {"ok": True, "result": result}, "", "", 0, False, None, 0.1)
 
 
-def data(second: bool = False) -> dict[str, Bars]:
-    b = make_bars(N, seed=3, symbol="BTC/USDT")
+def data(second: bool = False, hours: int | None = None) -> dict[str, Bars]:
+    """``hours`` bars an hour apart instead of ``N`` daily ones."""
+    b = make_bars(hours or N, seed=3, symbol="BTC/USDT")
+    if hours is not None:
+        ts = b.ts[0] + np.arange(hours) * np.timedelta64(1, "h")
+        b = Bars(b.symbol, "1h", ts, b.open, b.high, b.low, b.close, b.volume)
     if second:
         b = Bars(b.symbol, b.timeframe, b.ts, b.open, b.high, b.low, b.close,
-                 np.full(N, SECOND_TAG))  # fmt: skip
+                 np.full(len(b), SECOND_TAG))  # fmt: skip
     return {"BTC/USDT": b}
 
 
 def setup(
-    tmp_path: Path, edges: list[float], second_factor: float = 1.0
+    tmp_path: Path,
+    edges: list[float],
+    second_factor: float = 1.0,
+    hours: int | None = None,
+    clock: str | None = None,
 ) -> tuple[Ledger, Any, dict[str, Any]]:
     ledger = Ledger.open(tmp_path / "ledger.db")
     ledger.open_campaign("c1", "2030-01-01/2031-01-01", lock_hash="h")
     archive = StrategyArchive(tmp_path / "strategies")
     s_hash = archive.put(ZOO)
-    bars = data()["BTC/USDT"]
+    bars = data(hours=hours)["BTC/USDT"]
     for i, edge in enumerate(edges):
         params = {"edge": edge, "seed": i, "second_factor": second_factor}
         rets = fake_returns(params, bars, 0.001)[1:]
@@ -83,9 +91,10 @@ def setup(
             GateResultRecord(campaign_id="c1", candidate_id=f"m{i}", gate=G4_PBO, passed=True,
                              reason="x", trial_id=tid)
         )  # fmt: skip
-    portfolio = build_and_record(ledger, "c1", PortfolioRule(), 365, tmp_path / "res")
-    services = {"sandbox": FakeBacktester(), "archive": archive, "is_data": data(),
-                "second_is_data": data(second=True)}  # fmt: skip
+    ppy = 365.0 if hours is None else 8760.0
+    portfolio = build_and_record(ledger, "c1", PortfolioRule(), ppy, tmp_path / "res", clock)
+    services = {"sandbox": FakeBacktester(), "archive": archive, "is_data": data(hours=hours),
+                "second_is_data": data(second=True, hours=hours)}  # fmt: skip
     return ledger, portfolio, services
 
 
@@ -119,6 +128,33 @@ def test_edge_that_vanishes_on_the_second_source_fails(tmp_path: Path) -> None:
 def test_missing_second_source_fails_closed(tmp_path: Path) -> None:
     result, _ = run(tmp_path, [0.004, 0.004], second_is_data={})
     assert not result.passed and "second-source" in result.reason
+
+
+def test_the_daily_clock_judges_hourly_reruns_day_by_day(tmp_path: Path) -> None:
+    """ADR-0049: costs × 2 is read on UTC-day returns × √365, as gate ⑤ reads the portfolio."""
+    hours = 24 * 90
+    ledger, portfolio, services = setup(tmp_path, [0.0005], hours=hours, clock="daily_v1")
+    result = RobustnessGate().check(portfolio, GateContext(ledger, LOCK, services))
+    bars = data(hours=hours)["BTC/USDT"]
+    member = pd.Series(
+        fake_returns(dict(portfolio.members[0].params), bars, 0.002)[1:],
+        index=pd.DatetimeIndex(bars.ts[1:]),
+    )
+    day_of_bar = (pd.DatetimeIndex(member.index) - pd.Timedelta(1, "ns")).floor("D")
+    days = (1.0 + member).groupby(day_of_bar).prod() - 1.0
+    by_hand = days.mean() / days.std(ddof=1) * np.sqrt(365)
+    assert result.detail is not None
+    assert result.detail["sharpe_stressed"] == pytest.approx(by_hand, rel=1e-9)
+
+
+@pytest.mark.parametrize(("clock", "unit"), [("daily_v1", "days"), (None, "bars")])
+def test_the_second_source_needs_sixty_common_observations_on_the_clock(
+    tmp_path: Path, clock: str | None, unit: str
+) -> None:
+    ledger, portfolio, services = setup(tmp_path, [0.004], hours=24 * 50, clock=clock)
+    result = RobustnessGate().check(portfolio, GateContext(ledger, LOCK, services))
+    reason = f"only 50 common {unit}"  # 1199 hourly bars make 50 days
+    assert (reason in result.reason) == (clock is not None)
 
 
 def test_members_are_rerun_from_the_verified_archive(tmp_path: Path) -> None:

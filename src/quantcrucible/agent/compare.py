@@ -48,6 +48,7 @@ from quantcrucible.agent.scheduler import Key, campaign_scopes, quotas
 from quantcrucible.core.strategy.tunable import LEGACY_MAX_TUNABLES
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import Event, GenerationEvent
+from quantcrucible.validation.clock import clock_ppy, evaluation_clock
 from quantcrucible.validation.cpcv import (
     DEFAULT_DIVERGENCE,
     DegradationPoint,
@@ -472,7 +473,7 @@ def _engine_portfolio(session: ResearchSession, engine: str, fmap: FeatureMap) -
     portfolio = build_portfolio(
         trials, {t.id: load_returns(t.returns_path) for t in trials},
         PortfolioRule.from_lock(session.lock), ledger.trial_stats(),
-        periods_per_year(session.timeframe), cid,
+        periods_per_year(session.timeframe), cid, evaluation_clock(session.lock),
     )  # fmt: skip
     record_variant(ledger, portfolio, session.results_dir)
     return portfolio
@@ -488,13 +489,13 @@ def _portfolio_dsr_per_engine(
     built = {arm: _engine_portfolio(session, arm, fmap) for arm in arms}
     update_n_eff(ledger, seed=0)
     stats, variants = ledger.trial_stats(), ledger.total_portfolio_variants()
-    ppy = periods_per_year(session.timeframe)
     out: dict[str, Any] = {"n_eff": stats.n_eff, "portfolio_variants": variants}
     for arm, portfolio in built.items():
         if portfolio is None:
             out[arm] = None
             continue
-        report = portfolio_dsr(portfolio.returns.to_numpy(), stats, variants, ppy)
+        returns, ppy = portfolio.evaluation  # gate ⑤'s series and clock (ADR-0049)
+        report = portfolio_dsr(returns.to_numpy(), stats, variants, ppy)
         out[arm] = {"members": len(portfolio.members), "dsr_n_eff": report.dsr_n_eff,
                     "dsr_n_raw": report.dsr_n_raw}  # fmt: skip
     return out
@@ -505,7 +506,8 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     assert_protocol_predates_trials(ledger, cid)
     fmap = FeatureMap.from_lock(session.lock)
     # a report-only comparison needs no bars loaded; without them the ranking margin is omitted
-    ppy = periods_per_year(session.timeframe) if session.is_data else None
+    clock = evaluation_clock(session.lock)
+    ppy = clock_ppy(session.timeframe, clock) if session.is_data else None
     rule = divergence_rule(ledger, cid)  # the campaign is read with the rule it locked
     keys = campaign_keys(session, seeds)
     per_seed = {

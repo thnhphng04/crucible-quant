@@ -34,6 +34,7 @@ from quantcrucible.validation.campaign_service import (
     preview_campaign,
 )
 from quantcrucible.validation.campaign_service import DatasetDescriptor as CampaignDataset
+from quantcrucible.validation.clock import DAILY_V1
 from quantcrucible.validation.numerics import numerics_tag
 from quantcrucible.validation.portfolio import SHARED_ACCOUNT
 from quantcrucible.validation.run import _check_trial_budget, new_campaign_derived
@@ -171,6 +172,7 @@ class StudioService:
             "portfolio_protocol": SHARED_ACCOUNT,
             "stop_period": STOP_PERIOD_TUNABLE,
             "grammar_version": GRAMMAR_VERSION,
+            "evaluation_clock": DAILY_V1,
         }
 
     def preview(self, draft_id: str, revision: int) -> dict[str, Any]:

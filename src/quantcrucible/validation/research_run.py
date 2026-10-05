@@ -33,6 +33,7 @@ from quantcrucible.validation.calibration import (
     calibration_settings,
     check_allowed,
 )
+from quantcrucible.validation.clock import evaluation_clock
 from quantcrucible.validation.gates import GateContext, PipelineOutcome, StrategyCandidate
 from quantcrucible.validation.is_gates import signals_path_for
 from quantcrucible.validation.pbo_gate import periods_per_year
@@ -122,7 +123,7 @@ def evaluate_portfolio(session: ResearchSession) -> tuple[Portfolio, PortfolioOu
         rule = PortfolioRule.from_lock(session.lock)
         portfolio = build_and_record(
             session.ledger, session.campaign_id, rule, periods_per_year(session.timeframe),
-            session.results_dir,
+            session.results_dir, evaluation_clock(session.lock),
         )  # fmt: skip
     pipeline = PortfolioPipeline([DsrGate(), RobustnessGate()])
     return portfolio, pipeline.run(portfolio, session.context())
@@ -139,12 +140,13 @@ def account_portfolio(session: ResearchSession, trials: Sequence[TrialRow]) -> P
     """
     rule = PortfolioRule.from_lock(session.lock)
     ppy = periods_per_year(session.timeframe)
+    clock = evaluation_clock(session.lock)
     perpetual = is_perpetual_lock(session.lock)
     if perpetual and not session.perp_data:
         raise ValueError("perpetual portfolio needs aligned mark, funding, path and brackets")
     trial_returns = {t.id: load_returns(t.returns_path) for t in trials}
     chosen = select_slots(
-        trials, trial_returns, session.ledger.trial_stats(), ppy, rule.max_strategies
+        trials, trial_returns, session.ledger.trial_stats(), ppy, rule.max_strategies, clock=clock
     )
     if not chosen:
         return None
@@ -196,6 +198,7 @@ def account_portfolio(session: ResearchSession, trials: Sequence[TrialRow]) -> P
             "eligible": [t.candidate_id for t in trials],
             "slots": [t.candidate_id for t in chosen],
         },
+        clock,
     )
     write_account_curve(
         session.results_dir,
