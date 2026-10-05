@@ -23,6 +23,7 @@ listing is SOLUSDT at 2020-09-14, which is what :func:`common_window` computes f
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -130,6 +131,20 @@ def perp_exchange_id(exchange: str) -> str:
     venue (``binance``); its perpetuals, leverage brackets and API key belong to ``binanceusdm``,
     the client the legacy fetch has always used and the IS manifest records as its source."""
     return "binanceusdm" if exchange == "binance" else exchange
+
+
+PAGE_RETRIES = 5  # a minute download is ~15,000 pages: one server hiccup must not end it
+RETRY_BASE_SECONDS = 2.0
+_sleep = time.sleep
+
+
+def _transient(error: Exception) -> bool:
+    """A failure worth asking again: ccxt's network errors, and its bare ``ExchangeError``,
+    which is what a venue's own server fault maps to (Bybit ``10016 svc error``). Its subclasses
+    — a bad request, a bad symbol, a refused key — are answers, and are raised at once."""
+    import ccxt  # imported lazily: only real downloads need it
+
+    return isinstance(error, ccxt.NetworkError) or type(error) is ccxt.ExchangeError
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +277,14 @@ class PerpSource:
         fetch = {"trade": venue.fetch_ohlcv, "mark": venue.fetch_mark_ohlcv}.get(kind)
         if fetch is None:
             raise ValueError(f"kind must be 'trade' or 'mark', got {kind!r}")
-        return fetch(symbol, timeframe, since, PAGE_LIMIT)
+        for attempt in range(PAGE_RETRIES):
+            try:
+                return fetch(symbol, timeframe, since, PAGE_LIMIT)
+            except Exception as e:
+                if not _transient(e) or attempt == PAGE_RETRIES - 1:
+                    raise
+                _sleep(RETRY_BASE_SECONDS * 2**attempt)
+        raise AssertionError("unreachable")
 
     def fetch_brackets(self, symbol: str) -> list[dict[str, float | int]]:
         """Today's leverage brackets for one contract, as plain rows.

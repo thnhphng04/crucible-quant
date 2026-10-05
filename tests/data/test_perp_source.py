@@ -369,3 +369,51 @@ def test_the_binance_venue_is_read_through_its_usdt_m_client() -> None:
     assert perp_exchange_id("binance") == "binanceusdm"
     assert perp_exchange_id("binanceusdm") == "binanceusdm"
     assert perp_exchange_id("gate") == "gate"
+
+
+class Hiccups(PagingExchange):
+    """Fails the first ``fails`` minute-page requests with ``error``, then serves normally."""
+
+    def __init__(self, error: Exception, fails: int) -> None:
+        super().__init__(days=10)
+        self.error, self.fails = error, fails
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str, since: int, limit: int) -> list[list[float]]:
+        if self.fails:
+            self.fails -= 1
+            raise self.error
+        return super().fetch_ohlcv(symbol, timeframe, since, limit)
+
+
+def test_a_server_hiccup_on_a_page_is_asked_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bybit answered one of ~15,000 minute pages with ``10016 svc error`` and the whole
+    download stopped. A venue's own fault is retried, a bounded number of times."""
+    import ccxt
+
+    from quantcrucible.data import perp_source
+
+    waits: list[float] = []
+    monkeypatch.setattr(perp_source, "_sleep", waits.append)
+    ex = Hiccups(ccxt.ExchangeError("bybit svc error: Get kline failed"), fails=2)
+    src = PerpSource(exchange_id="bybit", exchange=ex)
+    assert len(src._raw_page("BTC/USDT:USDT", "1d", int(START.timestamp() * 1000), kind="trade"))
+    assert waits == [2.0, 4.0]
+    endless = Hiccups(ccxt.NetworkError("timeout"), fails=99)
+    with pytest.raises(ccxt.NetworkError):
+        PerpSource(exchange_id="bybit", exchange=endless)._raw_page(
+            "BTC/USDT:USDT", "1d", 0, kind="trade"
+        )
+    assert len(waits) == 2 + 4  # five attempts, four waits, then the error stands
+
+
+def test_an_answer_from_the_venue_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ccxt
+
+    from quantcrucible.data import perp_source
+
+    monkeypatch.setattr(perp_source, "_sleep", lambda _s: pytest.fail("slept on a bad request"))
+    ex = Hiccups(ccxt.BadRequest("Candlestick too long ago"), fails=1)
+    with pytest.raises(ccxt.BadRequest):
+        PerpSource(exchange_id="gate", exchange=ex)._raw_page(
+            "BTC/USDT:USDT", "1d", 0, kind="trade"
+        )
