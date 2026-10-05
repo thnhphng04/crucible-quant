@@ -51,6 +51,7 @@ from quantcrucible.validation.portfolio import SHARED_ACCOUNT
 from quantcrucible.validation.robustness import COST_MULTIPLIER, MAX_SHARPE_DROP
 from quantcrucible.validation.sandbox import JobRunner
 from quantcrucible.validation.statistical import max_trials_within
+from quantcrucible.validation.trial_scope import CAMPAIGN_V1
 
 DEFAULT_LOOKBACK = 400
 # Engine C's feature map (arch §3.1.3, P2-07): bounds fixed when a campaign opens, never
@@ -124,6 +125,7 @@ def new_campaign_derived(cfg: UserConfig) -> dict[str, Any]:
     derived["max_tunables"] = MAX_TUNABLES  # inside a cap of 7
     derived["grammar_version"] = GRAMMAR_VERSION  # ADR-0043 … ADR-0047
     derived["evaluation_clock"] = DAILY_V1  # ADR-0049: statistics on UTC-day returns
+    derived["trial_scope"] = CAMPAIGN_V1  # ADR-0050: N, N_eff, V[SR] of this campaign only
     return derived
 
 
@@ -147,7 +149,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     perpetual = cfg.research.data.market == "usdt_m_perpetual"
     holdout_lock = root / "holdout" / "perp.lock" if perpetual else root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # range + hashes only: no prices
-    _check_trial_budget(cfg, ledger, str(manifest["range"]))
+    _check_trial_budget(cfg, str(manifest["range"]))
     base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     campaign_id, n = base, 1
     while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
@@ -198,9 +200,13 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     return campaign_id
 
 
-def _check_trial_budget(cfg: UserConfig, ledger: Ledger, holdout_range: str) -> None:
-    """Refuse a campaign whose trial budget, on top of the ledger's N (N never resets), needs
-    more IS history than there is before the holdout (gate ② at the locked target Sharpe)."""
+def _check_trial_budget(cfg: UserConfig, holdout_range: str) -> None:
+    """Refuse a campaign whose trial budget needs more IS history than there is before the
+    holdout (gate ② at the locked target Sharpe).
+
+    A new campaign is locked with ``trial_scope: campaign_v1`` (:func:`new_campaign_derived`), so
+    its gate ② counts only its own trials and starts from ``N = 0``: the trials of other
+    campaigns no longer eat into its budget (ADR-0050). They all stay in the ledger."""
     budget = cfg.research.campaign.trial_budget
     if budget is None:
         return
@@ -208,12 +214,11 @@ def _check_trial_budget(cfg: UserConfig, ledger: Ledger, holdout_range: str) -> 
     years = (is_end - cfg.research.data.start).days / DAYS_PER_YEAR
     target = cfg.research.minbtl_target_sharpe
     allowed = max_trials_within(years, target)
-    n_now = ledger.trial_stats().n_eff
-    if n_now + budget > allowed:
+    if budget > allowed:
         raise CampaignNotOpened(
-            f"trial_budget {budget} + N {n_now} already in the ledger exceeds what MinBTL allows "
-            f"for {years:.1f} years of IS data at target Sharpe {target:g} ({allowed} trials): "
-            "lower the budget or the number of seeds"
+            f"trial_budget {budget} exceeds what MinBTL allows for {years:.1f} years of IS data "
+            f"at target Sharpe {target:g} ({allowed} trials in this campaign): lower the budget "
+            "or the number of seeds"
         )
 
 

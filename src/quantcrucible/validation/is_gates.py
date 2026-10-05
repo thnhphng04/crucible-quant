@@ -30,6 +30,7 @@ from quantcrucible.validation.gates import (
 from quantcrucible.validation.report import EvaluationReport
 from quantcrucible.validation.sandbox import JobRunner, SandboxJob, sandbox_failure
 from quantcrucible.validation.statistical import min_btl_years, sharpe_moments
+from quantcrucible.validation.trial_scope import trial_scope
 
 DAYS_PER_YEAR = 365.25
 
@@ -161,8 +162,9 @@ def span_years(bars: Bars) -> float:
 class MinBtlGate:
     """Gate ②: reject when the IS history is shorter than MinBTL for the trials run so far.
 
-    ``N`` is the campaign-independent ``trial_stats.n_eff`` (N_eff; N_raw until clustering runs)
-    plus this candidate. The shortest series in the universe sets the available length.
+    ``N`` is ``trial_stats.n_eff`` (N_eff; N_raw until clustering runs) plus this candidate, over
+    the whole ledger or, under ``trial_scope: campaign_v1``, over this campaign's trials only
+    (ADR-0050). The shortest series in the universe sets the available length.
     """
 
     id = G2_MINBTL
@@ -171,7 +173,7 @@ class MinBtlGate:
     def check(self, candidate: StrategyCandidate, ctx: GateContext) -> GateResult:
         target = float(ctx.lock["research"]["minbtl_target_sharpe"])
         years = min(span_years(b) for b in universe_bars(candidate, ctx).values())
-        n = ctx.ledger.trial_stats().n_eff + 1
+        n = ctx.ledger.trial_stats(trial_scope(ctx.lock, candidate.campaign_id)).n_eff + 1
         need = min_btl_years(n, target)
         verdict = f"IS {years:.2f} y vs MinBTL {need:.2f} y (N={n}, target Sharpe {target:g})"
         detail = {"is_years": years, "min_btl_years": need, "n_trials": n}

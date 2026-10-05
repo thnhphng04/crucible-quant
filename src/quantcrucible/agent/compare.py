@@ -68,6 +68,7 @@ from quantcrucible.validation.portfolio import (
 )
 from quantcrucible.validation.research_run import ResearchSession, account_portfolio
 from quantcrucible.validation.statistical import portfolio_dsr
+from quantcrucible.validation.trial_scope import trial_scope
 
 MEANINGFUL_EFFICIENCY = 1.0  # passing ④ per 100 trials; below it for both arms ⇒ investigate
 MIN_SEEDS = 3  # §3.1.11: the seed-to-seed spread needs at least three seeds
@@ -472,7 +473,7 @@ def _engine_portfolio(session: ResearchSession, engine: str, fmap: FeatureMap) -
     trials = [dataclasses.replace(t, cell_id=cells.get(t.candidate_id)) for t in trials]
     portfolio = build_portfolio(
         trials, {t.id: load_returns(t.returns_path) for t in trials},
-        PortfolioRule.from_lock(session.lock), ledger.trial_stats(),
+        PortfolioRule.from_lock(session.lock), ledger.trial_stats(trial_scope(session.lock, cid)),
         periods_per_year(session.timeframe), cid, evaluation_clock(session.lock),
     )  # fmt: skip
     record_variant(ledger, portfolio, session.results_dir)
@@ -487,8 +488,9 @@ def _portfolio_dsr_per_engine(
     arm harder than the first."""
     ledger = session.ledger
     built = {arm: _engine_portfolio(session, arm, fmap) for arm in arms}
-    update_n_eff(ledger, seed=0)
-    stats, variants = ledger.trial_stats(), ledger.total_portfolio_variants()
+    scope = trial_scope(session.lock, session.campaign_id)  # ADR-0050
+    update_n_eff(ledger, seed=0, campaign_id=scope)
+    stats, variants = ledger.trial_stats(scope), ledger.total_portfolio_variants(scope)
     out: dict[str, Any] = {"n_eff": stats.n_eff, "portfolio_variants": variants}
     for arm, portfolio in built.items():
         if portfolio is None:
@@ -511,7 +513,11 @@ def compare(session: ResearchSession, seeds: int, with_portfolios: bool = True) 
     rule = divergence_rule(ledger, cid)  # the campaign is read with the rule it locked
     keys = campaign_keys(session, seeds)
     per_seed = {
-        arm: [engine_report(ledger, cid, k, fmap, rule, ppy) for k in keys if k.engine == arm]
+        arm: [
+            engine_report(ledger, cid, k, fmap, rule, ppy, trial_scope(session.lock, cid))
+            for k in keys
+            if k.engine == arm
+        ]
         for arm in PROTOCOL["arms"]
     }
 

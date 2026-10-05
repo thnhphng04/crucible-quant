@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -12,14 +13,16 @@ from quantcrucible.config.lock import CampaignNotOpened, LockMismatchError, read
 from quantcrucible.config.schema import UserConfig
 from quantcrucible.core.strategy.template import template_hash
 from quantcrucible.ledger.db import Ledger, LedgerError
-from quantcrucible.ledger.records import Event
+from quantcrucible.ledger.records import Event, TrialRecord
 from quantcrucible.validation.freeze import FreezeError, abandon
+from quantcrucible.validation.is_gates import DAYS_PER_YEAR
 from quantcrucible.validation.run import (
     candidate_pipeline,
     current_campaign,
     make_candidate,
     phase0_pipeline,
 )
+from quantcrucible.validation.statistical import max_trials_within
 from tests.factories import make_bars
 
 
@@ -40,6 +43,7 @@ def test_opens_once_then_resumes(tmp_path: Path) -> None:
     assert lock["research"]["exit"]["stop_kinds"] == ["atr"]  # ADR-0042
     assert lock["derived"]["grammar_version"] == 5  # ADR-0043 … ADR-0045, ADR-0047
     assert lock["derived"]["evaluation_clock"] == "daily_v1"  # ADR-0049
+    assert lock["derived"]["trial_scope"] == "campaign_v1"  # ADR-0050
     assert current_campaign(cfg, ledger, lock_path, tmp_path) == first
     changed = replace(cfg, research=replace(cfg.research, seeds=5))
     with pytest.raises(LockMismatchError):
@@ -132,9 +136,36 @@ def test_harness_test_campaign_cannot_freeze(tmp_path: Path) -> None:
 
 
 def test_a_trial_budget_beyond_minbtl_is_refused(tmp_path: Path) -> None:
-    """Opening a campaign whose budget, added to the ledger's N, would need more history than
-    the IS data has (gate ② at the locked target Sharpe) is refused up front."""
+    """Opening a campaign whose budget would need more history than the IS data has (gate ② at
+    the locked target Sharpe) is refused up front."""
     ledger, lock_path = _project(tmp_path)
     with pytest.raises(CampaignNotOpened, match="MinBTL"):
         current_campaign(_cfg("harness_test", 10**9), ledger, lock_path, tmp_path)
     assert current_campaign(_cfg("harness_test", 200), ledger, lock_path, tmp_path)
+
+
+def _three_years(budget: int) -> UserConfig:
+    cfg = _cfg("research", budget)
+    data = replace(cfg.research.data, start=date(2027, 1, 1))  # 3 years before the holdout
+    return replace(cfg, research=replace(cfg.research, data=data))
+
+
+def test_the_trial_budget_ignores_other_campaigns(tmp_path: Path) -> None:
+    """ADR-0050: a new campaign counts only its own trials, so the ledger's N does not eat its
+    budget — only ``max_trials_within`` its own IS years does."""
+    ledger, lock_path = _project(tmp_path)
+    allowed = max_trials_within(1096 / DAYS_PER_YEAR, 1.5)
+    old = current_campaign(_three_years(10), ledger, lock_path, tmp_path)
+    for i in range(allowed):  # the old campaign alone already uses up the whole MinBTL budget
+        ledger.record_trial(
+            TrialRecord(
+                run_id="r", campaign_id=old, candidate_id=f"t{i}", engine="manual", seed=0,
+                strategy_hash=f"h{i}", params={}, universe="X", timeframe="1h", timerange="t",
+                source="manual", sharpe_is=0.0, returns_path="x.parquet", verdict="PASS",
+            )
+        )  # fmt: skip
+    abandon(ledger, old, "replaced")
+    with pytest.raises(CampaignNotOpened, match=f"{allowed} trials in this campaign"):
+        current_campaign(_three_years(allowed + 1), ledger, lock_path, tmp_path)
+    assert current_campaign(_three_years(allowed), ledger, lock_path, tmp_path) != old
+    assert ledger.trial_stats().n_raw == allowed  # nothing left the ledger

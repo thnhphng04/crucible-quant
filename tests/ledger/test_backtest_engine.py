@@ -56,7 +56,7 @@ def test_a_v8_ledger_is_migrated_without_touching_its_rows(tmp_path: Path) -> No
     )
     raw.close()
     lg = Ledger.open(path)
-    assert lg._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 9
+    assert lg._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 10
     [row] = lg.trials("c1")
     assert (row.candidate_id, row.backtest_engine) == ("old", "sandbox")
     with pytest.raises(sqlite3.DatabaseError):

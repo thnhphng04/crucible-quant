@@ -38,6 +38,7 @@ from quantcrucible.validation.clock import DAILY_V1
 from quantcrucible.validation.numerics import numerics_tag
 from quantcrucible.validation.portfolio import SHARED_ACCOUNT
 from quantcrucible.validation.run import _check_trial_budget, new_campaign_derived
+from quantcrucible.validation.trial_scope import CAMPAIGN_V1
 
 
 @contextmanager
@@ -162,7 +163,6 @@ class StudioService:
             "dataset_id": dataset.dataset_id,
             "manifest_sha256": dataset.manifest_sha256,
             "active_lock_sha256": sha256_file(active) if active.exists() else None,
-            "ledger_n_eff": ledger.trial_stats().n_eff,
             "campaign_count": len(ledger.campaigns()),
             "protocol_sha256": (
                 protocol_hash() if cfg.research.campaign.purpose == "harness_test" else None
@@ -173,6 +173,7 @@ class StudioService:
             "stop_period": STOP_PERIOD_TUNABLE,
             "grammar_version": GRAMMAR_VERSION,
             "evaluation_clock": DAILY_V1,
+            "trial_scope": CAMPAIGN_V1,
         }
 
     def preview(self, draft_id: str, revision: int) -> dict[str, Any]:
@@ -205,7 +206,7 @@ class StudioService:
                     }
                 )
             try:
-                _check_trial_budget(cfg, ledger, dataset.holdout_range)
+                _check_trial_budget(cfg, dataset.holdout_range)
             except CampaignNotOpened as exc:
                 problems.append(
                     {

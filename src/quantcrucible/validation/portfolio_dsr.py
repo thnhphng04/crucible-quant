@@ -9,7 +9,9 @@ the run started from: a result is only current while the snapshot is (the freeze
 
 Gate ⑤ re-estimates ``N_eff`` (ONC over every trial), then deflates the portfolio's IS Sharpe
 with ``trial_stats`` (``N_eff``, ``V[SR]``) plus ``total_portfolio_variants`` — the only inputs it
-reads. There is no per-cell or per-strategy DSR anywhere (§3.1.6).
+reads. There is no per-cell or per-strategy DSR anywhere (§3.1.6). Under ``trial_scope:
+campaign_v1`` all of these count the portfolio's campaign only, and so does the snapshot
+(ADR-0050).
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.n_eff import update_n_eff
 from quantcrucible.validation.portfolio import Portfolio
 from quantcrucible.validation.statistical import DsrReport, portfolio_dsr
+from quantcrucible.validation.trial_scope import trial_scope
 
 G5_DSR = "g5_dsr"
 G6P_ROBUSTNESS = "g6p_robustness"
@@ -63,7 +66,7 @@ class PortfolioPipeline:
 
     def run(self, portfolio: Portfolio, ctx: GateContext) -> PortfolioOutcome:
         p_hash = portfolio.portfolio_hash
-        snapshot = ctx.ledger.snapshot()
+        snapshot = ctx.ledger.snapshot(trial_scope(ctx.lock, portfolio.campaign_id))
         results: list[GateResult] = []
         for gate in self.gates:
             try:
@@ -88,11 +91,11 @@ class PortfolioPipeline:
         return PortfolioOutcome(p_hash, True, tuple(results))
 
 
-def n_breakdown(ledger: Ledger, n_variants: int) -> dict[str, int]:
+def n_breakdown(ledger: Ledger, n_variants: int, scope: str | None = None) -> dict[str, int]:
     """How the two counts are formed: N_raw = trials + variants; N_eff = clusters of the latest
-    clustering run + trials it did not cover + variants (ADR-0014 amendment)."""
-    n_trials = ledger.trial_stats().n_raw
-    covered, clusters = ledger.latest_clustering() or (0, 0)
+    clustering run + trials it did not cover + variants (ADR-0014 amendment), in ``scope``."""
+    n_trials = ledger.trial_stats(scope).n_raw
+    covered, clusters = ledger.latest_clustering(scope) or (0, 0)
     return {
         "n_trials": n_trials, "n_clusters": clusters, "n_clustered_trials": covered,
         "n_unclustered": n_trials - covered, "n_variants": n_variants,
@@ -111,11 +114,16 @@ def dsr_counts(report: DsrReport, b: dict[str, int]) -> str:
 
 
 def unmeasured_sensitivity(
-    ledger: Ledger, returns: npt.ArrayLike, stats: TrialStats, n_variants: int, ppy: float
+    ledger: Ledger,
+    returns: npt.ArrayLike,
+    stats: TrialStats,
+    n_variants: int,
+    ppy: float,
+    scope: str | None = None,
 ) -> tuple[dict[str, float], str]:
     """ADR-0022: attempts that measured nothing are not trials, but DSR is also reported as if
     each were one more trial in its own cluster — a sensitivity check, never the gate rule."""
-    e = ledger.unmeasured_attempts()
+    e = ledger.unmeasured_attempts(scope)
     if e == 0:
         return {"unmeasured_attempts": 0.0}, ""
     alt = portfolio_dsr(
@@ -143,15 +151,16 @@ class DsrGate:
 
     def check(self, portfolio: Portfolio, ctx: GateContext) -> GateResult:
         dsr_min = float(ctx.lock["research"]["gates"]["dsr_min"])
-        clustering = update_n_eff(ctx.ledger, seed=0)
-        stats = ctx.ledger.trial_stats()
-        n_variants = ctx.ledger.total_portfolio_variants()
+        scope = trial_scope(ctx.lock, portfolio.campaign_id)  # ADR-0050
+        clustering = update_n_eff(ctx.ledger, seed=0, campaign_id=scope)
+        stats = ctx.ledger.trial_stats(scope)
+        n_variants = ctx.ledger.total_portfolio_variants(scope)
         returns, ppy = portfolio.evaluation  # on the campaign's clock (ADR-0049)
         report = portfolio_dsr(returns.to_numpy(), stats, n_variants, ppy)
         sensitivity, note = unmeasured_sensitivity(
-            ctx.ledger, returns.to_numpy(), stats, n_variants, ppy
+            ctx.ledger, returns.to_numpy(), stats, n_variants, ppy, scope
         )
-        counts = n_breakdown(ctx.ledger, n_variants)
+        counts = n_breakdown(ctx.ledger, n_variants, scope)
         reason = f"{dsr_counts(report, counts)}; min {dsr_min:g} (at N_eff){note}"
         return GateResult(
             passed=report.dsr_n_eff >= dsr_min,

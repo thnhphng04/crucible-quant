@@ -1,6 +1,6 @@
 # ADR-0033 — Đơn vị tìm kiếm là (instrument, direction)
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận; `N_eff` và `trial_stats` tính theo campaign dưới `trial_scope: campaign_v1`, vẫn một `N` chung cho các scope của một campaign ([ADR-0050](0050-thong-ke-trial-theo-campaign.md))
 - **Ngày:** 2026-09-25
 - **Task:** P3-11 … P3-15 · **Kiến trúc:** §3.1.11, §3.2.1, §4.1 · **Thay thế:** đơn vị `(engine, seed)` của ADR-0024 và ADR-0027
 

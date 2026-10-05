@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from quantcrucible.ledger.db import Ledger
-from quantcrucible.ledger.records import GateResultRecord, TrialRecord
+from quantcrucible.ledger.records import GateResultRecord, PortfolioVariant, TrialRecord
 from quantcrucible.validation.gates import GateContext, GateResult
 from quantcrucible.validation.portfolio import Portfolio, PortfolioRule, build_and_record
 from quantcrucible.validation.portfolio_dsr import (
@@ -40,7 +40,9 @@ def strong_portfolio(ledger: Ledger, tmp_path: Path) -> Portfolio:
     return build_and_record(ledger, "c1", PortfolioRule(), 365, tmp_path / "res")
 
 
-def more_trials(ledger: Ledger, tmp_path: Path, n: int, start: int, engine: str = "random") -> None:
+def more_trials(
+    ledger: Ledger, tmp_path: Path, n: int, start: int, engine: str = "random", campaign: str = "c1"
+) -> None:
     """Independent (unclustered) trials with the same Sharpe spread, any verdict."""
     for i in range(start, start + n):
         rets = np.random.default_rng(1000 + i).normal(0, 0.01, T)
@@ -48,7 +50,7 @@ def more_trials(ledger: Ledger, tmp_path: Path, n: int, start: int, engine: str 
         pd.DataFrame({"ts": pd.date_range("2020-01-01", periods=T), "ret": rets}).to_parquet(path)
         ledger.record_trial(
             TrialRecord(
-                run_id="r", campaign_id="c1", candidate_id=f"x{i}", engine=engine, seed=i,
+                run_id="r", campaign_id=campaign, candidate_id=f"x{i}", engine=engine, seed=i,
                 strategy_hash=f"hx{i}", params={}, universe="X", timeframe="1d", timerange="t",
                 source="evolution", sharpe_is=float(np.mean(rets) / np.std(rets) * np.sqrt(365)),
                 returns_path=str(path), verdict="REJECT_g3_is" if i % 2 else "PASS",
@@ -193,3 +195,34 @@ def test_unmeasured_attempts_are_a_sensitivity_not_a_count(ledger: Ledger, tmp_p
     assert after.detail["dsr_n_eff_if_counted"] <= after.detail["dsr_n_eff"]
     assert after.detail["dsr_n_raw_if_counted"] <= after.detail["dsr_n_raw"]
     assert "3 unmeasured attempts" in after.reason
+
+
+SCOPED: dict[str, Any] = {**LOCK, "derived": {"trial_scope": "campaign_v1"}}
+
+
+def test_under_the_campaign_scope_other_campaigns_do_not_deflate(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    """INV-125 (ADR-0050): another campaign's trials, variants and unmeasured attempts stay in
+    the ledger but leave this campaign's DSR alone; its clustering is its own run."""
+    p = strong_portfolio(ledger, tmp_path)
+    ledger.open_campaign("c0", "2030-01-01/2031-01-01", lock_hash="h0")
+    more_trials(ledger, tmp_path, 50, 0, campaign="c0")
+    ledger.record_portfolio_variant(
+        PortfolioVariant(portfolio_hash="other", campaign_id="c0", rule_config={}, members=[])
+    )
+    ledger.record_gate_result(
+        GateResultRecord(campaign_id="c0", candidate_id="e", gate="g3_is", passed=False,
+                         reason="no trades", trial_id=None)
+    )  # fmt: skip
+    PortfolioPipeline([DsrGate()]).run(p, GateContext(ledger, SCOPED, {}))
+    [detail] = ledger.gate_result_details(p.portfolio_hash, G5_DSR)
+    assert detail["ledger_snapshot"] == {"trials": 2, "portfolio_variants": 1, "scope": "c1"}
+    assert (detail["n_trials"], detail["n_variants"], detail["n_raw"]) == (2, 1, 3)
+    assert detail["unmeasured_attempts"] == 0
+    assert ledger.latest_clustering("c1") == (2, detail["n_clusters"])
+    assert ledger.latest_clustering() is None  # no ledger-wide run was recorded
+    legacy = check(ledger, p).detail
+    assert legacy is not None
+    assert (legacy["n_trials"], legacy["n_variants"], legacy["unmeasured_attempts"]) == (52, 2, 1)
+    assert detail["dsr_n_eff"] > legacy["dsr_n_eff"]

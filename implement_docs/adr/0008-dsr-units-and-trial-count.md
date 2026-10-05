@@ -1,6 +1,6 @@
 # ADR-0008 — DSR: units, moments and what counts in `N`
 
-- **Status:** Accepted; under a `daily_v1` lock an observation is a UTC day ([ADR-0049](0049-daily-evaluation-clock.md))
+- **Status:** Accepted; under a `daily_v1` lock an observation is a UTC day ([ADR-0049](0049-daily-evaluation-clock.md)); under `trial_scope: campaign_v1` the trial count is the campaign's own ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-21
 - **Task:** P1-02 · **Arch:** §3.1.6, §3.2 row ⑤, §4.1, 07-VALIDATION-LAYER §4.3 · **Open item:** —
 

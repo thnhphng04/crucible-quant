@@ -596,7 +596,7 @@ def campaign_dryrun(config: Path, root: Path) -> int:
         if cfg.research.holdout_pass is None:
             problems.append("research.holdout_pass must be set before a campaign opens")
         try:
-            _check_trial_budget(cfg, ledger, str(manifest["range"]))
+            _check_trial_budget(cfg, str(manifest["range"]))
         except CampaignNotOpened as exc:
             problems.append(str(exc))
     finally:

@@ -1,6 +1,6 @@
 # ADR-0014 — Gate ⑤: DSR danh mục và pipeline danh mục
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận; dưới `trial_scope: campaign_v1`, `N`, `V[SR]` và các variant là của chính campaign ([ADR-0050](0050-thong-ke-trial-theo-campaign.md))
 - **Ngày:** 2026-09-21
 - **Task:** P1-08 · **Kiến trúc:** §3.2 dòng ⑤–⑥′, §3.1.6, §4.1 ("Đầu vào của gate ⑤ DSR", "Ước lượng `N_eff`") · **Vấn đề mở:** —
 

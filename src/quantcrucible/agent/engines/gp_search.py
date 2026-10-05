@@ -88,6 +88,7 @@ class GpSearch:
         param_only_max: float,
         run_id: str,
         config: GrammarConfig | None = None,
+        stats_scope: str | None = None,
     ) -> None:
         self.ledger = ledger
         self.campaign_id = campaign_id
@@ -98,6 +99,7 @@ class GpSearch:
         self.param_only_max = param_only_max
         self.run_id = run_id
         self.config = config or GrammarConfig()
+        self.stats_scope = stats_scope  # the ranking's N_eff, V[SR]: `trial_scope` (ADR-0050)
         self.rng = np.random.default_rng(rng_seed)
         version = self.config.version
         self.islands = island_names(version)
@@ -139,7 +141,7 @@ class GpSearch:
 
     def _state(self) -> tuple[dict[str, list[Entry]], dict[str, float], dict[str, Genome]]:
         entries = load_entries(self.ledger, self.campaign_id, self.key, self.fmap)
-        stats = self.ledger.trial_stats()
+        stats = self.ledger.trial_stats(self.stats_scope)
         ctx = RankContext(max(stats.n_eff, 1), stats.var_sr or 0.0, self.ppy)
         score = scores(entries, ctx)
         moved = migrations(self.ledger, self.campaign_id, self.key)

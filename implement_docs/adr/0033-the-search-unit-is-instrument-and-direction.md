@@ -1,6 +1,6 @@
 # ADR-0033 — The search unit is (instrument, direction)
 
-- **Status:** Accepted
+- **Status:** Accepted; `N_eff` and `trial_stats` are per campaign under `trial_scope: campaign_v1`, still one `N` across a campaign's scopes ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-25
 - **Task:** P3-11 … P3-15 · **Arch:** §3.1.11, §3.2.1, §4.1 · **Supersedes:** the `(engine, seed)` unit of ADR-0024 and ADR-0027
 

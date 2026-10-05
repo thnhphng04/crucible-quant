@@ -1,6 +1,6 @@
 # ADR-0022 — Quy ước đếm: các lần thử không đo được gì
 
-- **Trạng thái:** Đã chấp nhận (người dùng quyết định)
+- **Trạng thái:** Đã chấp nhận (người dùng quyết định); dưới `trial_scope: campaign_v1`, số lần thử là của chính campaign ([ADR-0050](0050-thong-ke-trial-theo-campaign.md))
 - **Ngày:** 2026-09-22
 - **Task:** sau lần chạy dữ liệu thật đầu tiên · **Kiến trúc:** §4.1 (trial = cấu hình đã đo), §3.2.1 5b · **Vấn đề mở:** đóng O17
 

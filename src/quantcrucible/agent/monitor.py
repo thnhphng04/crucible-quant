@@ -173,14 +173,16 @@ def engine_report(
     fmap: FeatureMap,
     rule: DivergenceRule = DEFAULT_DIVERGENCE,
     periods_per_year: float | None = None,
+    stats_scope: str | None = None,
 ) -> dict[str, Any]:
     """The §3.1.11 metrics of one unit of search.
 
     ``ranking_margin`` (INV-79) needs ``periods_per_year`` to rebuild the ranking's context; it
-    is ``None`` without it. Like every other key here it is reported, never acted on: it reaches
-    neither ``EarlyStop`` nor ``compare.decide`` (ADR-0028). It is reported for both arms —
-    C-random ranks nothing, so its value is the counterfactual spread, which is exactly the
-    comparison that exposed the compressed-benchmark defect.
+    is ``None`` without it; ``stats_scope`` is the campaign its ``N_eff`` and ``V[SR]`` count
+    (``trial_scope``, ADR-0050), ``None`` for the whole ledger. Like every other key here it is
+    reported, never acted on: it reaches neither ``EarlyStop`` nor ``compare.decide`` (ADR-0028).
+    It is reported for both arms — C-random ranks nothing, so its value is the counterfactual
+    spread, which is exactly the comparison that exposed the compressed-benchmark defect.
     """
     trials = ledger.trials(campaign_id, *scope_args(key))
     g4 = ledger.latest_gate_results(campaign_id, G4_PBO)
@@ -194,7 +196,7 @@ def engine_report(
     entries = load_entries(ledger, campaign_id, key, fmap)
     margin: float | None = None
     if periods_per_year is not None and entries:
-        stats = ledger.trial_stats()
+        stats = ledger.trial_stats(stats_scope)
         ctx = RankContext(max(stats.n_eff, 1), stats.var_sr or 0.0, periods_per_year)
         margin = term_dispersion(entries, ctx).margin
     return {

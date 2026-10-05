@@ -233,12 +233,14 @@ def build_perp_project(tmp_path: Path) -> Project:
     return Project(root, ledger, p.portfolio_hash)
 
 
-def passes(ledger: Ledger, campaign_id: str, p_hash: str) -> None:
-    """⑤ and ⑥′ passes computed on the ledger as it is now (what PortfolioPipeline records)."""
+def passes(ledger: Ledger, campaign_id: str, p_hash: str, scope: str | None = None) -> None:
+    """⑤ and ⑥′ passes computed on the ledger as it is now (what PortfolioPipeline records),
+    counting the whole ledger or, under ``trial_scope: campaign_v1``, the ``scope`` campaign."""
+    snapshot = ledger.snapshot(scope)
     for gate in (G5_DSR, G6P_ROBUSTNESS):
         ledger.record_gate_result(
             GateResultRecord(campaign_id=campaign_id, candidate_id=p_hash, gate=gate,
-                             passed=True, reason="ok", detail={SNAPSHOT_KEY: ledger.snapshot()})
+                             passed=True, reason="ok", detail={SNAPSHOT_KEY: snapshot})
         )  # fmt: skip
 
 
@@ -399,6 +401,42 @@ def test_freeze_refuses_gate_results_from_an_older_ledger(tmp_path: Path) -> Non
         freeze_campaign(proj.ledger, "c1", proj.portfolio_hash)
     passes(proj.ledger, "c1", proj.portfolio_hash)  # ⑤ → ⑥′ re-run on the current ledger
     freeze_campaign(proj.ledger, "c1", proj.portfolio_hash)
+
+
+def _late_trial(ledger: Ledger, campaign_id: str, candidate_id: str) -> None:
+    ledger.record_trial(
+        TrialRecord(
+            run_id="r", campaign_id=campaign_id, candidate_id=candidate_id, engine="manual",
+            seed=0, strategy_hash="h", params={}, universe=SYMBOL, timeframe="1d",
+            timerange="t", source="manual", sharpe_is=-1.0, returns_path="x.parquet",
+            verdict="PASS",
+        )
+    )  # fmt: skip
+
+
+def test_under_the_campaign_scope_only_its_own_trials_make_results_stale(
+    tmp_path: Path,
+) -> None:
+    """INV-125 (ADR-0050): ⑤/⑥′ computed on c1's trials stay current while another campaign
+    adds trials, and go stale when c1 itself does."""
+    proj = build_project(tmp_path, freeze=False)
+    passes(proj.ledger, "c1", proj.portfolio_hash, scope="c1")
+    proj.ledger.open_campaign("c2", "2031-01-01/2032-01-01", lock_hash="h2")
+    _late_trial(proj.ledger, "c2", "elsewhere")
+    _late_trial(proj.ledger, "c1", "late")
+    with pytest.raises(FreezeError, match="added to campaign c1"):
+        freeze_campaign(proj.ledger, "c1", proj.portfolio_hash)
+    passes(proj.ledger, "c1", proj.portfolio_hash, scope="c1")
+    _late_trial(proj.ledger, "c2", "elsewhere-again")
+    freeze_campaign(proj.ledger, "c1", proj.portfolio_hash)
+
+
+def test_freeze_refuses_results_that_counted_another_campaign(tmp_path: Path) -> None:
+    proj = build_project(tmp_path, freeze=False)
+    proj.ledger.open_campaign("c2", "2031-01-01/2032-01-01", lock_hash="h2")
+    passes(proj.ledger, "c1", proj.portfolio_hash, scope="c2")
+    with pytest.raises(FreezeError, match="trials of c2"):
+        freeze_campaign(proj.ledger, "c1", proj.portfolio_hash)
 
 
 class BrokenRunner(FakeRunner):

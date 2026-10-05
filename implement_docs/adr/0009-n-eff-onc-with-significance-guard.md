@@ -1,6 +1,6 @@
 # ADR-0009 — `N_eff`: ONC with a significance guard
 
-- **Status:** Accepted; clusters daily returns as `onc-v2` since [ADR-0049](0049-daily-evaluation-clock.md)
+- **Status:** Accepted; clusters daily returns as `onc-v2` since [ADR-0049](0049-daily-evaluation-clock.md); under `trial_scope: campaign_v1` it clusters the campaign's trials as that campaign's run ([ADR-0050](0050-trial-statistics-per-campaign.md))
 - **Date:** 2026-09-21
 - **Task:** P1-05 · **Arch:** §4.1 ("Estimating `N_eff`"), §3.1.6 · **Open item:** O10 (closed)
 
