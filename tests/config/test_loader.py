@@ -18,8 +18,8 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
     # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
     # and the 1h perpetual research campaign of 2026-10-06: gp only, 120 trials (MinBTL at three
-    # years of IS, ADR-0050), the window cut at 2025-10-02 (ADR-0051), Bybit as the second source
-    # (Gate.io serves only its latest 10,000 candles), backtests on the GPU
+    # years of IS, ADR-0050), the window cut at 2025-10-02 (ADR-0051), no second source yet (a
+    # trial run: gate ⑥′ fails closed), backtests on the GPU
     assert cfg.research == replace(
         Research(),
         holdout_pass=1.3,
@@ -30,9 +30,9 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
             market="usdt_m_perpetual",
             symbols=tuple(f"{c}/USDT:USDT" for c in ("BTC", "ETH", "SOL", "BNB", "XRP")),
             start=date(2022, 10, 2),
-            end=date(2026, 10, 1),
+            end=date(2026, 10, 2),
             holdout_start=date(2025, 10, 2),
-            second_exchange="bybit",
+            second_exchange=None,
         ),
     )
     assert Research().holdout_pass is None

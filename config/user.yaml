@@ -36,11 +36,12 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
     symbols: [BTC/USDT:USDT, ETH/USDT:USDT, SOL/USDT:USDT, BNB/USDT:USDT, XRP/USDT:USDT]
     timeframe: 1h
     start: 2022-10-02           # IS 2022-10-02 → 2025-10-01: 3 years
-    end: 2026-10-01             # last day of the window; null = latest completed UTC day
+    end: 2026-10-02             # last day of the window; null = latest completed UTC day
     holdout_start: 2025-10-02   # the IS/holdout cut; must follow every searched day (D28)
     holdout_months: 12          # used only when holdout_start is null
-    second_exchange: bybit      # gate ⑥′: re-run on a second free source; Sharpe may drop ≤ 30%
-                                # (Gate.io serves only its latest 10,000 candles: too short)
+    second_exchange: null       # gate ⑥′: re-run on a second free source; Sharpe may drop ≤ 30%
+                                # null for this trial run: ⑥′ fails closed, so it never freezes
+                                # (Gate.io serves only its latest 10,000 candles; Bybit pending)
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100, stop_kinds: [atr]}   # D21; D25: [atr, bollinger] re-enables the Bollinger stop
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened
