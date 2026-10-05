@@ -34,6 +34,11 @@ from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.source import timeframe_delta
 
 PAGE_LIMIT = 1000
+# Bybit serves at most 200 funding settlements per call: the latest in (start, start + limit ×
+# interval], its start exclusive (ccxt computes the end that way). A page asked from ``since - 1``
+# with a limit of 199 therefore holds every settlement from ``since`` on, none skipped.
+FUNDING_PAGE_LIMITS = {"bybit": 199}
+FUNDING_EXCLUSIVE_START = frozenset({"bybit"})
 # Funding cadence is not fixed: Binance has changed selected contracts to four-hour
 # settlements, so pagination advances by one millisecond after the last actual event.
 
@@ -45,6 +50,7 @@ def _pages[T](
     step_ms: int,
     *,
     key: Callable[[T], int],
+    limit: int = PAGE_LIMIT,
 ) -> list[T]:
     """Walk an exchange endpoint page by page until the window is covered.
 
@@ -67,7 +73,7 @@ def _pages[T](
             at = key(row)
             if since_ms <= at < until_ms:
                 rows.setdefault(at, row)
-        if last < since or len(page) < PAGE_LIMIT:
+        if last < since or len(page) < limit:
             break
         since = last + step_ms
     return [rows[at] for at in sorted(rows)]
@@ -177,9 +183,11 @@ class PerpSource:
         )  # fmt: skip
         if not mark_rows:
             raise CoverageError(f"{symbol}: no mark bars — liquidation cannot be resolved")
+        funding_limit = FUNDING_PAGE_LIMITS.get(self.exchange_id, PAGE_LIMIT)
+        back = 1 if self.exchange_id in FUNDING_EXCLUSIVE_START else 0
         funding_rows = _pages(
-            lambda s: venue.fetch_funding_rate_history(symbol, s, PAGE_LIMIT),
-            since, until, 1, key=lambda r: int(r["timestamp"]),
+            lambda s: venue.fetch_funding_rate_history(symbol, s - back, funding_limit),
+            since, until, 1, key=lambda r: int(r["timestamp"]), limit=funding_limit,
         )  # fmt: skip
         self._check_funding(symbol, funding_rows, trade_rows)
         funding = np.array(

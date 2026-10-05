@@ -270,6 +270,35 @@ def test_an_exchange_that_ignores_since_does_not_loop_forever() -> None:
     assert PAGE_LIMIT == 1_000  # the bound the fake is written against
 
 
+class BybitFunding(PagingExchange):
+    """Bybit's funding endpoint as ccxt drives it: ``endTime = since + limit × 8 h``, a start
+    that is exclusive, and at most 200 rows, the **latest** ones in ``(since, endTime]``. Asked
+    for 1,000 rows it serves a window ~333 days away; asked from ``since`` it drops the
+    settlement at ``since`` itself."""
+
+    def fetch_funding_rate_history(
+        self, symbol: str, since: int, limit: int
+    ) -> list[dict[str, Any]]:
+        self.calls["funding"] += 1
+        eight_h = DAY_MS // 3
+        base = int(START.timestamp() * 1000)
+        end = since + limit * eight_h
+        stamps = [
+            base + i * eight_h for i in range(self.days * 3) if since < base + i * eight_h <= end
+        ]
+        return [{"timestamp": t, "fundingRate": 0.0001} for t in stamps[-200:]]
+
+
+def test_bybit_funding_is_paged_in_windows_it_serves_whole() -> None:
+    """On Bybit every settlement of the window comes back, the first one included."""
+    ex = BybitFunding(days=300)
+    src = PerpSource(exchange_id="bybit", exchange=ex)
+    data = src.fetch("BTC/USDT:USDT", "1d", START, START + timedelta(days=300))
+    assert len(data.funding) == 900
+    assert data.funding[0, 0] == START.timestamp() * 1e9
+    assert ex.calls["funding"] >= 5  # 900 settlements cannot come in fewer than five pages
+
+
 # ── leverage brackets: a signed endpoint, so fail closed (P3-17) ──────────────────────
 
 
