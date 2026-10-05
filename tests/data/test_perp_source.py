@@ -406,6 +406,20 @@ def test_a_server_hiccup_on_a_page_is_asked_again(monkeypatch: pytest.MonkeyPatc
     assert len(waits) == 2 + 4  # five attempts, four waits, then the error stands
 
 
+def test_the_bar_window_fetch_retries_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second Bybit run failed on an hourly page, which ``fetch`` asked outside the retry."""
+    import ccxt
+
+    from quantcrucible.data import perp_source
+
+    monkeypatch.setattr(perp_source, "_sleep", lambda _s: None)
+    ex = Hiccups(ccxt.ExchangeError("bybit svc error: Get kline failed"), fails=3)
+    data = PerpSource(exchange_id="bybit", exchange=ex).fetch(
+        "BTC/USDT:USDT", "1d", START, START + timedelta(days=10)
+    )
+    assert len(data.trades) == 10
+
+
 def test_an_answer_from_the_venue_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     import ccxt
 

@@ -147,6 +147,18 @@ def _transient(error: Exception) -> bool:
     return isinstance(error, ccxt.NetworkError) or type(error) is ccxt.ExchangeError
 
 
+def _ask[T](call: Callable[..., T], *args: Any) -> T:
+    """One request to the venue, asked again after a transient failure (:func:`_transient`)."""
+    for attempt in range(PAGE_RETRIES):
+        try:
+            return call(*args)
+        except Exception as e:
+            if not _transient(e) or attempt == PAGE_RETRIES - 1:
+                raise
+            _sleep(RETRY_BASE_SECONDS * 2**attempt)
+    raise AssertionError("unreachable")
+
+
 @dataclass(frozen=True, slots=True)
 class PerpSource:
     exchange_id: str = "binanceusdm"
@@ -187,13 +199,13 @@ class PerpSource:
         until = int(end.timestamp() * 1000)
         step = int(timeframe_delta(timeframe).total_seconds() * 1000)
         trade_rows = _pages(
-            lambda s: venue.fetch_ohlcv(symbol, timeframe, s, PAGE_LIMIT),
+            lambda s: _ask(venue.fetch_ohlcv, symbol, timeframe, s, PAGE_LIMIT),
             since, until, step, key=lambda r: int(r[0]),
         )  # fmt: skip
         if not trade_rows:
             raise CoverageError(f"{symbol}: no trade bars in {start:%Y-%m-%d}/{end:%Y-%m-%d}")
         mark_rows = _pages(
-            lambda s: venue.fetch_mark_ohlcv(symbol, timeframe, s, PAGE_LIMIT),
+            lambda s: _ask(venue.fetch_mark_ohlcv, symbol, timeframe, s, PAGE_LIMIT),
             since, until, step, key=lambda r: int(r[0]),
         )  # fmt: skip
         if not mark_rows:
@@ -201,7 +213,7 @@ class PerpSource:
         funding_limit = FUNDING_PAGE_LIMITS.get(self.exchange_id, PAGE_LIMIT)
         back = 1 if self.exchange_id in FUNDING_EXCLUSIVE_START else 0
         funding_rows = _pages(
-            lambda s: venue.fetch_funding_rate_history(symbol, s - back, funding_limit),
+            lambda s: _ask(venue.fetch_funding_rate_history, symbol, s - back, funding_limit),
             since, until, 1, key=lambda r: int(r["timestamp"]), limit=funding_limit,
         )  # fmt: skip
         self._check_funding(symbol, funding_rows, trade_rows)
@@ -277,14 +289,7 @@ class PerpSource:
         fetch = {"trade": venue.fetch_ohlcv, "mark": venue.fetch_mark_ohlcv}.get(kind)
         if fetch is None:
             raise ValueError(f"kind must be 'trade' or 'mark', got {kind!r}")
-        for attempt in range(PAGE_RETRIES):
-            try:
-                return fetch(symbol, timeframe, since, PAGE_LIMIT)
-            except Exception as e:
-                if not _transient(e) or attempt == PAGE_RETRIES - 1:
-                    raise
-                _sleep(RETRY_BASE_SECONDS * 2**attempt)
-        raise AssertionError("unreachable")
+        return _ask(fetch, symbol, timeframe, since, PAGE_LIMIT)
 
     def fetch_brackets(self, symbol: str) -> list[dict[str, float | int]]:
         """Today's leverage brackets for one contract, as plain rows.
