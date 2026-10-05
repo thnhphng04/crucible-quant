@@ -20,7 +20,12 @@ import numpy as np
 import pytest
 
 from quantcrucible.data.manifest import Manifest, verify_manifest, write_manifest
-from quantcrucible.data.perp_source import PAGE_LIMIT, CoverageError, PerpSource
+from quantcrucible.data.perp_source import (
+    PAGE_LIMIT,
+    CoverageError,
+    PerpSource,
+    perp_exchange_id,
+)
 
 START = datetime(2021, 1, 1, tzinfo=UTC)
 END = datetime(2021, 1, 11, tzinfo=UTC)
@@ -327,3 +332,11 @@ def test_a_venue_without_the_endpoint_is_refused_rather_than_skipped() -> None:
     src = PerpSource(exchange_id="binanceusdm", exchange=PagingExchange())
     with pytest.raises(CoverageError, match="leverage bracket"):
         src.fetch_brackets("BTC/USDT:USDT")
+
+
+def test_the_binance_venue_is_read_through_its_usdt_m_client() -> None:
+    """The dataset registry names the venue (``binance``); its perpetuals, leverage brackets and
+    API key belong to ``binanceusdm``, the client the legacy fetch has always used."""
+    assert perp_exchange_id("binance") == "binanceusdm"
+    assert perp_exchange_id("binanceusdm") == "binanceusdm"
+    assert perp_exchange_id("gate") == "gate"

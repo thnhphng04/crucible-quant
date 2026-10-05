@@ -592,11 +592,11 @@ class DatasetRegistry:
         from quantcrucible.core.perp_inputs import write_bundle
         from quantcrucible.data.perp_carve import carve_perp
         from quantcrucible.data.perp_pipeline import prepare_perpetual
-        from quantcrucible.data.perp_source import PerpSource, common_window
+        from quantcrucible.data.perp_source import PerpSource, common_window, perp_exchange_id
         from quantcrucible.data.source import timeframe_delta
         from quantcrucible.data.store import file_name, write_bars
 
-        source = perp_source or PerpSource(exchange_id=str(data.exchange))
+        source = perp_source or PerpSource(exchange_id=perp_exchange_id(str(data.exchange)))
         prepared = prepare_perpetual(
             source,
             fetch_data / "minutes-primary",

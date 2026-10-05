@@ -119,6 +119,13 @@ def _bars(rows: list[list[float]], symbol: str, timeframe: str) -> Bars:
     return Bars(symbol, timeframe, ts, arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4], arr[:, 5])
 
 
+def perp_exchange_id(exchange: str) -> str:
+    """The ccxt client for a venue's USDT-M perpetuals. ``research.data.exchange`` names the
+    venue (``binance``); its perpetuals, leverage brackets and API key belong to ``binanceusdm``,
+    the client the legacy fetch has always used and the IS manifest records as its source."""
+    return "binanceusdm" if exchange == "binance" else exchange
+
+
 @dataclass(frozen=True, slots=True)
 class PerpSource:
     exchange_id: str = "binanceusdm"
