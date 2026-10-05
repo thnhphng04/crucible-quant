@@ -10,15 +10,20 @@ is created exclusively: writing to an existing path raises instead of replacing 
 from __future__ import annotations
 
 import io
+import re
 import uuid
 from pathlib import Path
 
 import pandas as pd
 
+# Characters a file name may not hold on Windows. ``:`` comes from a perpetual scope
+# (``BTC/USDT:USDT``) and is legal on Linux, so only a Windows run ever met it.
+_UNSAFE = re.compile(r'[<>:"/\\|?*]')
+
 
 def measurement_path(base: Path, candidate_id: str, suffix: str = ".parquet") -> Path:
     """A fresh path ``base/<candidate_id>/<unique id><suffix>`` for one measurement."""
-    safe = candidate_id.replace("/", "_").replace("\\", "_")
+    safe = _UNSAFE.sub("_", candidate_id)
     return base / safe / f"{uuid.uuid4().hex}{suffix}"
 
 
