@@ -34,6 +34,7 @@ from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import TrialSource
 from quantcrucible.validation.archive import StrategyArchive
+from quantcrucible.validation.clock import DAILY_V1
 from quantcrucible.validation.gates import (
     GateContext,
     GatePipeline,
@@ -122,6 +123,7 @@ def new_campaign_derived(cfg: UserConfig) -> dict[str, Any]:
     derived["stop_period"] = STOP_PERIOD_TUNABLE  # ADR-0041: n_stop is a gene,
     derived["max_tunables"] = MAX_TUNABLES  # inside a cap of 7
     derived["grammar_version"] = GRAMMAR_VERSION  # ADR-0043 … ADR-0047
+    derived["evaluation_clock"] = DAILY_V1  # ADR-0049: statistics on UTC-day returns
     return derived
 
 

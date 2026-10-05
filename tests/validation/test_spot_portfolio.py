@@ -204,8 +204,9 @@ def test_a_tagged_spot_campaign_evaluates_one_account_per_slot(
     monkeypatch.setattr(research_run, "eligible_trials", lambda *_: trials)
     monkeypatch.setattr(research_run, "load_returns", lambda *_: pd.Series(dtype=float))
 
-    def slots(chosen: Any, *args: Any) -> Any:
+    def slots(chosen: Any, *args: Any, **kw: Any) -> Any:
         seen["max_strategies"] = args[-1]
+        seen["clock"] = kw.get("clock")
         return chosen
 
     monkeypatch.setattr(research_run, "select_slots", slots)

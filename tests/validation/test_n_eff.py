@@ -10,6 +10,7 @@ from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import TrialRecord
 from quantcrucible.validation.n_eff import (
     ONC_METHOD,
+    _load_returns,
     correlation_matrix,
     onc_clusters,
     update_n_eff,
@@ -94,3 +95,29 @@ def test_update_n_eff_appends_a_clustering_run(tmp_path: Path) -> None:
     second = update_n_eff(ledger, seed=0)
     assert second.run_id == result.run_id + 1 and ledger.trial_stats().n_eff == 4
     assert result.method == ONC_METHOD
+
+
+def test_an_hourly_and_a_daily_trial_are_compared_day_by_day(tmp_path: Path) -> None:
+    """ADR-0049: N_eff spans the whole ledger, so its correlations are on one clock. Bar by bar,
+    an hourly series meets a daily one only at midnight; day by day they are the same strategy."""
+    days = np.random.default_rng(11).normal(0, 0.01, 200)
+    daily_ts = pd.date_range("2020-01-02", periods=200, freq="D")  # 1d bars close at midnight
+    hourly = np.zeros(200 * 24)
+    hourly[::24] = days  # each day's whole move in its first hour
+    hourly_ts = pd.date_range("2020-01-01 01:00", periods=200 * 24, freq="h")
+    pd.DataFrame({"ts": daily_ts, "ret": days}).to_parquet(tmp_path / "d.parquet", index=False)
+    pd.DataFrame({"ts": hourly_ts, "ret": hourly}).to_parquet(tmp_path / "h.parquet", index=False)
+    corr, n_obs = correlation_matrix(
+        [_load_returns(str(tmp_path / "d.parquet")), _load_returns(str(tmp_path / "h.parquet"))]
+    )
+    assert n_obs[0, 1] == 200
+    assert corr[0, 1] == pytest.approx(1.0, abs=1e-12)
+
+
+def test_a_daily_trial_loads_bit_for_bit(tmp_path: Path) -> None:
+    rets = np.random.default_rng(12).normal(0, 0.02, 100)
+    ts = pd.date_range("2020-01-02", periods=100, freq="D")
+    pd.DataFrame({"ts": ts, "ret": rets}).to_parquet(tmp_path / "d.parquet", index=False)
+    loaded = _load_returns(str(tmp_path / "d.parquet"))
+    assert np.array_equal(loaded.to_numpy(), rets)
+    assert np.array_equal(loaded.index.to_numpy(), ts.to_numpy())

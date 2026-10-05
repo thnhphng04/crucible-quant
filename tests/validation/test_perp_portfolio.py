@@ -238,7 +238,7 @@ def test_research_pipeline_records_the_account_curve_not_a_weighted_blend(
         lambda *_: [trial],
     )
     monkeypatch.setattr(research_run, "load_returns", lambda *_: selected.returns)
-    monkeypatch.setattr(research_run, "select_slots", lambda *args: [trial])
+    monkeypatch.setattr(research_run, "select_slots", lambda *args, **kw: [trial])
     monkeypatch.setattr(
         research_run, "load_signal_stream", lambda *_: [SimpleNamespace(slot=(symbol, "long"))]
     )

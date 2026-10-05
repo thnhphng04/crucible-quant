@@ -18,6 +18,7 @@ import pandas as pd
 from quantcrucible.core.perp_inputs import PerpBundle
 from quantcrucible.core.strategy.base import Bars
 from quantcrucible.validation.artifacts import measurement_path, write_parquet_once
+from quantcrucible.validation.clock import annual_sharpe, annual_sortino, evaluation_clock, on_clock
 from quantcrucible.validation.gates import (
     G2_MINBTL,
     G3_IS,
@@ -187,6 +188,21 @@ def _moments(returns: Any) -> dict[str, float]:
     return {"sr_obs": m.sr, "skew_is": m.skew, "kurtosis_is": m.kurtosis, "n_obs": float(m.n_obs)}
 
 
+def _on_clock(out: Mapping[str, Any], clock: str) -> dict[str, float]:
+    """Sharpe, Sortino and the ranking's moments on the campaign's clock (ADR-0049). The per-bar
+    Sharpe stays beside them as ``sharpe_bar``: a description, read by no gate."""
+    bar_returns = pd.Series(
+        np.asarray(out["returns"], dtype=np.float64), index=pd.to_datetime(out["ts"][1:])
+    )
+    returns, ppy = on_clock(bar_returns, float(out["periods_per_year"]), clock)
+    return {
+        "sharpe_bar": float(out["public"]["sharpe_is"]),
+        "sharpe_is": annual_sharpe(returns, ppy),
+        "sortino_is": annual_sortino(returns, ppy),
+        **_moments(returns.to_numpy()),
+    }
+
+
 class InSampleGate:
     """Gate ③: IS backtest in the sandbox + the D15 constraints (trades, holding, indicator ρ)."""
 
@@ -211,7 +227,11 @@ class InSampleGate:
             return sandbox_failure(self.id, res)
         out: dict[str, Any] = res.report["result"]
         public = {k: float(v) for k, v in out["public"].items()}
-        public.update(_moments(out["returns"]))  # for the engines' DSR ranking (§3.1.6 #1)
+        clock = evaluation_clock(ctx.lock)
+        if clock is None:
+            public.update(_moments(out["returns"]))  # for the engines' DSR ranking (§3.1.6 #1)
+        else:
+            public.update(_on_clock(out, clock))
         path = measurement_path(
             results_dir / "returns" / candidate.campaign_id, candidate.candidate_id
         )

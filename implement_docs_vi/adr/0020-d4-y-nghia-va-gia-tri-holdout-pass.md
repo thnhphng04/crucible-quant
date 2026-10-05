@@ -1,6 +1,6 @@
 # ADR-0020 — D4: `holdout_pass` đo cái gì, và giá trị của nó
 
-- **Trạng thái:** Đã chấp nhận (người dùng quyết định)
+- **Trạng thái:** Đã chấp nhận (người dùng quyết định); dưới lock `daily_v1` Sharpe tính trên lợi nhuận ngày UTC ([ADR-0049](0049-dong-ho-danh-gia-theo-ngay.md))
 - **Ngày:** 2026-09-21
 - **Task:** trước campaign kế tiếp · **Kiến trúc:** §10 D4, §4.2 bước 3, §10.1 · **Vấn đề mở:** đóng O1 (phần holdout của D4)
 

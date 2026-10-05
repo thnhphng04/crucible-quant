@@ -6,6 +6,7 @@ holdout. The real root holdout/ is never touched.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import stat
 import subprocess
@@ -24,6 +25,7 @@ from quantcrucible.config.loader import parse_user_config
 from quantcrucible.config.lock import open_campaign, read_lock, sha256_file
 from quantcrucible.core.path_summary import segment_bar
 from quantcrucible.core.perp_inputs import PerpBundle
+from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.holdout_split import carve
 from quantcrucible.data.perp_carve import carve_perp
 from quantcrucible.holdout.campaign import HoldoutRefused, claim, find_frozen
@@ -100,14 +102,32 @@ class Project:
     portfolio_hash: str
 
 
+def hourly_bars(n: int, seed: int, start: str) -> Bars:
+    """``make_bars``' random walk on an hourly clock: bar k closes k hours after ``start``."""
+    daily = make_bars(n, seed=seed, symbol=SYMBOL, start=start)
+    ts = np.datetime64(start, "ns") + np.arange(1, n + 1) * np.timedelta64(1, "h")
+    return dataclasses.replace(daily, timeframe="1h", ts=ts)
+
+
 def build_project(
-    tmp_path: Path, edge: float = 0.004, holdout_pass: float | None = 0.5, freeze: bool = True
+    tmp_path: Path,
+    edge: float = 0.004,
+    holdout_pass: float | None = 0.5,
+    freeze: bool = True,
+    hourly: bool = False,
+    clock: str | None = None,
 ) -> Project:
     root = tmp_path / "proj"
     cfg = parse_user_config(
         {"research": {"holdout_pass": holdout_pass, "data": {"symbols": [SYMBOL]}}}
     )
-    bars = make_bars(2600, seed=1, symbol=SYMBOL, start="2018-01-01")  # through 2025
+    if hourly:  # 2023-10-01 through 2025-01-11: the whole holdout year plus warm-up
+        bars = hourly_bars(24 * 468, seed=1, start="2023-10-01")
+    else:
+        bars = make_bars(2600, seed=1, symbol=SYMBOL, start="2018-01-01")  # through 2025
+    derived = derived_settings("joint")
+    if clock is not None:
+        derived["evaluation_clock"] = clock
     carve(
         {SYMBOL: bars}, HOLDOUT[0], HOLDOUT[1], in_sample_dir=root / "data" / "is",
         holdout_dir=root / "holdout", lock_path=root / "holdout.lock", harden=False,
@@ -117,7 +137,7 @@ def build_project(
     open_campaign(
         cfg, ledger, "c1", root / "config" / "evaluation.lock.yaml",
         holdout_range=f"{HOLDOUT[0]}/{HOLDOUT[1]}",
-        holdout_lock_hash=sha256_file(root / "holdout.lock"), derived=derived_settings("joint"),
+        holdout_lock_hash=sha256_file(root / "holdout.lock"), derived=derived,
     )  # fmt: skip
     s_hash = StrategyArchive(root / "results" / "strategies").put(ZOO)
     ts = pd.date_range("2018-01-02", periods=1500, freq="D")
@@ -129,7 +149,7 @@ def build_project(
         tid = ledger.record_trial(
             TrialRecord(
                 run_id="r", campaign_id="c1", candidate_id=f"m{i}", engine="manual", seed=0,
-                strategy_hash=s_hash, params=params, universe=SYMBOL, timeframe="1d",
+                strategy_hash=s_hash, params=params, universe=SYMBOL, timeframe=bars.timeframe,
                 timerange="t", source="manual", sharpe_is=1.0, returns_path=str(path),
                 verdict="PASS",
             )
@@ -475,8 +495,11 @@ class ScriptedRunner(FakeRunner):
         return SandboxResult(True, {"ok": True, "result": result}, "", "", 0, False, None, 0.1)
 
 
-def expected_sharpe(proj: Project, runner: ScriptedRunner) -> float:
-    """By hand: holdout bars only, frozen weights with a monthly reset, mean/std·√365 (rf 0)."""
+def expected_sharpe(
+    proj: Project, runner: ScriptedRunner, ppy: float = 365.0, by_day: bool = False
+) -> float:
+    """By hand: holdout bars only, frozen weights with a monthly reset, mean/std·√ppy (rf 0);
+    ``by_day`` compounds the bars first into the UTC day each bar's interval lies in."""
     (variant,) = proj.ledger.portfolio_variants("c1")
     start = pd.Timestamp(HOLDOUT[0])
     series = []
@@ -500,7 +523,11 @@ def expected_sharpe(proj: Project, runner: ScriptedRunner) -> float:
         holdings = holdings * (1 + rets[i])
         out.append(holdings.sum() / before - 1)
     r = np.asarray(out)
-    return float(r.mean() / r.std(ddof=1) * np.sqrt(365))
+    if by_day:
+        idx = pd.DatetimeIndex(frame.index)
+        days = (1.0 + pd.Series(r, index=idx)).groupby((idx - pd.Timedelta(1, "ns")).floor("D"))
+        r = (days.prod() - 1.0).to_numpy()
+    return float(r.mean() / r.std(ddof=1) * np.sqrt(ppy))
 
 
 def test_d4_is_the_frozen_portfolios_annualized_sharpe(
@@ -516,6 +543,27 @@ def test_d4_is_the_frozen_portfolios_annualized_sharpe(
     for job in runner.jobs:  # net of the campaign's locked fees and slippage, not frictionless
         assert job.options["costs"] == lock["derived"]["costs"]
         assert job.options["costs"]["fee_rate"] > 0 and job.options["costs"]["slippage_bps"] > 0
+
+
+@pytest.mark.parametrize(
+    ("clock", "ppy", "by_day"), [("daily_v1", 365.0, True), (None, 8760.0, False)]
+)
+def test_d4_on_hourly_bars_follows_the_locked_clock(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    clock: str | None,
+    ppy: float,
+    by_day: bool,
+) -> None:
+    """ADR-0049: a `daily_v1` lock judges the holdout on UTC-day returns × √365; a lock without
+    the key keeps the per-bar Sharpe × √8760 it was opened with."""
+    proj = build_project(tmp_path, holdout_pass=1.3, hourly=True, clock=clock)
+    runner = ScriptedRunner()
+    code, _ = run_main(proj, capsys, runner)
+    access = proj.ledger.holdout_access("c1")
+    assert code == 0 and access is not None and access.sharpe_oos is not None
+    expected = expected_sharpe(proj, runner, ppy=ppy, by_day=by_day)
+    assert access.sharpe_oos == pytest.approx(expected, rel=1e-9)
 
 
 @pytest.mark.parametrize(("offset", "verdict"), [(0.0, "PASS"), (1e-9, "FAIL")])

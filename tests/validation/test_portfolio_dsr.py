@@ -20,6 +20,7 @@ from quantcrucible.validation.portfolio_dsr import (
     DsrGate,
     PortfolioPipeline,
 )
+from quantcrucible.validation.statistical import portfolio_dsr
 from tests.validation.test_portfolio import T, add, noise
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "quantcrucible"
@@ -89,6 +90,27 @@ def test_threshold(ledger: Ledger, tmp_path: Path) -> None:
     faint = p.returns * 0 + noise(5, mean=0.0002)[: len(p.returns)]
     weak = Portfolio("c1", p.rule, p.members, faint, 365)
     assert not check(ledger, weak).passed
+
+
+def test_the_daily_clock_reads_the_portfolio_day_by_day(ledger: Ledger, tmp_path: Path) -> None:
+    """ADR-0049: under `daily_v1` gate ⑤ reads UTC-day returns, T = days, V[SR] / 365."""
+    p = strong_portfolio(ledger, tmp_path)
+    rng = np.random.default_rng(21)
+    n_days = 400
+    idx = pd.date_range("2021-01-01 01:00", periods=24 * n_days, freq="h")
+    hourly = pd.Series(rng.normal(0.0002, 0.004, len(idx)), index=idx)
+    on_days = check(ledger, Portfolio("c1", p.rule, p.members, hourly, 8760.0, clock="daily_v1"))
+    on_bars = check(ledger, Portfolio("c1", p.rule, p.members, hourly, 8760.0))
+    assert on_days.detail is not None and on_bars.detail is not None
+    assert on_days.detail["n_obs"] == n_days and on_bars.detail["n_obs"] == 24 * n_days
+    # by hand, through another route: group each bar by the day its interval lies in
+    day_of_bar = (idx - pd.Timedelta(1, "ns")).floor("D")
+    by_hand = (1.0 + hourly).groupby(day_of_bar).prod() - 1.0
+    expected = portfolio_dsr(
+        by_hand.to_numpy(), ledger.trial_stats(), ledger.total_portfolio_variants(), 365.0
+    )
+    assert on_days.detail["dsr_n_eff"] == pytest.approx(expected.dsr_n_eff, rel=1e-9)
+    assert on_days.detail["sr"] == pytest.approx(expected.moments.sr, rel=1e-9)
 
 
 def test_pipeline_records_every_result_under_the_portfolio_hash(

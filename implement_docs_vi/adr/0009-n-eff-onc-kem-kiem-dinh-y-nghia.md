@@ -1,6 +1,6 @@
 # ADR-0009 — `N_eff`: ONC kèm bước bảo vệ ý nghĩa thống kê
 
-- **Trạng thái:** Đã chấp nhận
+- **Trạng thái:** Đã chấp nhận; gom cụm lợi nhuận ngày với method `onc-v2` từ [ADR-0049](0049-dong-ho-danh-gia-theo-ngay.md)
 - **Ngày:** 2026-09-21
 - **Task:** P1-05 · **Kiến trúc:** §4.1 ("Ước lượng `N_eff`"), §3.1.6 · **Vấn đề mở:** O10 (đã đóng)
 

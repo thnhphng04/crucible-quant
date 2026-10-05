@@ -43,6 +43,7 @@ from quantcrucible.ledger.records import (
     TrialRow,
     TrialStats,
 )
+from quantcrucible.validation.clock import annual_sharpe, observations_per_year, on_clock
 from quantcrucible.validation.gates import G4_PBO
 from quantcrucible.validation.statistical import (
     deflated_benchmark,
@@ -155,19 +156,23 @@ class Portfolio:
     campaign_id: str
     rule: PortfolioRule
     members: tuple[Member, ...]
-    returns: pd.Series  # consolidated IS returns
+    returns: pd.Series  # consolidated IS returns, per bar (the recorded artifact)
     periods_per_year: float
     steps: dict[str, list[str]] = field(default_factory=dict)  # candidate ids after each step
+    clock: str | None = None  # `derived.evaluation_clock` (ADR-0049); None ⇒ per bar
 
     @property
     def portfolio_hash(self) -> str:
         return portfolio_hash(self.members, self.rule)
 
     @property
+    def evaluation(self) -> tuple[pd.Series, float]:
+        """The returns every statistic reads, on the campaign's clock, and their periods a year."""
+        return on_clock(self.returns, self.periods_per_year, self.clock)
+
+    @property
     def sharpe_is(self) -> float:
-        r = self.returns.to_numpy(dtype=np.float64)
-        std = float(np.std(r, ddof=1)) if len(r) > 1 else 0.0
-        return float(np.mean(r) / std * np.sqrt(self.periods_per_year)) if std > 0 else 0.0
+        return annual_sharpe(*self.evaluation)
 
 
 def portfolio_hash(members: Sequence[Member], rule: PortfolioRule) -> str:
@@ -201,6 +206,23 @@ def eligible_trials(ledger: Ledger, campaign_id: str) -> list[TrialRow]:
 def selection_score(returns: pd.Series, sr_benchmark: float) -> float:
     """PSR against the campaign-wide deflated benchmark — for ranking inside §3.2.1 only."""
     return probabilistic_sharpe_ratio(sharpe_moments(returns.to_numpy()), sr_benchmark)
+
+
+def _selection_scores(
+    trials: Sequence[Any],
+    returns: Mapping[int, pd.Series],
+    trial_stats: TrialStats,
+    periods_per_year: float,
+    clock: str | None,
+) -> dict[int, float]:
+    """Each trial's selection score on the campaign's clock (ADR-0049)."""
+    assert trial_stats.var_sr is not None
+    ppy = observations_per_year(periods_per_year, clock)
+    sr0 = deflated_benchmark(max(trial_stats.n_eff, 1), max(trial_stats.var_sr, 0.0) / ppy)
+    return {
+        t.id: selection_score(on_clock(returns[t.id], periods_per_year, clock)[0], sr0)
+        for t in trials
+    }
 
 
 def _period_keys(index: pd.DatetimeIndex, rebalance: str) -> np.ndarray:
@@ -237,6 +259,7 @@ def select_slots(
     trial_stats: TrialStats,
     periods_per_year: float,
     max_strategies: int | None = None,
+    clock: str | None = None,
 ) -> list[Any]:
     """One member per ``(instrument, direction)`` slot — §3.2.1 step 1, as of ADR-0033.
 
@@ -268,10 +291,8 @@ def select_slots(
     if not eligible:
         return []
     # per observation, like build_portfolio: `var_sr` is annualised in the ledger and
-    # `selection_score` compares per-observation Sharpes
-    var_sr = max(trial_stats.var_sr, 0.0) / periods_per_year
-    sr0 = deflated_benchmark(max(trial_stats.n_eff, 1), var_sr)
-    score = {t.id: selection_score(returns[t.id], sr0) for t in eligible}
+    # `selection_score` compares per-observation Sharpes — on the campaign's clock (ADR-0049)
+    score = _selection_scores(eligible, returns, trial_stats, periods_per_year, clock)
     best: dict[tuple[str, str], Any] = {}
     for t in sorted(eligible, key=lambda t: (-score[t.id], t.id)):
         best.setdefault((t.instrument, t.direction), t)
@@ -286,15 +307,14 @@ def build_portfolio(
     trial_stats: TrialStats,
     periods_per_year: float,
     campaign_id: str,
+    clock: str | None = None,
 ) -> Portfolio:
     """Steps 1–5 of §3.2.1 on already-loaded IS returns (by trial id)."""
     if not trials:
         raise ValueError("no candidate passed gate ④: nothing to build a portfolio from")
     if trial_stats.var_sr is None:
         raise ValueError("no trials in the ledger")
-    var_sr = max(trial_stats.var_sr, 0.0) / periods_per_year
-    sr0 = deflated_benchmark(max(trial_stats.n_eff, 1), var_sr)
-    score = {t.id: selection_score(returns[t.id], sr0) for t in trials}
+    score = _selection_scores(trials, returns, trial_stats, periods_per_year, clock)
     ordered = sorted(trials, key=lambda t: (-score[t.id], t.id))
     # 1. one representative per cell
     reps: dict[str, TrialRow] = {}
@@ -339,7 +359,7 @@ def build_portfolio(
         "decorrelated": [t.candidate_id for t in accepted],
         "capped": [t.candidate_id for t in chosen],
     }
-    return Portfolio(campaign_id, rule, members, combined, periods_per_year, steps)
+    return Portfolio(campaign_id, rule, members, combined, periods_per_year, steps, clock)
 
 
 def record_variant(ledger: Ledger, portfolio: Portfolio, results_dir: Path) -> bool:
@@ -393,11 +413,12 @@ def build_and_record(
     rule: PortfolioRule,
     periods_per_year: float,
     results_dir: Path,
+    clock: str | None = None,
 ) -> Portfolio:
     trials = eligible_trials(ledger, campaign_id)
     returns = {t.id: load_returns(t.returns_path) for t in trials}
     portfolio = build_portfolio(
-        trials, returns, rule, ledger.trial_stats(), periods_per_year, campaign_id
+        trials, returns, rule, ledger.trial_stats(), periods_per_year, campaign_id, clock
     )
     record_variant(ledger, portfolio, results_dir)
     return portfolio
