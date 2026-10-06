@@ -17,13 +17,13 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     cfg = load_user_config(REPO_USER_YAML)
     # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
     # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
-    # and the 1h perpetual research campaign of 2026-10-06: gp only, 600 trials on three years of
+    # and the 1h perpetual research campaign of 2026-10-06: gp only, 1500 trials on three years of
     # IS under a MinBTL target of 2.0 (ADR-0052), the window cut at 2025-10-02 (ADR-0051), no
     # second source yet (a trial run: gate ⑥′ fails closed), backtests on the GPU
     assert cfg.research == replace(
         Research(),
         holdout_pass=1.3,
-        campaign=Campaign("research", 600),
+        campaign=Campaign("research", 1500),
         minbtl_target_sharpe=2.0,
         engines=replace(Research().engines, gp=1.0, random=0.0),
         data=replace(
