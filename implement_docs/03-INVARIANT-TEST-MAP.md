@@ -25,7 +25,7 @@ Mechanism strength, strongest first: **DB** (SQL constraint/trigger) › **OS** 
 
 | ID | Invariant | Arch | Mechanism | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-20 | `dsr_min < 0.95`, `pbo_max > 0.5` or `minbtl_target_sharpe > 1.5` rejected at load | §10.1 | Code | `tests/config/test_loader.py::test_hard_floors` | P0-03 | ✅ |
+| INV-20 | `dsr_min < 0.95`, `pbo_max > 0.5` or `minbtl_target_sharpe > 2.0` rejected at load (ceiling raised from 1.5, ADR-0052) | §10.1 | Code | `tests/config/test_loader.py::test_hard_floors` | P0-03 | ✅ |
 | INV-21 | Group B edited mid-campaign ⇒ refuse to run | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ✅ |
 | INV-22 | `evaluation.lock.yaml` is generated, read-only, hashed in `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ✅ |
 | INV-23 | Campaign status only `OPEN → FROZEN → BURNED` | §4.2 | DB trigger | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |

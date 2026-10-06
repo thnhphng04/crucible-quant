@@ -513,7 +513,7 @@ export function Studio({
                     research({ gates: { ...r.gates, pbo_max: Number(event.target.value) } })} />
                 </label>
                 <label className={s.field}>Mục tiêu Sharpe MinBTL
-                  <input type="number" min={0.1} max={1.5} step={0.1} value={r.minbtl_target_sharpe ?? 1.5} onChange={(event) =>
+                  <input type="number" min={0.1} max={2} step={0.1} value={r.minbtl_target_sharpe ?? 1.5} onChange={(event) =>
                     research({ minbtl_target_sharpe: Number(event.target.value) })} />
                 </label>
                 <label className={s.field}>PBO values/parameter

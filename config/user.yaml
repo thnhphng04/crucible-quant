@@ -24,12 +24,12 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   drift: {allow_below: 0.05, reject_at: 0.15, n_scenarios: 20}      # D10, D13
   engines: {gp: 1.0, random: 0, quantevolve: 0, simple_loop: 0}   # D14, D19 — A/B deferred (arch v0.6)
   gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
-  campaign: {purpose: research, trial_budget: 120}   # 3 years of IS: MinBTL allows ≤ 121 trials (ADR-0050)
+  campaign: {purpose: research, trial_budget: 600}   # 3 years of IS at target 2.0: MinBTL allows ≤ 2128 trials
   engine_mode: isolated         # D14 — isolated | collaborative
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
-  minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
+  minbtl_target_sharpe: 2.0     # D17 — ceiling 2.0 (ADR-0052); lower is stricter
   data:                         # D18 — window [start, end], cut at holdout_start (ADR-0051)
     exchange: binance
     market: usdt_m_perpetual
