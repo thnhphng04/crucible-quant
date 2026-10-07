@@ -17,13 +17,14 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     cfg = load_user_config(REPO_USER_YAML)
     # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
     # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
-    # and the 1h perpetual research campaign of 2026-10-06: gp only, 120 trials (MinBTL at three
-    # years of IS, ADR-0050), the window cut at 2025-10-02 (ADR-0051), no second source yet (a
-    # trial run: gate ⑥′ fails closed), backtests on the GPU
+    # and the 1h perpetual research campaign of 2026-10-06: gp only, 1500 trials on three years of
+    # IS under a MinBTL target of 2.0 (ADR-0052), the window cut at 2025-10-02 (ADR-0051), no
+    # second source yet (a trial run: gate ⑥′ fails closed), backtests on the GPU
     assert cfg.research == replace(
         Research(),
         holdout_pass=1.3,
-        campaign=Campaign("research", 120),
+        campaign=Campaign("research", 1500),
+        minbtl_target_sharpe=2.0,
         engines=replace(Research().engines, gp=1.0, random=0.0),
         data=replace(
             Research().data,
@@ -56,12 +57,20 @@ def test_partial_override_keeps_other_defaults() -> None:
     [
         {"research": {"gates": {"dsr_min": 0.9}}},
         {"research": {"gates": {"pbo_max": 0.6}}},
-        {"research": {"minbtl_target_sharpe": 2.0}},
+        {"research": {"minbtl_target_sharpe": 2.01}},
     ],
 )
 def test_hard_floors(data: dict[str, Any]) -> None:
     with pytest.raises(ConfigError, match=r"hard floor|loosens"):
         parse_user_config(data)
+
+
+def test_minbtl_target_ceiling_is_two_and_an_omitted_target_stays_one_and_a_half() -> None:
+    """ADR-0052: the user raised D17's ceiling from 1.5 to 2.0 (2026-10-06). An omitted target
+    keeps the stricter 1.5; only an explicit setting reaches 2.0."""
+    assert parse_user_config({}).research.minbtl_target_sharpe == 1.5
+    cfg = parse_user_config({"research": {"minbtl_target_sharpe": 2.0}})
+    assert cfg.research.minbtl_target_sharpe == 2.0
 
 
 def test_tightening_is_allowed() -> None:

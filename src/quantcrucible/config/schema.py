@@ -23,7 +23,8 @@ DEFERRED_ENGINES = ("quantevolve", "simple_loop")  # engines A/B, deferred by D1
 # Hard floors (§10.1): may only be tightened.
 DSR_MIN_FLOOR = 0.95
 PBO_MAX_CEILING = 0.5
-MINBTL_TARGET_SHARPE_CEILING = 1.5  # a lower target means a longer MinBTL, i.e. stricter
+MINBTL_TARGET_SHARPE_CEILING = 2.0  # lower means a longer MinBTL, i.e. stricter (ADR-0052)
+MINBTL_TARGET_SHARPE_DEFAULT = 1.5  # what an omitted target means: D17 before ADR-0052
 MIN_HOLDOUT_DAYS = 28  # a holdout lasts at least one month (ADR-0051)
 AUDIT_RATE_FLOOR = 0.02  # share of kernel-engine jobs re-run on the canonical path; may only rise
 
@@ -163,7 +164,7 @@ class Research:
     evolve_scope: EvolveScope = "joint"
     constraints: Constraints = field(default_factory=Constraints)
     seeds: int = 3
-    minbtl_target_sharpe: float = MINBTL_TARGET_SHARPE_CEILING
+    minbtl_target_sharpe: float = MINBTL_TARGET_SHARPE_DEFAULT
     data: Data = field(default_factory=Data)
     exit: Exit = field(default_factory=Exit)
     backtest: Backtest = field(default_factory=Backtest)

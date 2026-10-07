@@ -1184,7 +1184,7 @@ Trạng thái: ✅ **Đã chốt** (đổi thì phải sửa kiến trúc) · �
 | D14 | Tỉ lệ ngân sách engine; chế độ | 🟡 Mặc định tạm | GĐ 2: C-gp 0.5 / C-random 0.5 (cùng hạn mức mỗi engine × seed); A, B = 0 (hoãn); `isolated` | §3.1.11, D19 |
 | D15 | Số lệnh / thời gian nắm giữ tối thiểu; tương quan indicator tối đa; số seed | 🟡 Mặc định tạm | 30 lệnh trên IS / 1 bar; 0.9; 3 seed | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Phạm vi tiến hóa | 🟡 Mặc định tạm | `joint` (cả entry + exit + regime) | §3.3.1 |
-| D17 | Sharpe mục tiêu của MinBTL (gate ②) | 🟡 Mặc định tạm | 1.5 năm hóa; chỉ được hạ | ADR-0002. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial |
+| D17 | Sharpe mục tiêu của MinBTL (gate ②) | ✅ Đã chốt (6/10/2026) | Mặc định 1.5 năm hóa; trần **2.0** (người dùng nâng ngày 6/10/2026); hạ thì chặt hơn | ADR-0002, ADR-0052. Ở 1.0, ~7 năm dữ liệu IS miễn phí chỉ đủ cho ~100–200 trial; ở 2.0, 3 năm IS đủ cho ~2 100 trial. DSR (⑤) vẫn khấu trừ theo `N_eff` |
 | D18 | Dữ liệu nghiên cứu | 🟡 Mặc định tạm | Binance spot, 5 cặp USDT từ 2018; timeframe mặc định **1h**, hỗ trợ **15m**; `end` tùy chọn, `null` lấy đến mốc UTC đã hoàn tất. USDT-M perpetual: cửa sổ chung từ 2020-09-14 (SOLUSDT), IS đã tải 2020-09-15 → 2025-10-02 (5,05 năm), holdout 12 tháng 2025-10-02 → 2026-10-02, khóa riêng. 🆕 Chọn được cửa sổ `[start, end]` và điểm cắt `holdout_start` (mặc định: `holdout_months` tháng cuối); cửa sổ khác kho đang có được chuẩn bị thành dataset (ADR-0051) | ADR-0031, ADR-0036, ADR-0048, §6.1. Coverage nguồn perpetual thật đã kiểm 2026-10-04 (P3-24): lỗ mark 1 phút ≤ 60 phút được điền từ nến trade cùng phút và được ghi lại; trần MinBTL phụ thuộc cửa sổ IS đã khóa |
 | D19 | Engine trọng tâm | ✅ Đã chốt (22/9/2026) | **Engine C không LLM**: C-gp (GP, văn phạm có kiểu) chính + C-random đối chứng; A/B hoãn, thiết kế giữ nguyên; bộ sinh không thiên lệch theo tần suất giao dịch | §3.1.11, §7, [[94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM]]. Mở lại A/B là quyết định của người dùng |
 | D20 | Tham số trong engine C | 🟡 Mặc định tạm | Con chỉ đổi tham số ≤ 30% số con C-gp; trung vị SPP + plateau (ngưỡng 50%) là thành phần phụ của điểm xếp hạng; calibration 5b giữ nguyên (một lần, trước freeze) | §3.1.11, §3.2, §3.2.1 5b |
@@ -1237,7 +1237,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
   gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
   campaign: {purpose: research, trial_budget: null}   # harness_test = đợt so sánh engine GĐ 2: không dựng danh mục, không đóng băng (§3.1.11)
   seeds: 3                      # D15
-  minbtl_target_sharpe: 1.5     # D17 — chỉ được hạ (chặt hơn)
+  minbtl_target_sharpe: 1.5     # D17 — trần 2.0 (ADR-0052); hạ thì chặt hơn
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12, holdout_start: null, leverage: 5, funding_interval_hours: 8}   # D18; null = mốc UTC đã hoàn tất
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; khóa theo campaign
   backtest: {precision: float64}   # D23 — float64 | float32; khóa theo campaign
@@ -1254,7 +1254,7 @@ research:               # NHÓM B — khóa theo đợt; đổi giữa đợt b�
 |---|---|---|
 | **Nhóm B khóa theo đợt** | Lúc mở đợt, `research:` được chép vào `evaluation.lock.yaml` + hash vào bảng `campaigns`. Sửa `user.yaml` giữa đợt ⇒ hệ thống **từ chối chạy** tới khi người dùng hoặc hoàn tác, hoặc mở đợt mới | Đổi tham số sau khi đã thấy kết quả = chọn lọc thêm một vòng mà ledger không đếm |
 | **Đổi tham số dựng danh mục = một phương án mới** | Trong cùng đợt, được phép thử cấu hình `portfolio:` khác **qua lệnh riêng**, mỗi lần ghi `portfolio_variants` và cộng vào `N` (§3.2.1) | Cho phép thử nghiệm nhưng bắt trả giá bằng DSR |
-| **Ngưỡng gate có sàn cứng** | `dsr_min` không được < 0.95, `pbo_max` không được > 0.5, `minbtl_target_sharpe` không được > 1.5 — giá trị lỏng hơn bị từ chối lúc nạp config. Siết chặt hơn thì được | Đây là mức tối thiểu để kết quả có nghĩa thống kê; nới ra thì validation layer mất tác dụng |
+| **Ngưỡng gate có sàn cứng** | `dsr_min` không được < 0.95, `pbo_max` không được > 0.5, `minbtl_target_sharpe` không được > 2.0 (ADR-0052) — giá trị lỏng hơn bị từ chối lúc nạp config. Siết chặt hơn thì được | Đây là mức tối thiểu để kết quả có nghĩa thống kê; nới ra thì validation layer mất tác dụng |
 
 > Nhóm A đổi tự do vì nó không đi vào việc *chọn* strategy: vốn, đồng tiền base, kill-switch chỉ ảnh hưởng lúc live. Model routing có ảnh hưởng tìm kiếm nhưng không làm sai thống kê — nó được truy vết trong `generation_log`.
 

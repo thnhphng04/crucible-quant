@@ -25,7 +25,7 @@ Mọi quy tắc mà kiến trúc coi là không thể thương lượng, kèm c�
 
 | ID | Bất biến | Kiến trúc | Cơ chế | Test | Task | ✓ |
 |---|---|---|---|---|---|---|
-| INV-20 | `dsr_min < 0.95`, `pbo_max > 0.5` hoặc `minbtl_target_sharpe > 1.5` bị từ chối khi nạp | §10.1 | Code | `tests/config/test_loader.py::test_hard_floors` | P0-03 | ✅ |
+| INV-20 | `dsr_min < 0.95`, `pbo_max > 0.5` hoặc `minbtl_target_sharpe > 2.0` bị từ chối khi nạp (trần nâng từ 1.5, ADR-0052) | §10.1 | Code | `tests/config/test_loader.py::test_hard_floors` | P0-03 | ✅ |
 | INV-21 | Sửa Nhóm B giữa campaign ⇒ từ chối chạy | §10.1 | Code (`assert_lock_matches`) | `tests/config/test_lock.py::test_group_b_change_refused` | P0-03 | ✅ |
 | INV-22 | `evaluation.lock.yaml` được sinh tự động, chỉ-đọc, hash lưu trong `campaigns` | §10.1 | OS + DB | `tests/config/test_lock.py::test_lock_readonly_and_hashed` | P0-03 | ✅ |
 | INV-23 | Trạng thái campaign chỉ đi `OPEN → FROZEN → BURNED` | §4.2 | Trigger DB | `tests/ledger/test_db.py::test_campaign_transitions` | P0-02 | ✅ |

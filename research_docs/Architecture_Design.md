@@ -1184,7 +1184,7 @@ Status: ✅ **Decided** (changing it means changing the architecture) · 🟡 **
 | D14 | Engine budget shares; mode | 🟡 Provisional default | Phase 2: C-gp 0.5 / C-random 0.5 (same quota per engine × seed); A, B = 0 (deferred); `isolated` | §3.1.11, D19 |
 | D15 | Minimum trades / holding time; maximum indicator correlation; seed count | 🟡 Provisional default | 30 IS trades / 1 bar; 0.9; 3 seeds | Gate ③, §3.3.1, §3.1.8 |
 | D16 | Evolution scope | 🟡 Provisional default | `joint` (entry + exit + regime) | §3.3.1 |
-| D17 | MinBTL target Sharpe (gate ②) | 🟡 Provisional default | 1.5 annualized; may only be lowered | ADR-0002. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials |
+| D17 | MinBTL target Sharpe (gate ②) | ✅ Settled (2026-10-06) | Default 1.5 annualized; ceiling **2.0** (raised by the user on 2026-10-06); lower is stricter | ADR-0002, ADR-0052. At 1.0, ~7 years of free IS data cap the search at ~100–200 trials; at 2.0, 3 years of IS allow ~2,100 trials. DSR (⑤) still deflates by `N_eff` |
 | D18 | Research data | 🟡 Provisional default | Binance spot, 5 USDT pairs from 2018; **1h** default timeframe with **15m** support; optional `end`, where `null` uses the latest completed UTC boundary. USDT-M perpetual: common window from 2020-09-14 (SOLUSDT), fetched IS 2020-09-15 → 2025-10-02 (5.05 years), 12-month holdout 2025-10-02 → 2026-10-02 under its own lock. 🆕 The window `[start, end]` and the cut `holdout_start` are chosen (default: the last `holdout_months`); a window other than the stored one is prepared as a dataset (ADR-0051) | ADR-0031, ADR-0036, ADR-0048, §6.1. Real-source perpetual coverage checked 2026-10-04 (P3-24): one-minute mark holes of ≤ 60 minutes are filled from same-minute trade bars and recorded; the MinBTL ceiling depends on the locked IS window |
 | D19 | Focus engine | ✅ Decided (22 Sep 2026) | **No-LLM engine C**: C-gp (GP, typed grammar) main + C-random control; A/B deferred, design kept; the generator has no bias on trading frequency | §3.1.11, §7, [94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM](../research_docs_vi/94-NGUON-SINH-CHIEN-LUOC-KHONG-LLM.md) (Vietnamese only). Reopening A/B is the user's call |
 | D20 | Parameters in engine C | 🟡 Provisional default | Parameter-only children ≤ 30% of C-gp's offspring; SPP median + plateau (50% threshold) as a secondary ranking term; calibration 5b unchanged (once, before the freeze) | §3.1.11, §3.2, §3.2.1 5b |
@@ -1237,7 +1237,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
   gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
   campaign: {purpose: research, trial_budget: null}   # harness_test = the phase-2 engine comparison: no portfolio, no freeze (§3.1.11)
   seeds: 3                      # D15
-  minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
+  minbtl_target_sharpe: 1.5     # D17 — ceiling 2.0 (ADR-0052); lower is stricter
   data: {exchange: binance, second_exchange: gate, symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT], market: spot, timeframe: 1h, start: 2018-01-01, end: null, holdout_months: 12, holdout_start: null, leverage: 5, funding_interval_hours: 8}   # D18; null = latest completed UTC boundary
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100}   # D21; campaign-locked
   backtest: {precision: float64}   # D23 — float64 | float32; campaign-locked
@@ -1254,7 +1254,7 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
 |---|---|---|
 | **Group B is locked per campaign** | When a campaign opens, `research:` is copied into `evaluation.lock.yaml` + hashed into the `campaigns` table. Editing `user.yaml` mid-campaign ⇒ the system **refuses to run** until the user either reverts or opens a new campaign | Changing parameters after seeing results = one more selection round the ledger does not count |
 | **Changing portfolio-construction parameters = a new variant** | Within a campaign, a different `portfolio:` config may be tried **through a dedicated command**; each attempt is recorded in `portfolio_variants` and added to `N` (§3.2.1) | Allows experimentation but makes you pay for it in DSR |
-| **Gate thresholds have hard floors** | `dsr_min` may not be < 0.95 and `pbo_max` may not be > 0.5, `minbtl_target_sharpe` may not be > 1.5 — looser values are rejected when the config loads. Stricter is fine | This is the minimum for results to mean anything statistically; loosening it disables the validation layer |
+| **Gate thresholds have hard floors** | `dsr_min` may not be < 0.95 and `pbo_max` may not be > 0.5, `minbtl_target_sharpe` may not be > 2.0 (ADR-0052) — looser values are rejected when the config loads. Stricter is fine | This is the minimum for results to mean anything statistically; loosening it disables the validation layer |
 
 > Group A changes freely because it does not feed into *selecting* strategies: capital, base currency and kill-switch only matter live. Model routing does affect the search but does not bias the statistics — it is traced in `generation_log`.
 
