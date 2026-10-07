@@ -158,6 +158,30 @@ describe('Studio', () => {
     expect(await screen.findByText('Precision: float32 (khóa theo campaign)')).toBeTruthy()
   })
 
+  it('cuts IS and holdout at a chosen date (ADR-0051)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/campaigns') return Response.json([])
+        if (url === '/api/studio/capabilities') return Response.json(capabilities)
+        return Response.json({ detail: `missing ${url}` }, { status: 404 })
+      }),
+    )
+
+    renderStudio()
+    await screen.findByRole('heading', { name: 'Campaign Studio' })
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp' }))
+    const cut = screen.getByLabelText('Điểm cắt IS/holdout') as HTMLInputElement
+    const months = screen.getByLabelText(/Holdout, tháng/) as HTMLInputElement
+    expect(months.disabled).toBe(false)
+    fireEvent.change(cut, { target: { value: '2025-10-02' } })
+    expect(months.disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp' }))
+    expect(await screen.findByText('IS 2024-01-01 → 2025-10-02; holdout 2025-10-02 → ngày UTC mới nhất')).toBeTruthy()
+  })
+
   it('shows field-level preview errors from the server', async () => {
     vi.stubGlobal(
       'fetch',

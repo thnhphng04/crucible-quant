@@ -23,6 +23,7 @@ listing is SOLUSDT at 2020-09-14, which is what :func:`common_window` computes f
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -34,6 +35,11 @@ from quantcrucible.core.strategy.base import Bars
 from quantcrucible.data.source import timeframe_delta
 
 PAGE_LIMIT = 1000
+# Bybit serves at most 200 funding settlements per call: the latest in (start, start + limit ×
+# interval], its start exclusive (ccxt computes the end that way). A page asked from ``since - 1``
+# with a limit of 199 therefore holds every settlement from ``since`` on, none skipped.
+FUNDING_PAGE_LIMITS = {"bybit": 199}
+FUNDING_EXCLUSIVE_START = frozenset({"bybit"})
 # Funding cadence is not fixed: Binance has changed selected contracts to four-hour
 # settlements, so pagination advances by one millisecond after the last actual event.
 
@@ -45,6 +51,7 @@ def _pages[T](
     step_ms: int,
     *,
     key: Callable[[T], int],
+    limit: int = PAGE_LIMIT,
 ) -> list[T]:
     """Walk an exchange endpoint page by page until the window is covered.
 
@@ -67,7 +74,7 @@ def _pages[T](
             at = key(row)
             if since_ms <= at < until_ms:
                 rows.setdefault(at, row)
-        if last < since or len(page) < PAGE_LIMIT:
+        if last < since or len(page) < limit:
             break
         since = last + step_ms
     return [rows[at] for at in sorted(rows)]
@@ -119,6 +126,39 @@ def _bars(rows: list[list[float]], symbol: str, timeframe: str) -> Bars:
     return Bars(symbol, timeframe, ts, arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4], arr[:, 5])
 
 
+def perp_exchange_id(exchange: str) -> str:
+    """The ccxt client for a venue's USDT-M perpetuals. ``research.data.exchange`` names the
+    venue (``binance``); its perpetuals, leverage brackets and API key belong to ``binanceusdm``,
+    the client the legacy fetch has always used and the IS manifest records as its source."""
+    return "binanceusdm" if exchange == "binance" else exchange
+
+
+PAGE_RETRIES = 5  # a minute download is ~15,000 pages: one server hiccup must not end it
+RETRY_BASE_SECONDS = 2.0
+_sleep = time.sleep
+
+
+def _transient(error: Exception) -> bool:
+    """A failure worth asking again: ccxt's network errors, and its bare ``ExchangeError``,
+    which is what a venue's own server fault maps to (Bybit ``10016 svc error``). Its subclasses
+    — a bad request, a bad symbol, a refused key — are answers, and are raised at once."""
+    import ccxt  # imported lazily: only real downloads need it
+
+    return isinstance(error, ccxt.NetworkError) or type(error) is ccxt.ExchangeError
+
+
+def _ask[T](call: Callable[..., T], *args: Any) -> T:
+    """One request to the venue, asked again after a transient failure (:func:`_transient`)."""
+    for attempt in range(PAGE_RETRIES):
+        try:
+            return call(*args)
+        except Exception as e:
+            if not _transient(e) or attempt == PAGE_RETRIES - 1:
+                raise
+            _sleep(RETRY_BASE_SECONDS * 2**attempt)
+    raise AssertionError("unreachable")
+
+
 @dataclass(frozen=True, slots=True)
 class PerpSource:
     exchange_id: str = "binanceusdm"
@@ -159,20 +199,22 @@ class PerpSource:
         until = int(end.timestamp() * 1000)
         step = int(timeframe_delta(timeframe).total_seconds() * 1000)
         trade_rows = _pages(
-            lambda s: venue.fetch_ohlcv(symbol, timeframe, s, PAGE_LIMIT),
+            lambda s: _ask(venue.fetch_ohlcv, symbol, timeframe, s, PAGE_LIMIT),
             since, until, step, key=lambda r: int(r[0]),
         )  # fmt: skip
         if not trade_rows:
             raise CoverageError(f"{symbol}: no trade bars in {start:%Y-%m-%d}/{end:%Y-%m-%d}")
         mark_rows = _pages(
-            lambda s: venue.fetch_mark_ohlcv(symbol, timeframe, s, PAGE_LIMIT),
+            lambda s: _ask(venue.fetch_mark_ohlcv, symbol, timeframe, s, PAGE_LIMIT),
             since, until, step, key=lambda r: int(r[0]),
         )  # fmt: skip
         if not mark_rows:
             raise CoverageError(f"{symbol}: no mark bars — liquidation cannot be resolved")
+        funding_limit = FUNDING_PAGE_LIMITS.get(self.exchange_id, PAGE_LIMIT)
+        back = 1 if self.exchange_id in FUNDING_EXCLUSIVE_START else 0
         funding_rows = _pages(
-            lambda s: venue.fetch_funding_rate_history(symbol, s, PAGE_LIMIT),
-            since, until, 1, key=lambda r: int(r["timestamp"]),
+            lambda s: _ask(venue.fetch_funding_rate_history, symbol, s - back, funding_limit),
+            since, until, 1, key=lambda r: int(r["timestamp"]), limit=funding_limit,
         )  # fmt: skip
         self._check_funding(symbol, funding_rows, trade_rows)
         funding = np.array(
@@ -247,7 +289,7 @@ class PerpSource:
         fetch = {"trade": venue.fetch_ohlcv, "mark": venue.fetch_mark_ohlcv}.get(kind)
         if fetch is None:
             raise ValueError(f"kind must be 'trade' or 'mark', got {kind!r}")
-        return fetch(symbol, timeframe, since, PAGE_LIMIT)
+        return _ask(fetch, symbol, timeframe, since, PAGE_LIMIT)
 
     def fetch_brackets(self, symbol: str) -> list[dict[str, float | int]]:
         """Today's leverage brackets for one contract, as plain rows.

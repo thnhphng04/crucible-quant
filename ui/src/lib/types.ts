@@ -314,6 +314,7 @@ export interface StudioDraftConfig {
       start: string
       end: string | null
       holdout_months: number
+      holdout_start?: string | null
       second_exchange?: string | null
       leverage?: number
       funding_interval_hours?: number

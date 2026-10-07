@@ -20,7 +20,12 @@ import numpy as np
 import pytest
 
 from quantcrucible.data.manifest import Manifest, verify_manifest, write_manifest
-from quantcrucible.data.perp_source import PAGE_LIMIT, CoverageError, PerpSource
+from quantcrucible.data.perp_source import (
+    PAGE_LIMIT,
+    CoverageError,
+    PerpSource,
+    perp_exchange_id,
+)
 
 START = datetime(2021, 1, 1, tzinfo=UTC)
 END = datetime(2021, 1, 11, tzinfo=UTC)
@@ -265,6 +270,35 @@ def test_an_exchange_that_ignores_since_does_not_loop_forever() -> None:
     assert PAGE_LIMIT == 1_000  # the bound the fake is written against
 
 
+class BybitFunding(PagingExchange):
+    """Bybit's funding endpoint as ccxt drives it: ``endTime = since + limit × 8 h``, a start
+    that is exclusive, and at most 200 rows, the **latest** ones in ``(since, endTime]``. Asked
+    for 1,000 rows it serves a window ~333 days away; asked from ``since`` it drops the
+    settlement at ``since`` itself."""
+
+    def fetch_funding_rate_history(
+        self, symbol: str, since: int, limit: int
+    ) -> list[dict[str, Any]]:
+        self.calls["funding"] += 1
+        eight_h = DAY_MS // 3
+        base = int(START.timestamp() * 1000)
+        end = since + limit * eight_h
+        stamps = [
+            base + i * eight_h for i in range(self.days * 3) if since < base + i * eight_h <= end
+        ]
+        return [{"timestamp": t, "fundingRate": 0.0001} for t in stamps[-200:]]
+
+
+def test_bybit_funding_is_paged_in_windows_it_serves_whole() -> None:
+    """On Bybit every settlement of the window comes back, the first one included."""
+    ex = BybitFunding(days=300)
+    src = PerpSource(exchange_id="bybit", exchange=ex)
+    data = src.fetch("BTC/USDT:USDT", "1d", START, START + timedelta(days=300))
+    assert len(data.funding) == 900
+    assert data.funding[0, 0] == START.timestamp() * 1e9
+    assert ex.calls["funding"] >= 5  # 900 settlements cannot come in fewer than five pages
+
+
 # ── leverage brackets: a signed endpoint, so fail closed (P3-17) ──────────────────────
 
 
@@ -327,3 +361,73 @@ def test_a_venue_without_the_endpoint_is_refused_rather_than_skipped() -> None:
     src = PerpSource(exchange_id="binanceusdm", exchange=PagingExchange())
     with pytest.raises(CoverageError, match="leverage bracket"):
         src.fetch_brackets("BTC/USDT:USDT")
+
+
+def test_the_binance_venue_is_read_through_its_usdt_m_client() -> None:
+    """The dataset registry names the venue (``binance``); its perpetuals, leverage brackets and
+    API key belong to ``binanceusdm``, the client the legacy fetch has always used."""
+    assert perp_exchange_id("binance") == "binanceusdm"
+    assert perp_exchange_id("binanceusdm") == "binanceusdm"
+    assert perp_exchange_id("gate") == "gate"
+
+
+class Hiccups(PagingExchange):
+    """Fails the first ``fails`` minute-page requests with ``error``, then serves normally."""
+
+    def __init__(self, error: Exception, fails: int) -> None:
+        super().__init__(days=10)
+        self.error, self.fails = error, fails
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str, since: int, limit: int) -> list[list[float]]:
+        if self.fails:
+            self.fails -= 1
+            raise self.error
+        return super().fetch_ohlcv(symbol, timeframe, since, limit)
+
+
+def test_a_server_hiccup_on_a_page_is_asked_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bybit answered one of ~15,000 minute pages with ``10016 svc error`` and the whole
+    download stopped. A venue's own fault is retried, a bounded number of times."""
+    import ccxt
+
+    from quantcrucible.data import perp_source
+
+    waits: list[float] = []
+    monkeypatch.setattr(perp_source, "_sleep", waits.append)
+    ex = Hiccups(ccxt.ExchangeError("bybit svc error: Get kline failed"), fails=2)
+    src = PerpSource(exchange_id="bybit", exchange=ex)
+    assert len(src._raw_page("BTC/USDT:USDT", "1d", int(START.timestamp() * 1000), kind="trade"))
+    assert waits == [2.0, 4.0]
+    endless = Hiccups(ccxt.NetworkError("timeout"), fails=99)
+    with pytest.raises(ccxt.NetworkError):
+        PerpSource(exchange_id="bybit", exchange=endless)._raw_page(
+            "BTC/USDT:USDT", "1d", 0, kind="trade"
+        )
+    assert len(waits) == 2 + 4  # five attempts, four waits, then the error stands
+
+
+def test_the_bar_window_fetch_retries_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second Bybit run failed on an hourly page, which ``fetch`` asked outside the retry."""
+    import ccxt
+
+    from quantcrucible.data import perp_source
+
+    monkeypatch.setattr(perp_source, "_sleep", lambda _s: None)
+    ex = Hiccups(ccxt.ExchangeError("bybit svc error: Get kline failed"), fails=3)
+    data = PerpSource(exchange_id="bybit", exchange=ex).fetch(
+        "BTC/USDT:USDT", "1d", START, START + timedelta(days=10)
+    )
+    assert len(data.trades) == 10
+
+
+def test_an_answer_from_the_venue_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ccxt
+
+    from quantcrucible.data import perp_source
+
+    monkeypatch.setattr(perp_source, "_sleep", lambda _s: pytest.fail("slept on a bad request"))
+    ex = Hiccups(ccxt.BadRequest("Candlestick too long ago"), fails=1)
+    with pytest.raises(ccxt.BadRequest):
+        PerpSource(exchange_id="gate", exchange=ex)._raw_page(
+            "BTC/USDT:USDT", "1d", 0, kind="trade"
+        )

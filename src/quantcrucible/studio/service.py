@@ -26,6 +26,7 @@ from quantcrucible.config.lock import (
 from quantcrucible.config.schema import UserConfig
 from quantcrucible.core.strategy.tunable import GRAMMAR_VERSION, STOP_PERIOD_TUNABLE
 from quantcrucible.data.registry import DatasetRegistry, read_dataset_manifest, resolve_dataset
+from quantcrucible.data.window import DATA_WINDOW_V1
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.studio.store import DraftStore, StudioConflict
 from quantcrucible.validation.campaign_service import (
@@ -74,6 +75,11 @@ def _dataset_for(root: Path, cfg: UserConfig, dataset_id: str) -> CampaignDatase
         "timeframe": data.timeframe,
         "start_utc": f"{data.start.isoformat()}T00:00:00+00:00",
         "holdout_months": data.holdout_months,
+        "holdout_start_utc": (
+            None
+            if data.holdout_start is None
+            else f"{data.holdout_start.isoformat()}T00:00:00+00:00"
+        ),
         "funding_interval_hours": data.funding_interval_hours,
     }
     for key, value in expected.items():
@@ -174,6 +180,7 @@ class StudioService:
             "grammar_version": GRAMMAR_VERSION,
             "evaluation_clock": DAILY_V1,
             "trial_scope": CAMPAIGN_V1,
+            "data_window": DATA_WINDOW_V1,
         }
 
     def preview(self, draft_id: str, revision: int) -> dict[str, Any]:

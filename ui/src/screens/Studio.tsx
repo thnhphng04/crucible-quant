@@ -415,8 +415,12 @@ export function Studio({
             <label className={s.field}>End UTC (để trống để chốt khi fetch)
               <input type="date" value={d.end ?? ''} onChange={(event) => data({ end: event.target.value || null })} />
             </label>
+            <label className={s.field}>Điểm cắt IS/holdout (để trống: holdout là số tháng cuối)
+              <input type="date" aria-label="Điểm cắt IS/holdout" value={d.holdout_start ?? ''} onChange={(event) =>
+                data({ holdout_start: event.target.value || null })} />
+            </label>
             <label className={s.field}>Holdout, tháng
-              <input type="number" min={1} value={d.holdout_months} onChange={(event) =>
+              <input type="number" min={1} value={d.holdout_months} disabled={Boolean(d.holdout_start)} onChange={(event) =>
                 data({ holdout_months: Number(event.target.value) })} />
             </label>
             {d.market === 'usdt_m_perpetual' ? <>
@@ -544,6 +548,9 @@ export function Studio({
           {step === 3 ? <div className={s.summaryGrid}>
             <p>Purpose: {r.campaign.purpose}</p>
             <p>Dữ liệu: {d.market}, {d.timeframe}, {d.start} → {d.end ?? 'ngày UTC mới nhất'}</p>
+            <p>{d.holdout_start
+              ? `IS ${d.start} → ${d.holdout_start}; holdout ${d.holdout_start} → ${d.end ?? 'ngày UTC mới nhất'}`
+              : `IS ${d.start} → điểm cắt; holdout ${d.holdout_months} tháng cuối`}</p>
             <p>Symbols: {d.symbols.join(', ')}</p>
             <p>Budget: {r.campaign.trial_budget ?? 'chưa đặt'} trial; GP {r.engines.gp}, Random {r.engines.random}</p>
             <p>SL/TP: {r.exit.tp_sl_ratio}; giữ tối đa {r.exit.max_holding_bars} bar</p>

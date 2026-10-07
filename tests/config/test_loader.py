@@ -17,16 +17,27 @@ def test_repo_user_yaml_loads_and_matches_defaults() -> None:
     cfg = load_user_config(REPO_USER_YAML)
     # the committed file restates the §10 defaults — except D4, which the user sets explicitly:
     # the schema default stays None so an omitted threshold can never open a campaign (ADR-0020)
-    # and the phase-2 comparison campaign (ADR-0027): harness_test with a 600-trial budget;
-    # and D18's provisional start, which the user moved to 2020 (MinBTL room for the 1h runs)
+    # and the 1h perpetual research campaign of 2026-10-06: gp only, 120 trials (MinBTL at three
+    # years of IS, ADR-0050), the window cut at 2025-10-02 (ADR-0051), no second source yet (a
+    # trial run: gate ⑥′ fails closed), backtests on the GPU
     assert cfg.research == replace(
         Research(),
         holdout_pass=1.3,
-        campaign=Campaign("harness_test", 600),
-        data=replace(Research().data, start=date(2020, 1, 1)),
+        campaign=Campaign("research", 120),
+        engines=replace(Research().engines, gp=1.0, random=0.0),
+        data=replace(
+            Research().data,
+            market="usdt_m_perpetual",
+            symbols=tuple(f"{c}/USDT:USDT" for c in ("BTC", "ETH", "SOL", "BNB", "XRP")),
+            start=date(2022, 10, 2),
+            end=date(2026, 10, 2),
+            holdout_start=date(2025, 10, 2),
+            second_exchange=None,
+        ),
     )
     assert Research().holdout_pass is None
     assert cfg.operational.models.research == "gpt-oss-120b"
+    assert cfg.operational.compute.engine == "gpu"
 
 
 def test_empty_config_uses_defaults() -> None:

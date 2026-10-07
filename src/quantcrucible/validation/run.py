@@ -30,6 +30,8 @@ from quantcrucible.core.strategy.tunable import (
 )
 from quantcrucible.data.holdout_split import read_holdout_lock
 from quantcrucible.data.manifest import verify_manifest
+from quantcrucible.data.store import file_name, read_bars
+from quantcrucible.data.window import DATA_WINDOW_V1, unclean_holdout
 from quantcrucible.execution.nautilus_bridge import CostModel
 from quantcrucible.ledger.db import Ledger
 from quantcrucible.ledger.records import TrialSource
@@ -126,6 +128,7 @@ def new_campaign_derived(cfg: UserConfig) -> dict[str, Any]:
     derived["grammar_version"] = GRAMMAR_VERSION  # ADR-0043 … ADR-0047
     derived["evaluation_clock"] = DAILY_V1  # ADR-0049: statistics on UTC-day returns
     derived["trial_scope"] = CAMPAIGN_V1  # ADR-0050: N, N_eff, V[SR] of this campaign only
+    derived["data_window"] = DATA_WINDOW_V1  # ADR-0051: IS = [data.start, cut), checked at open
     return derived
 
 
@@ -150,6 +153,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
     holdout_lock = root / "holdout" / "perp.lock" if perpetual else root / "holdout.lock"
     manifest = read_holdout_lock(holdout_lock)  # range + hashes only: no prices
     _check_trial_budget(cfg, str(manifest["range"]))
+    _check_clean_holdout(ledger, str(manifest["range"]))
     base = "c-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     campaign_id, n = base, 1
     while ledger.campaign(campaign_id) is not None:  # two campaigns within one second
@@ -180,6 +184,7 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
         ):
             raise CampaignNotOpened("new perpetual campaign needs trade paths in IS and holdout")
         derived["perp_manifest_sha256"] = sha256_file(perp_manifest)
+        _check_is_window(cfg, coverage_starts(data_manifest.coverage))
         if cfg.research.data.second_exchange is not None:
             second_dir = root / "data" / f"perp-second-{cfg.research.data.second_exchange}"
             second_path = second_dir / "manifest.json"
@@ -191,6 +196,8 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
             if not trade_paths <= second_manifest.files.keys():
                 raise CampaignNotOpened("second perpetual source needs trade paths")
             derived["second_perp_manifest_sha256"] = sha256_file(second_path)
+    else:
+        _check_is_window(cfg, spot_is_starts(root, cfg))
     open_campaign(
         cfg, ledger, campaign_id, lock_path,
         holdout_range=str(manifest["range"]),
@@ -198,6 +205,76 @@ def current_campaign(cfg: UserConfig, ledger: Ledger, lock_path: Path, root: Pat
         derived=derived,
     )  # fmt: skip
     return campaign_id
+
+
+def coverage_starts(coverage: Mapping[str, str]) -> dict[str, date]:
+    """First day of each symbol's ``start/end`` coverage in a data manifest."""
+    return {symbol: date.fromisoformat(span[:10]) for symbol, span in coverage.items()}
+
+
+def spot_is_starts(root: Path, cfg: UserConfig) -> dict[str, date]:
+    """Close day of each symbol's first bar in the legacy spot IS store (``data/is``). A symbol
+    without a file is left out: the session refuses missing data on its own."""
+    data = cfg.research.data
+    out: dict[str, date] = {}
+    for symbol in data.symbols:
+        path = root / "data" / "is" / file_name(symbol, data.timeframe)
+        if path.exists():
+            bars = read_bars(path, symbol, data.timeframe)
+            if len(bars):
+                out[symbol] = date.fromisoformat(str(bars.ts[0].astype("datetime64[D]")))
+    return out
+
+
+def _check_is_window(cfg: UserConfig, first_days: Mapping[str, date]) -> None:
+    """Refuse a legacy IS store that starts after ``research.data.start`` (ADR-0051): the lock
+    would record more history than the backtests get. A store that starts earlier is cut at
+    ``data.start`` when a ``data_window: v1`` session reads it. The first bar closes on the start
+    day (intraday bars) or the day after (a daily bar)."""
+    start = cfg.research.data.start
+    late = {s: d for s, d in first_days.items() if d > start + timedelta(days=1)}
+    if late:
+        found = ", ".join(f"{s} from {d}" for s, d in sorted(late.items()))
+        raise CampaignNotOpened(
+            f"the IS data starts after research.data.start {start} ({found}): set the start to "
+            "the data's, or prepare a dataset for this window in Studio (ADR-0051)"
+        )
+
+
+def _check_clean_holdout(ledger: Ledger, holdout_range: str) -> None:
+    """Refuse a holdout that reaches back into data recorded trials already searched (D28)."""
+    latest = ledger.latest_is_end()
+    problem = unclean_holdout(
+        None if latest is None else date.fromisoformat(latest),
+        date.fromisoformat(holdout_range[:10]),
+    )
+    if problem is not None:
+        raise CampaignNotOpened(problem)
+
+
+def admission_problems(
+    cfg: UserConfig,
+    ledger: Ledger,
+    holdout_range: str,
+    first_days: Mapping[str, date] | None = None,
+) -> list[str]:
+    """Why a new campaign on this holdout would be refused: the trial budget, a holdout that is
+    not clean (D28) and, for a legacy store, an IS that does not start at ``data.start``."""
+    problems: list[str] = []
+    try:
+        _check_trial_budget(cfg, holdout_range)
+    except CampaignNotOpened as e:
+        problems.append(str(e))
+    try:
+        _check_clean_holdout(ledger, holdout_range)
+    except CampaignNotOpened as e:
+        problems.append(str(e))
+    if first_days is not None:
+        try:
+            _check_is_window(cfg, first_days)
+        except CampaignNotOpened as e:
+            problems.append(str(e))
+    return problems
 
 
 def _check_trial_budget(cfg: UserConfig, holdout_range: str) -> None:

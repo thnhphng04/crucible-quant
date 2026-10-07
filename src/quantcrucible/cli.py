@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from quantcrucible.config.loader import load_user_config
 from quantcrucible.config.lock import CampaignNotOpened
+from quantcrucible.data.window import DATA_WINDOW_V1, holdout_window, is_from
 
 if TYPE_CHECKING:
     from quantcrucible.config.schema import Data
@@ -36,18 +37,6 @@ if TYPE_CHECKING:
     from quantcrucible.data.perp_preflight import PerpPreflight
     from quantcrucible.validation.gates import GateResult
     from quantcrucible.validation.research_run import ResearchSession
-
-
-def add_months(d: date, months: int) -> date:
-    month_index = d.year * 12 + (d.month - 1) + months
-    year, month = divmod(month_index, 12)
-    month += 1
-    for day in (d.day, 30, 29, 28):
-        try:
-            return date(year, month, day)
-        except ValueError:
-            continue
-    raise AssertionError("unreachable")
 
 
 def data_fetch(config: Path, root: Path, market: str | None = None) -> int:
@@ -66,8 +55,7 @@ def data_fetch(config: Path, root: Path, market: str | None = None) -> int:
     if end_day > today:
         raise ValueError("research.data.end cannot be in the future")
     end = datetime.combine(end_day, time(), tzinfo=UTC)
-    holdout_start = add_months(end_day, -cfg.holdout_months)
-    holdout_end = end_day + timedelta(days=1)
+    holdout_start, holdout_end = holdout_window(cfg, end_day)
     source = CcxtSource(cfg.exchange)
     start = datetime.combine(cfg.start, time(), tzinfo=UTC)
     bars = {s: source.bars(s, cfg.timeframe, start, end) for s in cfg.symbols}
@@ -103,7 +91,7 @@ def _perp_preflight(cfg: Data) -> tuple[PerpPreflight, date]:
         cfg.timeframe,
         datetime.combine(cfg.start, time(), tzinfo=UTC),
         datetime.combine(end_day, time(), tzinfo=UTC),  # only completed bars
-        datetime.combine(add_months(end_day, -cfg.holdout_months), time(), tzinfo=UTC),
+        datetime.combine(holdout_window(cfg, end_day)[0], time(), tzinfo=UTC),
         funding_interval_hours=cfg.funding_interval_hours,
     )
     return report, end_day
@@ -150,10 +138,11 @@ def data_fetch_perp(config: Path, root: Path) -> int:
     if common_start != start or common_end != end:
         raise ValueError("perpetual series do not cover the configured common window")
     directory = root / "data" / "perp"
+    holdout_start, holdout_end = holdout_window(cfg, end_day)
     summary = carve_perp(
         prepared.data,
-        add_months(end_day, -cfg.holdout_months),
-        end_day + timedelta(days=1),
+        holdout_start,
+        holdout_end,
         in_sample_dir=directory,
         holdout_dir=root / "holdout" / "perp",
         lock_path=root / "holdout" / "perp.lock",
@@ -162,7 +151,7 @@ def data_fetch_perp(config: Path, root: Path) -> int:
         symbol: f"{item.start.date().isoformat()}/{item.end.date().isoformat()}"
         for symbol, item in prepared.coverage.items()
     }
-    holdout_cut = datetime.combine(add_months(end_day, -cfg.holdout_months), time(), tzinfo=UTC)
+    holdout_cut = datetime.combine(holdout_start, time(), tzinfo=UTC)
     fills = _write_mark_fills(directory, prepared.coverage, holdout_cut)
     files = list(directory.glob("*.parquet")) + [
         path for path in directory.glob("*.json") if path.name != "manifest.json"
@@ -385,6 +374,12 @@ def _session(
                     bundle = read_bundle(second_dir, symbol, data.timeframe, names)
                     bundle.aligned_with(trade)
                     second_perps[symbol] = bundle
+    if lock.get("derived", {}).get("data_window") == DATA_WINDOW_V1:
+        # ADR-0051: the IS is [data.start, cut). A legacy store is read whole, so cut it here —
+        # trade bars and perpetual bundles at the same bar, both sources alike.
+        start = date.fromisoformat(str(lock["research"]["data"]["start"]))
+        bars, perps = is_from(start, bars, perps)
+        second, second_perps = is_from(start, second, second_perps)
     # Every gate job goes through the engine router: genome renders run on the kernel engine,
     # everything else in the Docker sandbox (ADR-0038); precision comes from the lock (ADR-0039).
     runner = make_job_runner(
@@ -538,7 +533,12 @@ def campaign_dryrun(config: Path, root: Path) -> int:
     from quantcrucible.data.holdout_split import read_holdout_lock
     from quantcrucible.data.manifest import verify_manifest
     from quantcrucible.ledger.db import Ledger
-    from quantcrucible.validation.run import _check_trial_budget, new_campaign_derived
+    from quantcrucible.validation.run import (
+        admission_problems,
+        coverage_starts,
+        new_campaign_derived,
+        spot_is_starts,
+    )
 
     cfg = load_user_config(config)
     perpetual = cfg.research.data.market == "usdt_m_perpetual"
@@ -551,6 +551,7 @@ def campaign_dryrun(config: Path, root: Path) -> int:
     if cfg.research.data.end is not None and fetched_end != cfg.research.data.end:
         problems.append("data manifest does not match research.data.end")
     derived["resolved_data_end"] = fetched_end.isoformat()
+    first_days = {} if perpetual else spot_is_starts(root, cfg)
     if perpetual:
         is_dir = root / "data" / "perp"
         data_manifest_path = is_dir / "manifest.json"
@@ -560,6 +561,7 @@ def campaign_dryrun(config: Path, root: Path) -> int:
         ):
             raise CampaignNotOpened("perpetual IS manifest has the wrong source or symbols")
         derived["perp_manifest_sha256"] = sha256_file(data_manifest_path)
+        first_days = coverage_starts(data_manifest.coverage)
         if cfg.research.data.second_exchange is not None:
             second_dir = root / "data" / f"perp-second-{cfg.research.data.second_exchange}"
             second_path = second_dir / "manifest.json"
@@ -595,10 +597,7 @@ def campaign_dryrun(config: Path, root: Path) -> int:
         problems.extend(preview.problems)
         if cfg.research.holdout_pass is None:
             problems.append("research.holdout_pass must be set before a campaign opens")
-        try:
-            _check_trial_budget(cfg, str(manifest["range"]))
-        except CampaignNotOpened as exc:
-            problems.append(str(exc))
+        problems.extend(admission_problems(cfg, ledger, str(manifest["range"]), first_days))
     finally:
         ledger.close()
     sys.stdout.write(preview.text)

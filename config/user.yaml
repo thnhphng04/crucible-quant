@@ -11,6 +11,7 @@ operational:            # GROUP A — change any time, does not affect statistic
     research: gpt-oss-120b
     coding: null                # <mid-tier> — choose in phase 2
     eval: null                  # <mid-tier> — choose in phase 2
+  compute: {engine: gpu}        # D23 — run backtests on CUDA (auto | gpu | cpu_kernel | sandbox)
 
 research:               # GROUP B — locked per campaign; mid-campaign changes are refused
   max_risk_pct: 0.01            # D12 — the loss at the stop. Sizing is Q = R/d (ADR-0031);
@@ -21,22 +22,26 @@ research:               # GROUP B — locked per campaign; mid-campaign changes 
     rebalance: monthly
   pbo_grid: {values_per_param: 5, range: 0.30, max_configs: 200}   # D13
   drift: {allow_below: 0.05, reject_at: 0.15, n_scenarios: 20}      # D10, D13
-  engines: {gp: 0.5, random: 0.5, quantevolve: 0, simple_loop: 0}   # D14, D19 — A/B deferred (arch v0.6)
+  engines: {gp: 1.0, random: 0, quantevolve: 0, simple_loop: 0}   # D14, D19 — A/B deferred (arch v0.6)
   gp: {param_only_max: 0.30, plateau_threshold: 0.5}   # D20
-  campaign: {purpose: harness_test, trial_budget: 600}   # phase-2 engine comparison (ADR-0027); never frozen
+  campaign: {purpose: research, trial_budget: 120}   # 3 years of IS: MinBTL allows ≤ 121 trials (ADR-0050)
   engine_mode: isolated         # D14 — isolated | collaborative
   evolve_scope: joint           # D16 — entry | exit | regime | joint
   constraints: {min_trades: 30, min_holding_bars: 1, max_indicator_corr: 0.9}   # D15
   seeds: 3                      # D15
   minbtl_target_sharpe: 1.5     # D17 — may only be lowered (stricter)
-  data:                         # D18 — research data; holdout = last `holdout_months`
+  data:                         # D18 — window [start, end], cut at holdout_start (ADR-0051)
     exchange: binance
-    symbols: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT]
+    market: usdt_m_perpetual
+    symbols: [BTC/USDT:USDT, ETH/USDT:USDT, SOL/USDT:USDT, BNB/USDT:USDT, XRP/USDT:USDT]
     timeframe: 1h
-    start: 2020-01-01           # ≈ 5.8 years of IS before the holdout: MinBTL room for ~2,000 more trials
-    end: null                  # latest completed UTC day; or set YYYY-MM-DD before campaign
-    holdout_months: 12
-    second_exchange: gate       # gate ⑥′: re-run on a second free source; Sharpe may drop ≤ 30%
+    start: 2022-10-02           # IS 2022-10-02 → 2025-10-01: 3 years
+    end: 2026-10-02             # last day of the window; null = latest completed UTC day
+    holdout_start: 2025-10-02   # the IS/holdout cut; must follow every searched day (D28)
+    holdout_months: 12          # used only when holdout_start is null
+    second_exchange: null       # gate ⑥′: re-run on a second free source; Sharpe may drop ≤ 30%
+                                # null for this trial run: ⑥′ fails closed, so it never freezes
+                                # (Gate.io serves only its latest 10,000 candles; Bybit pending)
   exit: {tp_sl_ratio: 1.1, max_holding_bars: 100, stop_kinds: [atr]}   # D21; D25: [atr, bollinger] re-enables the Bollinger stop
   calibration: {enabled: true, budget_per_strategy: 50}   # §3.2.1 step 5b
   gates:                        # may only be TIGHTENED, never loosened
