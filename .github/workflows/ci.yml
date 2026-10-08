@@ -21,8 +21,8 @@ jobs:
           enable-cache: true
 
       - name: Install
-        # The gpu group brings numba: the kernel engine's CPU build runs its parity tests here,
-        # and its CUDA build runs under the simulator below — CI has no device (ADR-0038).
+        # The gpu group brings numba: the kernel engine's CPU build runs its parity tests here;
+        # its CUDA build runs under the simulator in the cudasim job (ADR-0038).
         run: uv sync --locked --group gpu
 
       - name: Lint
@@ -39,14 +39,28 @@ jobs:
       - name: Tests
         run: uv run pytest -m "not docker and not network and not slow"
 
-      - name: CUDA kernels under the simulator
-        # A separate run: the switch must be set before numba is imported.
-        run: uv run pytest -m cudasim
-        env:
-          NUMBA_ENABLE_CUDASIM: "1"
-
       - name: Docs mirror (EN = VI 1:1, no broken links)
         run: uv run python scripts/check_doc_mirror.py
+
+  cudasim:
+    # The kernel engine's CUDA build under numba's simulator — CI has no device (ADR-0038). Its
+    # own job, in parallel with the others: the switch must be set before numba is imported.
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+      NUMBA_ENABLE_CUDASIM: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --locked --group gpu
+
+      - name: CUDA kernels under the simulator
+        run: uv run pytest -m cudasim -p no:cacheprovider --durations=15
 
   ui:
     # Typecheck, build and component-test the review front end (ADR-0029). The
