@@ -11,7 +11,9 @@ operations in a fixed order.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -81,8 +83,14 @@ def test_the_sandbox_and_the_host_agree_bit_for_bit(tmp_path: Path, sandbox_imag
     """The L2 audit compares the two with `==` on the float's bytes."""
     arrays = {f"{s:02d}:{k}": v for s in range(12) for k, v in _features(s).items()}
     np.savez(tmp_path / "features.npz", **arrays)  # type: ignore[arg-type]
+    # pytest's tmp_path is 0700: on a Linux host the image's own user cannot read it, so run as
+    # the folder's owner, as the sandbox itself does (validation/sandbox.py)
+    user: list[str] = []
+    if sys.platform != "win32":
+        user = ["--user", f"{os.getuid()}:{os.getgid()}"]
     out = subprocess.run(
-        ["docker", "run", "--rm", "--network", "none", "--entrypoint", "/opt/venv/bin/python",
+        ["docker", "run", "--rm", "--network", "none", *user,
+         "--entrypoint", "/opt/venv/bin/python",
          "-v", f"{tmp_path}:/w:ro", sandbox_image, "-c", PROBE],
         capture_output=True, text=True, check=True,
     )  # fmt: skip

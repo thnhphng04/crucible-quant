@@ -331,7 +331,9 @@ def _fixture() -> tuple[Genome, Bars]:
     )  # fmt: skip
     rng = np.random.default_rng(20260930)
     size = 2_000
-    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, size)))
+    # A product, not exp(cumsum): its digest is pinned, and exp's last bit differs between libms
+    # and between numpy's SIMD paths (Windows, glibc, AVX-512); multiplication is exact IEEE.
+    close = 100 * np.cumprod(1 + rng.normal(0, 0.01, size), dtype=np.float64)
     open_ = np.r_[close[0], close[:-1]]
     high = np.maximum(open_, close) * (1 + np.abs(rng.normal(0, 0.004, size)))
     low = np.minimum(open_, close) * (1 - np.abs(rng.normal(0, 0.004, size)))
@@ -354,8 +356,8 @@ def _fixture_job() -> tuple[Program, Bars, ReplaySpec]:
 # sha256 of the fixture grid's return matrix, as the oracle-verified CPU build computes it: in
 # float64 it is also what run_backtest gives (tests/execution/kernels/test_backend.py).
 FIXTURE_DIGESTS = {
-    "float64": "2081b8f05f04a87132cabe81088f63a026111948dbcfdec8a5f31a2bdeee7ac8",
-    "float32": "fa6fd70f031cfbedc7a3d2957f802c4bccba5d53aad03d75c04437600221a9e4",
+    "float64": "f66af2d5b846a6717e5ecfbc382c2f1bd94bda2e82bef7f13f1696b6032e6e3d",
+    "float32": "dc591f22ab22ee2ebadd525c49061a19421f0ce99f65c547626bfd0dcf5737e4",
 }
 
 

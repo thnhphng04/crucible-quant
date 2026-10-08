@@ -2,8 +2,10 @@
 kernel engine (P3-34, ADR-0038), so the two paths cannot drift in what they report.
 
 The golden digests were taken from the sandbox job functions before the builder was extracted:
-the refactor must not change a byte. ``indicator_corr`` goes through ``np.corrcoef`` (BLAS), so
-it is checked on its own rather than hashed.
+the refactor must not change a byte. They were re-pinned when the input prices stopped going
+through ``np.exp``, whose last bit differs by platform; the same digests came out on Windows and
+Linux. ``indicator_corr`` goes through ``np.corrcoef`` (BLAS), so it is checked on its own rather
+than hashed.
 """
 
 from __future__ import annotations
@@ -29,8 +31,8 @@ from quantcrucible.core.strategy.template import load_strategy_class
 from quantcrucible.validation import sandbox_runner
 from quantcrucible.validation.sandbox import SandboxResult
 
-BACKTEST_GOLDEN = "efb2b8db444afbb7ef1bd159bc64f1f203161ef4ebfe0f8403adeffe6c3c2994"
-GRID_GOLDEN = "98b606bfff9c77f4c1cbd78f71e912d42269496aba4108d5235868430ccf598d"
+BACKTEST_GOLDEN = "a007b42447fec6e56617d2794c382572e05a07e69e60809aa10f156e2ec0dd1a"
+GRID_GOLDEN = "af589f3f5df653791c67f78685ad041dffd7ae6647006819b92900b93b2f5317"
 
 
 def _period(v: int) -> Param:
@@ -52,7 +54,7 @@ def _setup() -> tuple[Any, dict[str, Bars], dict[str, Any]]:
     cls = load_strategy_class(src, "report_golden")  # trusted: a hand-built genome
     rng = np.random.default_rng(4)
     n = 1500
-    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    close = 100 * np.cumprod(1 + rng.normal(0, 0.01, n), dtype=np.float64)  # no exp: per platform
     open_ = np.r_[100.0, close[:-1]]
     high, low = np.maximum(open_, close) * 1.004, np.minimum(open_, close) * 0.996
     ts = np.datetime64("2020-01-01", "ns") + np.arange(1, n + 1) * np.timedelta64(1, "h")
