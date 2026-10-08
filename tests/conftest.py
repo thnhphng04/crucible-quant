@@ -34,6 +34,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(pytest.mark.skip(reason="set NUMBA_ENABLE_CUDASIM=1 to simulate CUDA"))
 
 
+@pytest.fixture(autouse=True)
+def _one_thread_per_simulated_block(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The simulator runs every CUDA thread of a block as a Python thread, and they contend for
+    its locks at each device-function call: on Linux a 128-thread block took the cudasim run
+    from about a minute to over half an hour. Every lane is independent (local arrays only, no
+    shared memory or barriers), so one thread per block computes the same values."""
+    if "cudasim" not in request.keywords:
+        return
+    from quantcrucible.execution.kernels import features, replay, signals
+
+    for module in (features, replay, signals):
+        monkeypatch.setattr(module, "THREADS", 1)
+
+
 @pytest.fixture(scope="session")
 def sandbox_image() -> str:
     """The sandbox image for the current sources, built on first use (docker-marked tests)."""
