@@ -51,7 +51,10 @@ packages = ["src/quantcrucible"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
-extend-exclude = ["*.md"]  # docs hold illustrative, unverified snippets (§10) — never reformat
+extend-exclude = [
+    "*.md",  # docs hold illustrative, unverified snippets (§10) — never reformat
+    "reference/", "reference_architecture/",  # untyped research sandboxes, kept as written
+]
 
 [tool.ruff.format]
 # Strategy sources are template instances: their fixed region is hashed byte for byte (§3.3.1).

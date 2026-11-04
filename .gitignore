@@ -31,7 +31,16 @@ venv/
 # Studio runtime state: drafts, jobs, worker logs, writer lock (ADR-0037)
 /studio/
 *.sqlite
-/reference_architecture/
+# Research sandboxes: code, notebooks and notes are tracked; their data and run outputs are not
+/reference/data_5m/
+/reference/data_binance_perp/
+/reference/**/*.csv
+/reference/**/*.csv.gz
+/reference/**/*.parquet
+/reference/**/*.npz
+/reference/**/*.log
+/reference/**/.ipynb_checkpoints/
+/reference_architecture/*.csv
 
 # Generated per campaign from config/user.yaml (§10.1) — never hand-edited, never committed
 config/evaluation.lock.yaml
